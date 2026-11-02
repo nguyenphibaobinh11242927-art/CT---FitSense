@@ -1,0 +1,28 @@
+# Secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Personal/local data
+data/private/
+uploads/
+docs_private/
+
+# Editor and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
