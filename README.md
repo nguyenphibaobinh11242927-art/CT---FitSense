@@ -53,10 +53,10 @@ requirements.txt                Thư viện
 
 ## Liên kết
 
-- GitHub repository: CHƯA ĐIỀN
-- Jira board: CHƯA ĐIỀN
-- Thư mục tài liệu/biên bản họp: CHƯA ĐIỀN
-- Hướng dẫn hoặc URL demo: CHƯA ĐIỀN
+- GitHub repository: https://github.com/nguyenphibaobinh11242927-art/CT---Ratatouille.git
+- Jira board: https://ratatouille2026.atlassian.net
+- Thư mục tài liệu/biên bản họp: Cập nhật trong thư mục dự án (`docs/`)
+- Hướng dẫn hoặc URL demo: Chạy Streamlit localhost (`streamlit run app.py`)
 
 ## Kiểm thử
 
