@@ -1,0 +1,11 @@
+[theme]
+primaryColor = "#EAB308"
+font = "sans serif"
+
+[client]
+showErrorDetails = false
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
