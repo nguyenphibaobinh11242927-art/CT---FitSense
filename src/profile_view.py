@@ -26,7 +26,7 @@ def render_profile_view():
 
     profile = st.session_state.get("user_profile") or {}
     # Load only once per signed-in user; keep the UI's existing data contract.
-    identifier = profile.get("email", "")
+    identifier = profile.get("email") or profile.get("name") or "demo_user"
     loaded_key = f"profile_loaded:{identifier}"
     if identifier and not st.session_state.get(loaded_key):
         try:
