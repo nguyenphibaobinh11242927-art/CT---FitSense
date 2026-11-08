@@ -1,1 +1,1 @@
-"""Ratatouille application modules."""
+"""FitSense application modules."""
