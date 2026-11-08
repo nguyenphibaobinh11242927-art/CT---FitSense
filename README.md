@@ -1,6 +1,6 @@
-# Ratatouille
+# FitSense
 
-Trợ lý nấu ăn, quản lý chi tiêu và hỗ trợ thói quen cá nhân.
+Trợ lý tập luyện cá nhân.
 
 ## Hiện trạng
 
