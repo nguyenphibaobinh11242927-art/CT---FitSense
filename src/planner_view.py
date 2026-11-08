@@ -41,7 +41,7 @@ def render_planner_view():
                 with col_f2:
                     if st.button(f"🚀 Tập ngay buổi này", key=f"start_btn_{i}", type="primary"):
                         st.session_state["selected_session_day"] = day_data.get("day", f"Thứ {i+2}")
-                        st.session_state["nav_selection"] = "⚡ Phòng tập Rảnh tay (HUD)"
+                        st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
                         st.rerun()
 
                 st.markdown("#### Danh sách bài tập phân bổ:")

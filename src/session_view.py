@@ -65,6 +65,7 @@ def render_session_view():
 
             st.markdown("---")
             if st.button("🏁 Hoàn tất Buổi tập & Sang Đánh giá", type="primary", use_container_width=True):
+                st.session_state["has_worked_out_today"] = True
                 st.session_state["nav_selection"] = "📝 Đánh giá Sau Buổi tập"
                 st.rerun()
 
@@ -82,6 +83,7 @@ def render_session_view():
 
                 submitted = st.form_submit_button("Lưu & Kết thúc Buổi tập", type="primary")
                 if submitted:
+                    st.session_state["has_worked_out_today"] = True
                     st.success("Đã ghi nhận toàn bộ kết quả vào nhật ký!")
                     st.session_state["nav_selection"] = "📝 Đánh giá Sau Buổi tập"
                     st.rerun()
