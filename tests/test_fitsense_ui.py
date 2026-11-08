@@ -130,6 +130,27 @@ class TestFitSenseUIModules(unittest.TestCase):
         finally:
             st.markdown = original_markdown
 
+    def test_capybara_xss_sanitization(self):
+        """Kiểm tra lời thoại Capybara tự động khử nhiễm XSS khi tên người dùng chứa thẻ script/HTML."""
+        captured_html = []
+        original_markdown = st.markdown
+
+        def mock_markdown(content, unsafe_allow_html=False):
+            if unsafe_allow_html:
+                captured_html.append(content)
+
+        st.markdown = mock_markdown
+        try:
+            malicious_name = "<script>alert('XSS')</script>"
+            capybara_widget.render_capybara_companion(user_name=malicious_name)
+            self.assertTrue(len(captured_html) > 0)
+            full_output = captured_html[0]
+            # Đảm bảo không chứa thẻ script nguyên bản
+            self.assertNotIn("<script>", full_output)
+            self.assertIn("&lt;script&gt;", full_output)
+        finally:
+            st.markdown = original_markdown
+
 
 if __name__ == "__main__":
     unittest.main()

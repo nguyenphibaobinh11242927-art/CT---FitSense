@@ -5,6 +5,7 @@ Hệ thống web hỗ trợ tập luyện thể thao cá nhân hóa với AI Pos
 """
 
 import streamlit as st
+import html
 
 # Import các màn hình nghiệp vụ
 import importlib
@@ -1650,16 +1651,22 @@ def main():
 
         # 2. KHỐI THÔNG TIN NGƯỜI DÙNG HOẶC TRẠNG THÁI CHƯA ĐĂNG NHẬP
         if is_logged_in and user:
-            first_letter = user.get("name", "U")[0].upper() if user.get("name") else "U"
-            streak_days = st.session_state.get("streak_info", {}).get("current_streak", 0)
+            # Khử nhiễm XSS (Sanitize input an toàn tuyệt đối)
+            raw_name = str(user.get("name", "Vận động viên"))
+            safe_name = html.escape(raw_name)
+            first_char = raw_name[0].upper() if raw_name else "U"
+            safe_first_letter = html.escape(first_char)
+            safe_goal = html.escape(str(user.get("goal", "Calisthenics")))
+            streak_days = int(st.session_state.get("streak_info", {}).get("current_streak", 0))
+
             st.markdown(
                 f"""
                 <div class="user-profile-card" style="padding: 14px; border-radius: 12px; margin-bottom: 12px;">
                     <div style="display: flex; align-items: center; margin-bottom: 6px;">
-                        <span class="avatar-badge">{first_letter}</span>
+                        <span class="avatar-badge">{safe_first_letter}</span>
                         <div>
-                            <div style="font-weight: 700; font-size: 15px;">{user.get('name', 'Vận động viên')}</div>
-                            <div style="font-size: 12px; opacity: 0.8;">{user.get('goal', 'Calisthenics')}</div>
+                            <div style="font-weight: 700; font-size: 15px;">{safe_name}</div>
+                            <div style="font-size: 12px; opacity: 0.8;">{safe_goal}</div>
                         </div>
                     </div>
                     <div class="streak-pill" style="padding: 3px 10px; border-radius: 14px; font-size: 12px; font-weight: bold;">

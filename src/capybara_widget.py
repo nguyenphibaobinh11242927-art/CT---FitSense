@@ -10,6 +10,7 @@ Hiển thị chú chuột túi Capybara nổi ở góc màn hình dưới dạng
 - Tối giản tối đa: Đã loại bỏ hoàn toàn các thanh tiêu đề và nút bấm thủ công.
 """
 
+import html
 import random
 import textwrap
 import streamlit as st
@@ -149,7 +150,9 @@ def render_capybara_companion(theme: str = "dark", has_worked_out_today: bool = 
             q_text = raw_q.replace("bạn ơi", f"{user_name} ơi").replace("bạn", user_name)
         else:
             q_text = raw_q
-        quote_slides_html.append(f'<div class="capy-slide slide-{idx+1}">{q_text}</div>')
+        # Sanitize HTML / Khử nhiễm XSS cho lời thoại Capybara
+        safe_q_text = html.escape(q_text)
+        quote_slides_html.append(f'<div class="capy-slide slide-{idx+1}">{safe_q_text}</div>')
 
     quotes_markup = "\n".join(quote_slides_html)
 

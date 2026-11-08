@@ -3,6 +3,7 @@
 Quản lý hồ sơ cá nhân, thể trạng, mục tiêu thể thao, tình trạng chấn thương và dụng cụ tập luyện.
 """
 
+import html
 import streamlit as st
 
 
@@ -52,12 +53,15 @@ def render_profile_view():
             bmi_status = "Cân đối lý tưởng"
             bmi_color = bmi_normal_color
 
+        safe_bmi_status = html.escape(str(bmi_status))
+        safe_bmi_color = html.escape(str(bmi_color))
+
         st.markdown(
             f"""
             <div class="fitsense-stat-card" style="padding: 12px 16px; border-radius: 8px; margin: 12px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span>📊 <b>Chỉ số BMI tự động:</b></span>
                 <span class="stat-highlight">{bmi:.1f}</span>
-                <span>— Tình trạng: <b style="color: {bmi_color};">{bmi_status}</b></span>
+                <span>— Tình trạng: <b style="color: {safe_bmi_color};">{safe_bmi_status}</b></span>
             </div>
             """,
             unsafe_allow_html=True
