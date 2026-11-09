@@ -1,68 +1,73 @@
-# FitSense
+# FitSense — AI Fitness & Workout Assistant
 
-Trợ lý tập luyện cá nhân.
+Hệ thống Trợ lý AI hỗ trợ rèn luyện Thể dục Thể thao & Calisthenics thích ứng thông minh.  
+**Môn học:** CSC10014 — Tư duy Tính toán (Computational Thinking) — HCMUS.
 
-## Hiện trạng
+---
 
-Đây là khung dự án Streamlit: có các tab giao diện khởi đầu và module chờ triển khai.
-Chưa có AI, database, tính toán giỏ mua hay tích hợp cửa hàng. Không cần API key để chạy khung.
+## ⚡ Hiện trạng Dự án (Sprint 1 — SCRUM-11)
 
-## Chạy trên máy cá nhân
+Đây là khung giao diện Streamlit chính thức của dự án FitSense, được module hóa theo kiến trúc Tư duy Tính toán (8 phân hệ $D1 \rightarrow D8$):
+- **Phụ trách chính (Lead - Code):** Nguyễn Nhật Thùy Khanh (M02)
+- **Hỗ trợ (Support - Review & Merge):** Trương Cẩm Tú Nga (M05)
+- **Mã Jira:** `SCRUM-11` (Sprint 1: Nền tảng & UI — 4.5 Story Points).
 
-Đề xuất nhóm thống nhất Python 3.12. Mở terminal tại thư mục chứa `app.py`:
+---
 
+## 🚀 Khởi chạy trên Máy cá nhân
+
+Khuyến nghị môi trường **Python 3.10 - 3.12**. Mở terminal tại thư mục gốc dự án:
+
+### Cách 1: Chạy trực tiếp (Nhanh nhất)
 ```powershell
-python --version
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m streamlit run app.py
+# Cài đặt thư viện:
+python -m pip install -r requirements.txt
+
+# Khởi chạy ứng dụng FitSense:
+python -m streamlit run app.py
 ```
 
-Các lệnh Windows trên không cần kích hoạt môi trường ảo.
-Trên macOS/Linux thay `.\.venv\Scripts\python.exe` bằng `.venv/bin/python`.
+### Cách 2: Khởi tạo Virtual Environment (Chuẩn phát triển)
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-## Cấu trúc
+---
+
+## 📂 Cấu trúc Mã nguồn FitSense (SCRUM-11)
 
 ```text
-app.py                         Giao diện và điểm chạy chung
-src/profile_inventory.py       Hồ sơ, bếp và nguyên liệu
-src/menu_shopping.py            Thực đơn và mua sắm
-src/cooking.py                  Nấu ăn
-src/diary_statistics.py         Nhật ký và thống kê
-src/habits_exercise.py          Thói quen và tập luyện
-data/samples/                   Dữ liệu mẫu được phép chia sẻ
-tests/                          Kiểm thử nghiệp vụ
-docs/                           Quy tắc, dữ liệu bàn giao và hướng dẫn
-requirements.txt                Thư viện
-.env.example                    Mẫu biến cấu hình, không có key thật
-.gitignore                      Loại trừ file không đưa lên Git
+app.py                         # Giao diện chính, điều hướng Sidebar & khởi tạo Session State FitSense
+src/
+├── __init__.py                # Khai báo package ứng dụng
+├── profile_view.py            # D1: Hồ sơ thể chất, đo BMI, chấn thương & hạn chế vận động
+├── planner_view.py            # D2: Lập lịch tập tuần, phân bổ nhóm cơ & giải thích lý do AI
+├── library_view.py            # D3: Thư viện động tác Calisthenics, bộ lọc nhóm cơ & bài thay thế
+├── session_view.py            # D4 & D5: Phòng tập Rảnh tay (HUD), nhúng AI Pose Tracking & khóa sửa rep
+├── evaluation_view.py         # D5 & D7: Đánh giá sau buổi (RPE 1-10) & Thuật toán Thích ứng Tải trọng
+├── heatmap_view.py            # D6: Bảng nhiệt phục hồi nhóm cơ (Muscle Heatmap Matrix 24h-48h-72h)
+└── progress_view.py           # D6: Biểu đồ thể lực, kỷ lục PRs & Streak duy trì (tối thiểu 70%)
+tests/
+└── test_fitsense_ui.py        # Kiểm thử đơn vị tự động xác thực render và dữ liệu phiên tập
+docs_private/                  # Tài liệu nội bộ, Báo cáo Tư duy Tính toán (PDF), Bảng phân công (Excel)
+requirements.txt               # Danh mục thư viện Python (Streamlit, Pandas)
 ```
 
-## Làm việc cùng nhóm
+---
 
-- Jira là nơi quản lý công việc; điền URL bảng Jira vào phần Liên kết bên dưới.
-- Mỗi task làm trên branch riêng, ví dụ `SCRUM-12-user-profile`.
-- Mở Pull Request, gắn mã/link Jira, nêu thay đổi và cách kiểm tra.
-- Người phối hợp review trước khi merge vào `main`; quy tắc này cần nhóm thống nhất áp dụng.
-- Thống nhất hợp đồng dữ liệu trước khi nối module; không thay tên trường âm thầm.
-- Chỉ chuyển task sang Done sau khi đầu ra đáp ứng tiêu chí và có bằng chứng.
+## 🧪 Chạy Kiểm thử Đơn vị (Unit Tests)
 
-Đọc [hướng dẫn nhóm](docs/team-onboarding.md),
-[hợp đồng dữ liệu](docs/data-contracts.md) và
-[đưa dự án lên GitHub](docs/github-setup.md).
-
-## Liên kết
-
-- GitHub repository: CHƯA ĐIỀN
-- Jira board: CHƯA ĐIỀN
-- Thư mục tài liệu/biên bản họp: CHƯA ĐIỀN
-- Hướng dẫn hoặc URL demo: CHƯA ĐIỀN
-
-## Kiểm thử
-
-Hiện chưa có kiểm thử nghiệp vụ. Xem `tests/README.md` để thêm cùng chức năng.
-Kiểm tra cú pháp khi cần:
-
+Xác thực tính toàn vẹn của toàn bộ các hàm render và cấu trúc dữ liệu thể thao:
 ```powershell
-python -m compileall -q app.py src
+python -m unittest tests/test_fitsense_ui.py
 ```
+
+---
+
+## 🔗 Liên kết Dự án
+
+- **Jira Board:** https://ratatouille2026.atlassian.net (Project: `FitSense - AI Fitness & Workout Assistant`, Key: `SCRUM`)
+- **Git Branch:** `scrum-11-streamlit-ui`
