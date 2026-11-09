@@ -6,6 +6,11 @@ Quản lý hồ sơ cá nhân, thể trạng, mục tiêu thể thao, tình tr�
 import html
 import streamlit as st
 
+from src.profile import (
+    NO_EQUIPMENT, NO_RESTRICTIONS, load_profile, save_profile,
+    sync_registered_profile, validate_profile,
+)
+
 
 def render_profile_view():
     """Hiển thị và quản lý form thông tin thể chất, chấn thương và mục tiêu thể thao."""
@@ -21,7 +26,29 @@ def render_profile_view():
                 st.rerun()
         st.markdown("---")
 
+    is_logged_in = st.session_state.get("is_logged_in", False)
     profile = st.session_state.get("user_profile") or {}
+    # Guests do not share the fallback 'demo_user' JSON. Demo login is explicit.
+    identifier = (profile.get("email") or profile.get("name") or "demo_user") if is_logged_in else None
+    loaded_key = f"profile_loaded:{identifier}"
+    if is_logged_in and not st.session_state.get(loaded_key):
+        try:
+            saved = load_profile(identifier)
+            if saved:
+                profile = {**profile, **saved}
+                # Never let stale local JSON replace current signed-in email.
+                curr_user = st.session_state.get("user_profile")
+                if isinstance(curr_user, dict) and curr_user.get("email"):
+                    profile["email"] = curr_user["email"]
+                st.session_state["user_profile"] = profile
+        except ValueError as exc:
+            st.warning(str(exc) + " Bạn có thể nhập lại và lưu hồ sơ mới.")
+        st.session_state[loaded_key] = True
+
+    st.subheader("Thông tin tài khoản")
+    st.text_input("Email tài khoản", value=profile.get("email") or "Chưa có email", disabled=True)
+    if not is_logged_in:
+        st.info("Chế độ Khách: bạn cần đăng nhập để lưu hồ sơ.")
 
     col1, col2 = st.columns([1, 1], gap="medium")
 
@@ -111,7 +138,11 @@ def render_profile_view():
             default=safe_restr
         )
 
-        env_options = ["Tại nhà / Phòng riêng", "Khuôn viên ngoài trời / Công viên", "Phòng tập thể thao"]
+        env_options = [
+            "Tại nhà / Phòng riêng",
+            "Khuôn viên ngoài trời / Công viên",
+            "Phòng tập thể thao",
+        ]
         curr_env = profile.get("environment", env_options[0])
         env_idx = env_options.index(curr_env) if curr_env in env_options else 0
         environment = st.radio(
@@ -127,7 +158,8 @@ def render_profile_view():
             "Dây kháng lực (Resistance Band)",
             "Con lăn bụng (Ab Roller)",
             "Dây nhảy thể lực",
-            "Không có dụng cụ (Chỉ tập Bodyweight)"
+            "Ghế tựa / Điểm tựa cao",
+            NO_EQUIPMENT,
         ]
         raw_equip = profile.get("equipment", ["Thảm yoga/thể dục"])
         safe_equip = [e for e in raw_equip if e in equip_options]
@@ -151,30 +183,47 @@ def render_profile_view():
                 dur_val = int(raw_duration)
             except (ValueError, TypeError):
                 dur_val = 45
-            # Đảm bảo giá trị nằm trong khoảng [15, 90] và chia hết cho 5
             dur_val = max(15, min(90, round(dur_val / 5) * 5))
             duration = st.slider("Thời gian mỗi buổi (phút):", min_value=15, max_value=90, value=dur_val, step=5)
 
     st.markdown("---")
-    if st.button("💾 Lưu và Cập nhật Hồ sơ Thể chất", type="primary", use_container_width=True):
-        if not name:
-            st.warning("Vui lòng nhập Họ và tên của bạn trước khi lưu!")
+    if st.button(
+        "💾 Lưu và Cập nhật Hồ sơ Thể chất",
+        type="primary", use_container_width=True, disabled=not is_logged_in,
+    ):
+        updated = {
+            **profile,
+            # Retain the current account email during fitness-profile edits.
+            "email": profile.get("email", ""),
+            "name": name.strip(),
+            "weight_kg": weight,
+            "height_cm": height,
+            "age": age,
+            "bmi": round(bmi, 1),
+            "fitness_level": level,
+            "goal": goal,
+            "restrictions": restrictions,
+            "environment": environment,
+            "equipment": equipment,
+            "days_per_week": days,
+            "session_duration_minutes": duration,
+        }
+        errors = validate_profile(updated)
+        if not is_logged_in or not identifier:
+            errors.append("Vui lòng đăng nhập trước khi lưu.")
+        if errors:
+            for message in errors:
+                st.error(message)
         else:
-            updated = {
-                "name": name,
-                "weight_kg": weight,
-                "height_cm": height,
-                "age": age,
-                "bmi": round(bmi, 1),
-                "fitness_level": level,
-                "goal": goal,
-                "restrictions": restrictions,
-                "environment": environment,
-                "equipment": equipment,
-                "days_per_week": days,
-                "session_duration_minutes": duration,
-            }
-            st.session_state["user_profile"] = updated
-            st.session_state["is_logged_in"] = True
-            st.success("✅ Đã cập nhật hồ sơ thể chất thành công! Thanh bên và toàn bộ kế hoạch đã đồng bộ theo bạn.")
-            st.rerun()
+            try:
+                save_profile(identifier, updated)
+            except (OSError, ValueError) as exc:
+                st.error(f"Không thể lưu hồ sơ: {exc}")
+            else:
+                st.session_state["user_profile"] = updated
+                # Preserve the account store's other fields (e.g. password).
+                users = st.session_state.get("registered_users", {})
+                email = profile.get("email")
+                sync_registered_profile(users, email, updated)
+                st.success("✅ Đã lưu hồ sơ vào phiên làm việc và JSON cục bộ.")
+                st.rerun()
