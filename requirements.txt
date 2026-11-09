@@ -1,4 +1,5 @@
 streamlit>=1.40,<2
+jsonschema>=4,<5
 
 mediapipe==1.2.2
 opencv-contrib-python==5.0.0.93
