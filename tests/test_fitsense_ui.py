@@ -86,6 +86,7 @@ class TestFitSenseUIModules(unittest.TestCase):
         # Kiểm tra nội dung lời thoại
         self.assertGreaterEqual(len(capybara_widget.SAD_QUOTES), 5)
         self.assertGreaterEqual(len(capybara_widget.HAPPY_QUOTES), 5)
+        self.assertGreaterEqual(len(capybara_widget.WELCOME_QUOTES), 5)
 
         # Kiểm tra tính hợp lệ của vector SVG
         self.assertIn("<svg", capybara_widget.CAPY_SVG_SAD)
@@ -150,6 +151,66 @@ class TestFitSenseUIModules(unittest.TestCase):
             self.assertIn("&lt;script&gt;", full_output)
         finally:
             st.markdown = original_markdown
+
+    def test_capybara_login_welcome_behavior(self):
+        """Kiểm tra khi chưa đăng nhập Capy sử dụng câu chào mừng, khi đã đăng nhập mới theo dõi luyện tập."""
+        captured_html = []
+        original_markdown = st.markdown
+
+        def mock_markdown(content, unsafe_allow_html=False):
+            if unsafe_allow_html:
+                captured_html.append(content)
+
+        st.markdown = mock_markdown
+        try:
+            # 1. Chưa đăng nhập: Phải xuất hiện status title chào đón
+            capybara_widget.render_capybara_companion(is_logged_in=False)
+            unauth_output = captured_html[-1]
+            self.assertIn("Chào mừng bạn đến với FitSense", unauth_output)
+
+            # 2. Đã đăng nhập nhưng chưa tập: Phải dùng câu nhắc nhở luyện tập
+            capybara_widget.render_capybara_companion(is_logged_in=True, has_worked_out_today=False)
+            auth_not_workout = captured_html[-1]
+            self.assertIn("Hôm nay bạn chưa tập bài nào", auth_not_workout)
+
+            # 3. Đã đăng nhập và đã tập: Phải dùng câu khen ngợi
+            capybara_widget.render_capybara_companion(is_logged_in=True, has_worked_out_today=True)
+            auth_workout_done = captured_html[-1]
+            self.assertIn("Đã hoàn thành bài tập hôm nay", auth_workout_done)
+        finally:
+            st.markdown = original_markdown
+
+    def test_profile_view_defensive_rendering(self):
+        """Kiểm tra màn hình hồ sơ phòng vệ thành công khi session_duration_minutes là 40 hoặc giá trị ngoại lệ."""
+        # Giả lập user đăng ký mới với duration=40 phút
+        st.session_state["user_profile"] = {
+            "name": "Người dùng Mới",
+            "weight_kg": 60.0,
+            "height_cm": 165.0,
+            "age": 20,
+            "bmi": 22.0,
+            "fitness_level": "Beginner",
+            "goal": "Sức bền & Tăng cơ Calisthenics",
+            "restrictions": ["Khớp gối yếu"],
+            "environment": "Tại nhà / Phòng riêng",
+            "equipment": ["Thảm yoga/thể dục"],
+            "days_per_week": 4,
+            "session_duration_minutes": 40,
+        }
+        # Gọi render_profile_view không được raise bất kỳ ngoại lệ nào
+        try:
+            profile_view.render_profile_view()
+        except Exception as e:
+            self.fail(f"render_profile_view bị crash với lỗi: {e}")
+
+        # Thử nghiệm với các giá trị biên/lạ
+        st.session_state["user_profile"]["session_duration_minutes"] = 100
+        st.session_state["user_profile"]["days_per_week"] = 10
+        st.session_state["user_profile"]["restrictions"] = ["Hạn chế chưa có trong danh mục"]
+        try:
+            profile_view.render_profile_view()
+        except Exception as e:
+            self.fail(f"render_profile_view bị crash khi dữ liệu biên: {e}")
 
 
 if __name__ == "__main__":

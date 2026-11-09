@@ -1,4 +1,7 @@
 streamlit>=1.40,<2
+
+pandas>=2.0.0
+
 jsonschema>=4,<5
 
 mediapipe==1.2.2

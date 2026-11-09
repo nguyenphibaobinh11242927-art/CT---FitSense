@@ -6,7 +6,7 @@ from pathlib import Path
 
 from src.profile import (
     NO_EQUIPMENT, NO_RESTRICTIONS, load_profile, profile_path,
-    save_profile, validate_profile,
+    save_profile, sync_registered_profile, validate_profile,
 )
 
 
@@ -32,6 +32,30 @@ class ProfileTests(unittest.TestCase):
 
     def test_valid_profile(self):
         self.assertEqual(validate_profile(self.profile), [])
+
+    def test_invalid_email_rejected(self):
+        self.profile["email"] = "not-an-email"
+        self.assertIn("Email không hợp lệ.", validate_profile(self.profile))
+
+    def test_demo_without_email_allowed(self):
+        self.profile.pop("email")
+        self.assertEqual(validate_profile(self.profile), [])
+
+    def test_empty_email_allowed(self):
+        self.profile["email"] = ""
+        self.assertEqual(validate_profile(self.profile), [])
+
+    def test_sync_registered_profile_preserves_password(self):
+        users = {"example@test.invalid": {"password": "test-only", "profile": {"weight_kg": 60}}}
+        updated = {**self.profile, "weight_kg": 65}
+        self.assertTrue(sync_registered_profile(users, self.profile["email"], updated))
+        self.assertEqual(users[self.profile["email"]]["profile"], updated)
+        self.assertEqual(users[self.profile["email"]]["password"], "test-only")
+
+    def test_sync_unknown_account_is_noop(self):
+        users = {}
+        self.assertFalse(sync_registered_profile(users, self.profile["email"], self.profile))
+        self.assertEqual(users, {})
 
     def test_missing_name(self):
         self.profile["name"] = " "
@@ -95,3 +119,4 @@ class ProfileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+    

@@ -165,6 +165,13 @@ def render_auth_view():
                             "profile": new_profile
                         }
 
+                        # Lưu an toàn vào JSON cục bộ ngay khi đăng ký tài khoản mới (DoD SCRUM-13)
+                        try:
+                            from src.profile import save_profile
+                            save_profile(reg_email, new_profile)
+                        except Exception:
+                            pass
+
                         # Đăng nhập trực tiếp
                         st.session_state["is_logged_in"] = True
                         st.session_state["user_profile"] = new_profile
