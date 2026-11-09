@@ -96,36 +96,64 @@ def render_profile_view():
     with col2:
         st.subheader("2. Hạn chế Vận động & Dụng cụ Tập")
 
+        restr_options = [
+            "Khớp gối yếu (Tránh Squat quá sâu, Jumping)",
+            "Cổ tay đau (Hạn chế Push-up sàn phẳng)",
+            "Đau lưng dưới / Thoát vị nhẹ (Tránh gập lưng nặng)",
+            "Khớp vai cứng / Chấn thương xoay vai",
+            "Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"
+        ]
+        raw_restr = profile.get("restrictions", [])
+        safe_restr = [r for r in raw_restr if r in restr_options]
         restrictions = st.multiselect(
             "⚠️ Tiền sử chấn thương hoặc hạn chế vận động (AI sẽ tự động tránh các bài tác động xấu):",
-            options=[
-                "Khớp gối yếu (Tránh Squat quá sâu, Jumping)",
-                "Cổ tay đau (Hạn chế Push-up sàn phẳng)",
-                "Đau lưng dưới / Thoát vị nhẹ (Tránh gập lưng nặng)",
-                "Khớp vai cứng / Chấn thương xoay vai",
-                "Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"
-            ],
-            default=profile.get("restrictions", [])
+            options=restr_options,
+            default=safe_restr
         )
 
+        env_options = ["Tại nhà / Phòng riêng", "Khuôn viên ngoài trời / Công viên", "Phòng tập thể thao"]
+        curr_env = profile.get("environment", env_options[0])
+        env_idx = env_options.index(curr_env) if curr_env in env_options else 0
         environment = st.radio(
             "Môi trường tập luyện phổ biến:",
-            options=["Tại nhà / Phòng riêng", "Khuôn viên ngoài trời / Công viên", "Phòng tập thể thao"],
-            index=0,
+            options=env_options,
+            index=env_idx,
             horizontal=True
         )
 
+        equip_options = [
+            "Thảm yoga/thể dục",
+            "Xà đơn gắn cửa",
+            "Dây kháng lực (Resistance Band)",
+            "Con lăn bụng (Ab Roller)",
+            "Dây nhảy thể lực",
+            "Không có dụng cụ (Chỉ tập Bodyweight)"
+        ]
+        raw_equip = profile.get("equipment", ["Thảm yoga/thể dục"])
+        safe_equip = [e for e in raw_equip if e in equip_options]
         equipment = st.multiselect(
             "Dụng cụ thể thao hiện có:",
-            options=["Thảm yoga/thể dục", "Xà đơn gắn cửa", "Dây kháng lực (Resistance Band)", "Con lăn bụng (Ab Roller)", "Dây nhảy thể lực", "Không có dụng cụ (Chỉ tập Bodyweight)"],
-            default=profile.get("equipment", ["Thảm yoga/thể dục"])
+            options=equip_options,
+            default=safe_equip
         )
 
         c_days, c_dur = st.columns(2)
         with c_days:
-            days = st.slider("Số ngày tập mỗi tuần:", min_value=2, max_value=6, value=int(profile.get("days_per_week", 4)))
+            raw_days = profile.get("days_per_week", 4)
+            try:
+                days_val = max(2, min(6, int(raw_days)))
+            except (ValueError, TypeError):
+                days_val = 4
+            days = st.slider("Số ngày tập mỗi tuần:", min_value=2, max_value=6, value=days_val)
         with c_dur:
-            duration = st.select_slider("Thời gian mỗi buổi (phút):", options=[20, 30, 45, 60, 75], value=int(profile.get("session_duration_minutes", 45)))
+            raw_duration = profile.get("session_duration_minutes", 45)
+            try:
+                dur_val = int(raw_duration)
+            except (ValueError, TypeError):
+                dur_val = 45
+            # Đảm bảo giá trị nằm trong khoảng [15, 90] và chia hết cho 5
+            dur_val = max(15, min(90, round(dur_val / 5) * 5))
+            duration = st.slider("Thời gian mỗi buổi (phút):", min_value=15, max_value=90, value=dur_val, step=5)
 
     st.markdown("---")
     if st.button("💾 Lưu và Cập nhật Hồ sơ Thể chất", type="primary", use_container_width=True):

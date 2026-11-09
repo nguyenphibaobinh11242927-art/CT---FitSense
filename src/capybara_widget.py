@@ -113,31 +113,61 @@ HAPPY_QUOTES = [
     "Trái cam trên đầu tớ đang phát sáng vì bạn tập quá nhiệt huyết đó! 🍊✨"
 ]
 
+# Danh sách lời thoại chào mừng ở giao diện đăng nhập (Vui tươi 🥰 / Thân thiện chào đón khách)
+WELCOME_QUOTES = [
+    "Xin chào! Chào mừng bạn đến với FitSense nha! 🦫✨",
+    "Hế lô! Tớ là Capy – bạn đồng hành rèn luyện của bạn đây! 🍊🥰",
+    "Chào mừng bạn! FitSense đã sẵn sàng đồng hành cùng bạn hôm nay! 🏃‍♂️🌟",
+    "Rất vui được gặp bạn! Đăng nhập để cùng tớ lên lịch tập xịn xò nhé! ⚡",
+    "Chào bạn mới! Cùng FitSense chinh phục vóc dáng lý tưởng nào! 💪✨",
+    "Một ngày tuyệt vời để rèn luyện! Đăng nhập ngay cùng Capy thôi nào! 🚀",
+    "Bạn muốn khỏe đẹp và tràn đầy năng lượng? Khám phá FitSense ngay nhé! 🌟"
+]
 
-def render_capybara_companion(theme: str = "dark", has_worked_out_today: bool = False, user_name: str = "bạn"):
+
+def render_capybara_companion(
+    theme: str = "dark",
+    has_worked_out_today: bool = False,
+    user_name: str = "bạn",
+    is_logged_in: bool = None
+):
     """Render widget chú chuột túi Capybara nổi ở góc màn hình (Bottom-Right Corner Pop-up)."""
     if not st.session_state.get("show_capybara", True):
         return
 
-    # Tự động đồng bộ trạng thái: nếu có lịch sử buổi tập hôm nay thì coi như đã tập xong
-    if not has_worked_out_today:
-        session_history = st.session_state.get("session_history", [])
-        if session_history and len(session_history) > 0:
-            has_worked_out_today = True
+    # Xác định trạng thái đăng nhập
+    if is_logged_in is None:
+        is_logged_in = st.session_state.get("is_logged_in", False)
 
-    # Xác định danh sách quote và biểu cảm SVG tương ứng
-    if has_worked_out_today:
-        quotes_pool = HAPPY_QUOTES
+    # 1. TRƯỜNG HỢP CHƯA ĐĂNG NHẬP (Giao diện Đăng nhập / Chào đón):
+    # Thay vì giục tập luyện thì dùng các câu chào mừng thân thiện
+    if not is_logged_in:
+        quotes_pool = WELCOME_QUOTES
         svg_content = CAPY_SVG_HAPPY
-        dot_color = "#22C55E"
-        dot_rgb = "34, 197, 94"
-        status_title = "Trạng thái: Đã hoàn thành bài tập hôm nay! 🥰"
+        dot_color = "#38BDF8" if theme == "dark" else "#EAB308"
+        dot_rgb = "56, 189, 248" if theme == "dark" else "234, 179, 8"
+        status_title = "Trạng thái: Chào mừng bạn đến với FitSense! 🍊✨"
     else:
-        quotes_pool = SAD_QUOTES
-        svg_content = CAPY_SVG_SAD
-        dot_color = "#EF4444"
-        dot_rgb = "239, 68, 68"
-        status_title = "Trạng thái: Hôm nay bạn chưa tập bài nào! 🥺"
+        # 2. TRƯỜNG HỢP ĐÃ ĐĂNG NHẬP (Theo dõi luyện tập của người dùng):
+        # Tự động đồng bộ trạng thái: nếu có lịch sử buổi tập hôm nay thì coi như đã tập xong
+        if not has_worked_out_today:
+            session_history = st.session_state.get("session_history", [])
+            if session_history and len(session_history) > 0:
+                has_worked_out_today = True
+
+        # Xác định danh sách quote và biểu cảm SVG tương ứng
+        if has_worked_out_today:
+            quotes_pool = HAPPY_QUOTES
+            svg_content = CAPY_SVG_HAPPY
+            dot_color = "#22C55E"
+            dot_rgb = "34, 197, 94"
+            status_title = "Trạng thái: Đã hoàn thành bài tập hôm nay! 🥰"
+        else:
+            quotes_pool = SAD_QUOTES
+            svg_content = CAPY_SVG_SAD
+            dot_color = "#EF4444"
+            dot_rgb = "239, 68, 68"
+            status_title = "Trạng thái: Hôm nay bạn chưa tập bài nào! 🥺"
 
     # Chọn ngẫu nhiên 3 câu thoại để tự động xoay vòng mượt mà
     shuffled = list(quotes_pool)
