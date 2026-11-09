@@ -21,6 +21,7 @@ def webcam_model():
 
 def render_session_view():
     """Hiển thị HUD điều hành buổi tập trực tiếp rảnh tay hoặc tự nhập sau khi tập."""
+    st.session_state.setdefault("ai_reps", 0)
     st.header("⚡ Phòng tập Trực tiếp (Workout HUD)")
 
     c_empty_l, c_center, c_empty_r = st.columns([1, 2.8, 1])
@@ -52,7 +53,7 @@ def render_session_view():
                 with c1:
                     st.metric(label="Hiệp hiện tại", value="Set 2 / 3")
                 with c2:
-                    st.metric(label="Số Reps AI đếm", value="12 Reps", delta="Đạt chuẩn")
+                    st.metric(label="Số Reps AI đếm", value=st.session_state["ai_reps"])
 
             with st.container(border=True):
                 st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
