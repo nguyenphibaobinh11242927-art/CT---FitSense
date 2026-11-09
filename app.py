@@ -10,6 +10,8 @@ import html
 # Import các màn hình nghiệp vụ
 import importlib
 from src.auth_view import render_auth_view
+import src.profile_view as profile_view_mod
+importlib.reload(profile_view_mod)
 from src.profile_view import render_profile_view
 from src.planner_view import render_planner_view
 from src.library_view import render_library_view
@@ -1749,7 +1751,8 @@ def main():
     render_capybara_companion(
         theme=theme,
         has_worked_out_today=st.session_state.get("has_worked_out_today", False),
-        user_name=user.get("name", "bạn") if user else "bạn"
+        user_name=user.get("name", "bạn") if user else "bạn",
+        is_logged_in=is_logged_in
     )
 
 
