@@ -5,9 +5,13 @@ Hệ thống web hỗ trợ tập luyện thể thao cá nhân hóa với AI Pos
 """
 
 import streamlit as st
+import html
 
 # Import các màn hình nghiệp vụ
+import importlib
 from src.auth_view import render_auth_view
+import src.profile_view as profile_view_mod
+importlib.reload(profile_view_mod)
 from src.profile_view import render_profile_view
 from src.planner_view import render_planner_view
 from src.library_view import render_library_view
@@ -15,6 +19,9 @@ from src.session_view import render_session_view
 from src.evaluation_view import render_evaluation_view
 from src.heatmap_view import render_heatmap_view
 from src.progress_view import render_progress_view
+import src.capybara_widget as capybara_widget
+importlib.reload(capybara_widget)
+from src.capybara_widget import render_capybara_companion
 
 
 def init_app_state(force_reset: bool = False):
@@ -28,6 +35,10 @@ def init_app_state(force_reset: bool = False):
     if "is_logged_in" not in st.session_state or force_reset:
         st.session_state["is_logged_in"] = False
         st.session_state["user_profile"] = None
+
+    # Trạng thái hoàn thành bài tập hôm nay (Phục vụ biểu cảm của Capybara)
+    if "has_worked_out_today" not in st.session_state or force_reset:
+        st.session_state["has_worked_out_today"] = False
 
     # Chế độ giao diện (Mặc định Đen Xanh)
     if "app_theme" not in st.session_state or force_reset:
@@ -1642,16 +1653,22 @@ def main():
 
         # 2. KHỐI THÔNG TIN NGƯỜI DÙNG HOẶC TRẠNG THÁI CHƯA ĐĂNG NHẬP
         if is_logged_in and user:
-            first_letter = user.get("name", "U")[0].upper() if user.get("name") else "U"
-            streak_days = st.session_state.get("streak_info", {}).get("current_streak", 0)
+            # Khử nhiễm XSS (Sanitize input an toàn tuyệt đối)
+            raw_name = str(user.get("name", "Vận động viên"))
+            safe_name = html.escape(raw_name)
+            first_char = raw_name[0].upper() if raw_name else "U"
+            safe_first_letter = html.escape(first_char)
+            safe_goal = html.escape(str(user.get("goal", "Calisthenics")))
+            streak_days = int(st.session_state.get("streak_info", {}).get("current_streak", 0))
+
             st.markdown(
                 f"""
                 <div class="user-profile-card" style="padding: 14px; border-radius: 12px; margin-bottom: 12px;">
                     <div style="display: flex; align-items: center; margin-bottom: 6px;">
-                        <span class="avatar-badge">{first_letter}</span>
+                        <span class="avatar-badge">{safe_first_letter}</span>
                         <div>
-                            <div style="font-weight: 700; font-size: 15px;">{user.get('name', 'Vận động viên')}</div>
-                            <div style="font-size: 12px; opacity: 0.8;">{user.get('goal', 'Calisthenics')}</div>
+                            <div style="font-weight: 700; font-size: 15px;">{safe_name}</div>
+                            <div style="font-size: 12px; opacity: 0.8;">{safe_goal}</div>
                         </div>
                     </div>
                     <div class="streak-pill" style="padding: 3px 10px; border-radius: 14px; font-size: 12px; font-weight: bold;">
@@ -1665,6 +1682,7 @@ def main():
             if st.button("🚪 Đăng xuất", use_container_width=True):
                 st.session_state["is_logged_in"] = False
                 st.session_state["user_profile"] = None
+                st.session_state["has_worked_out_today"] = False
                 st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 70}
                 st.session_state["session_history"] = []
                 st.rerun()
@@ -1728,6 +1746,14 @@ def main():
             render_heatmap_view()
         elif current_screen == "📈 Tiến độ & Kỷ lục Cá nhân":
             render_progress_view()
+
+    # ================= CHÚ CHUỘT TÚI CAPYBARA ĐỒNG HÀNH Ở GÓC MÀN HÌNH =================
+    render_capybara_companion(
+        theme=theme,
+        has_worked_out_today=st.session_state.get("has_worked_out_today", False),
+        user_name=user.get("name", "bạn") if user else "bạn",
+        is_logged_in=is_logged_in
+    )
 
 
 if __name__ == "__main__":

@@ -48,13 +48,14 @@ def render_evaluation_view():
         user_note = st.text_area("Ghi chú cá nhân (tùy chọn):", placeholder="Hôm nay trời hơi oi bức, hiệp cuối Squat bị mỏi gối nhẹ nên dừng sớm...")
 
         if st.button("💾 Gửi Đánh giá & Xem Đề xuất AI", type="primary", use_container_width=True):
+            st.session_state["has_worked_out_today"] = True
             st.session_state["last_eval"] = {
                 "completion_rate": completion_rate,
                 "rpe": rpe,
                 "soreness": muscle_soreness,
                 "note": user_note
             }
-            st.success("✅ Đã ghi nhận phản hồi vào hồ sơ thể lực!")
+            st.success("✅ Đã ghi nhận phản hồi vào hồ sơ thể lực! Chú Capybara đang ăn mừng cùng bạn kìa 🥰")
 
     with col2:
         st.subheader("2. Khuyến nghị Tự động của Adaptive AI")

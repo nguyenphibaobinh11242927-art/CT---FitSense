@@ -1,0 +1,404 @@
+"""Module Trợ lý Thú cưng Capybara Đồng hành (Capybara Workout Companion).
+
+Hiển thị chú chuột túi Capybara nổi ở góc màn hình dưới dạng pop-up tự động:
+- Vị trí: Cố định ở góc dưới cùng bên phải màn hình (Bottom-Right Floating Pop-up).
+- Bố cục: [ Bong bóng lời thoại tự chạy 💬 ]  [ Chú Capybara 🦫 ]
+- Tự động nhận biết trạng thái tập luyện hôm nay:
+    + Chưa tập: Mặt buồn 🥺, nhắc nhở dễ thương, giục giã giữ chuỗi rèn luyện, chấm trạng thái đỏ.
+    + Đã tập xong: Mặt vui hớn hở 🥰, đội trái cam Onsen 🍊, khen ngợi và chúc mừng, chấm trạng thái xanh.
+- Tự động xoay vòng câu thoại mượt mà bằng CSS Keyframe Animation (cứ mỗi 8 giây chuyển sang câu mới).
+- Tối giản tối đa: Đã loại bỏ hoàn toàn các thanh tiêu đề và nút bấm thủ công.
+"""
+
+import html
+import random
+import textwrap
+import streamlit as st
+
+# Vector SVG Capybara Buồn / Nhắc nhở (Chưa tập hôm nay 🥺 💧)
+CAPY_SVG_SAD = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="86" height="86">
+  <!-- Thân & Đầu Capybara -->
+  <ellipse cx="60" cy="72" rx="42" ry="34" fill="#A47148"/>
+  <!-- Tai trái & phải hơi cụp -->
+  <ellipse cx="30" cy="48" rx="9" ry="12" fill="#7D4B27" transform="rotate(-30 30 48)"/>
+  <ellipse cx="30" cy="48" rx="5" ry="7" fill="#C99468" transform="rotate(-30 30 48)"/>
+  <ellipse cx="90" cy="48" rx="9" ry="12" fill="#7D4B27" transform="rotate(30 90 48)"/>
+  <ellipse cx="90" cy="48" rx="5" ry="7" fill="#C99468" transform="rotate(30 90 48)"/>
+  <!-- Băng đô mồ hôi tập luyện trễ xuống -->
+  <rect x="34" y="38" width="52" height="7" rx="3.5" fill="#64748B" opacity="0.85"/>
+  <line x1="34" y1="41.5" x2="86" y2="41.5" stroke="#94A3B8" stroke-width="1.5"/>
+  <!-- Mõm Capybara vuông đặc trưng -->
+  <path d="M 40 68 C 40 56, 80 56, 80 68 C 80 82, 40 82, 40 68 Z" fill="#885532"/>
+  <!-- Mũi & Lỗ mũi -->
+  <ellipse cx="54" cy="65" rx="3.2" ry="2.2" fill="#3D1E0B"/>
+  <ellipse cx="66" cy="65" rx="3.2" ry="2.2" fill="#3D1E0B"/>
+  <!-- Mắt to tròn ủ rũ / buồn thiu -->
+  <ellipse cx="44" cy="54" rx="5.5" ry="7" fill="#2B1A0E"/>
+  <circle cx="43" cy="52" r="2.2" fill="#FFFFFF"/>
+  <circle cx="46.5" cy="56" r="1.1" fill="#FFFFFF"/>
+  <ellipse cx="76" cy="54" rx="5.5" ry="7" fill="#2B1A0E"/>
+  <circle cx="75" cy="52" r="2.2" fill="#FFFFFF"/>
+  <circle cx="78.5" cy="56" r="1.1" fill="#FFFFFF"/>
+  <!-- Lông mày cụp buồn -->
+  <path d="M 37 45 Q 43 42 49 46" stroke="#4A2810" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M 83 45 Q 77 42 71 46" stroke="#4A2810" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <!-- Miệng mếu nhẹ -->
+  <path d="M 55 76 Q 60 72 65 76" stroke="#4A2810" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <!-- Giọt nước mắt buồn long lanh -->
+  <path d="M 84 62 C 81 66, 81 70, 84 72 C 87 70, 87 66, 84 62 Z" fill="#38BDF8"/>
+  <circle cx="83.5" cy="68" r="0.8" fill="#FFFFFF"/>
+  <!-- Hai bàn chân bấu nhẹ -->
+  <ellipse cx="44" cy="98" rx="9" ry="6" fill="#7D4B27"/>
+  <ellipse cx="76" cy="98" rx="9" ry="6" fill="#7D4B27"/>
+</svg>"""
+
+# Vector SVG Capybara Vui vẻ / Ăn mừng (Đã tập xong 🥰 🍊 ✨)
+CAPY_SVG_HAPPY = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="86" height="86">
+  <!-- Thân & Đầu Capybara ấm áp -->
+  <ellipse cx="60" cy="72" rx="42" ry="34" fill="#B58A63"/>
+  <!-- Tai vểnh hào hứng -->
+  <ellipse cx="30" cy="46" rx="9" ry="12" fill="#885532" transform="rotate(-15 30 46)"/>
+  <ellipse cx="30" cy="46" rx="5" ry="7" fill="#DDA15E" transform="rotate(-15 30 46)"/>
+  <ellipse cx="90" cy="46" rx="9" ry="12" fill="#885532" transform="rotate(15 90 46)"/>
+  <ellipse cx="90" cy="46" rx="5" ry="7" fill="#DDA15E" transform="rotate(15 90 46)"/>
+  <!-- Mõm Capybara -->
+  <path d="M 40 68 C 40 56, 80 56, 80 68 C 80 82, 40 82, 40 68 Z" fill="#885532"/>
+  <!-- Mũi hếch kiêu hãnh -->
+  <ellipse cx="54" cy="65" rx="3.2" ry="2.2" fill="#3D1E0B"/>
+  <ellipse cx="66" cy="65" rx="3.2" ry="2.2" fill="#3D1E0B"/>
+  <!-- Mắt cười tít hình trăng khuyết (^ ^) -->
+  <path d="M 38 54 Q 44 46 50 54" stroke="#2B1A0E" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+  <path d="M 70 54 Q 76 46 82 54" stroke="#2B1A0E" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+  <!-- Má hồng hào phúng phính -->
+  <ellipse cx="36" cy="61" rx="7.5" ry="4.5" fill="#FB7185" opacity="0.75"/>
+  <ellipse cx="84" cy="61" rx="7.5" ry="4.5" fill="#FB7185" opacity="0.75"/>
+  <!-- Nụ cười tươi hạnh phúc -->
+  <path d="M 54 73 Q 60 79 66 73" stroke="#4A2810" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <!-- Trái cam Onsen trứ danh trên đỉnh đầu -->
+  <circle cx="60" cy="28" r="11" fill="#EA580C"/>
+  <circle cx="59" cy="26" r="9.5" fill="#F97316"/>
+  <circle cx="56" cy="23" r="3" fill="#FDBA74" opacity="0.6"/>
+  <path d="M 60 17 Q 67 13 69 16 Q 66 20 60 17 Z" fill="#22C55E"/>
+  <ellipse cx="60" cy="17" rx="1.5" ry="1" fill="#15803D"/>
+  <!-- Ngôi sao lấp lánh xung quanh -->
+  <path d="M 20 25 L 22 30 L 27 32 L 22 34 L 20 39 L 18 34 L 13 32 L 18 30 Z" fill="#FACC15"/>
+  <path d="M 100 22 L 102 26 L 106 27 L 102 28 L 100 32 L 98 28 L 94 27 L 98 26 Z" fill="#38BDF8"/>
+  <circle cx="106" cy="40" r="1.5" fill="#FACC15"/>
+  <!-- Hai bàn chân trước tươi vui -->
+  <ellipse cx="44" cy="98" rx="9" ry="6" fill="#885532"/>
+  <ellipse cx="76" cy="98" rx="9" ry="6" fill="#885532"/>
+</svg>"""
+
+# Danh sách lời thoại nhắc nhở khi chưa tập (Buồn 🥺 / Thúc giục tập luyện)
+SAD_QUOTES = [
+    "Hôm nay bạn chưa vận động gì đó nha... Mình chờ bạn nãy giờ nè 🥺",
+    "Chưa tập bài nào hết trơn! Cơ bắp đang buồn thiu ngồi chờ kìa 🦫💔",
+    "Dậy làm vài cái Squat với tớ đi mà, 10 phút thôi cũng được... 🥺",
+    "Đừng lười nha, giữ chuỗi Streak rực lửa đi! Tớ tin bạn làm được! 🔥",
+    "Bạn mà không chịu tập là tớ nằm ăn cỏ buồn một mình luôn á... 🌿🥺",
+    "Thảm tập đã trải, nước đã sẵn sàng... chỉ còn thiếu mỗi bạn thôi đó! 🏃",
+    "Ngồi học và làm việc lâu mỏi lưng lắm, vào làm vài set khởi động nào! 🤸",
+    "Mục tiêu vóc dáng lý tưởng đang vẫy gọi, đứng lên tập thôi bạn tôi ơi! ⏳"
+]
+
+# Danh sách lời thoại khen ngợi khi đã tập xong (Vui tươi 🥰 / Cổ vũ nhiệt tình)
+HAPPY_QUOTES = [
+    "Yayyy! Giỏi quá đi! Hôm nay bạn hoàn thành mục tiêu rồi nè 🎉🥰",
+    "Đỉnh chóp luôn bạn ơi! Cơ bắp đang hồi phục xịn xò lắm đó nha ✨💪",
+    "Tập xong rồi thì nhớ uống đủ nước và ăn nhẹ chút protein nhé! 🍊🥛",
+    "Tự hào về bạn quá đi! Nhìn bạn tập mà tớ có động lực ăn thêm 10 cọng cỏ 🌿✨",
+    "Chuỗi ngày rèn luyện của bạn siêu đỉnh! Nghỉ ngơi thật tốt nhé chiến thần! 🏅",
+    "Tuyệt vời ông mặt trời! Đánh giá buổi tập xong là tha hồ thư giãn nha 🥰",
+    "Hôm nay bạn đã chiến thắng sự lười biếng! Quá xuất sắc luôn bạn tôi ơi! 🌟",
+    "Trái cam trên đầu tớ đang phát sáng vì bạn tập quá nhiệt huyết đó! 🍊✨"
+]
+
+# Danh sách lời thoại chào mừng ở giao diện đăng nhập (Vui tươi 🥰 / Thân thiện chào đón khách)
+WELCOME_QUOTES = [
+    "Xin chào! Chào mừng bạn đến với FitSense nha! 🦫✨",
+    "Hế lô! Tớ là Capy – bạn đồng hành rèn luyện của bạn đây! 🍊🥰",
+    "Chào mừng bạn! FitSense đã sẵn sàng đồng hành cùng bạn hôm nay! 🏃‍♂️🌟",
+    "Rất vui được gặp bạn! Đăng nhập để cùng tớ lên lịch tập xịn xò nhé! ⚡",
+    "Chào bạn mới! Cùng FitSense chinh phục vóc dáng lý tưởng nào! 💪✨",
+    "Một ngày tuyệt vời để rèn luyện! Đăng nhập ngay cùng Capy thôi nào! 🚀",
+    "Bạn muốn khỏe đẹp và tràn đầy năng lượng? Khám phá FitSense ngay nhé! 🌟"
+]
+
+
+def render_capybara_companion(
+    theme: str = "dark",
+    has_worked_out_today: bool = False,
+    user_name: str = "bạn",
+    is_logged_in: bool = None
+):
+    """Render widget chú chuột túi Capybara nổi ở góc màn hình (Bottom-Right Corner Pop-up)."""
+    if not st.session_state.get("show_capybara", True):
+        return
+
+    # Xác định trạng thái đăng nhập
+    if is_logged_in is None:
+        is_logged_in = st.session_state.get("is_logged_in", False)
+
+    # 1. TRƯỜNG HỢP CHƯA ĐĂNG NHẬP (Giao diện Đăng nhập / Chào đón):
+    # Thay vì giục tập luyện thì dùng các câu chào mừng thân thiện
+    if not is_logged_in:
+        quotes_pool = WELCOME_QUOTES
+        svg_content = CAPY_SVG_HAPPY
+        dot_color = "#38BDF8" if theme == "dark" else "#EAB308"
+        dot_rgb = "56, 189, 248" if theme == "dark" else "234, 179, 8"
+        status_title = "Trạng thái: Chào mừng bạn đến với FitSense! 🍊✨"
+    else:
+        # 2. TRƯỜNG HỢP ĐÃ ĐĂNG NHẬP (Theo dõi luyện tập của người dùng):
+        # Tự động đồng bộ trạng thái: nếu có lịch sử buổi tập hôm nay thì coi như đã tập xong
+        if not has_worked_out_today:
+            session_history = st.session_state.get("session_history", [])
+            if session_history and len(session_history) > 0:
+                has_worked_out_today = True
+
+        # Xác định danh sách quote và biểu cảm SVG tương ứng
+        if has_worked_out_today:
+            quotes_pool = HAPPY_QUOTES
+            svg_content = CAPY_SVG_HAPPY
+            dot_color = "#22C55E"
+            dot_rgb = "34, 197, 94"
+            status_title = "Trạng thái: Đã hoàn thành bài tập hôm nay! 🥰"
+        else:
+            quotes_pool = SAD_QUOTES
+            svg_content = CAPY_SVG_SAD
+            dot_color = "#EF4444"
+            dot_rgb = "239, 68, 68"
+            status_title = "Trạng thái: Hôm nay bạn chưa tập bài nào! 🥺"
+
+    # Chọn ngẫu nhiên 3 câu thoại để tự động xoay vòng mượt mà
+    shuffled = list(quotes_pool)
+    random.shuffle(shuffled)
+    selected_quotes = shuffled[:3]
+
+    quote_slides_html = []
+    for idx, raw_q in enumerate(selected_quotes):
+        if user_name and user_name != "bạn":
+            q_text = raw_q.replace("bạn ơi", f"{user_name} ơi").replace("bạn", user_name)
+        else:
+            q_text = raw_q
+        # Sanitize HTML / Khử nhiễm XSS cho lời thoại Capybara
+        safe_q_text = html.escape(q_text)
+        quote_slides_html.append(f'<div class="capy-slide slide-{idx+1}">{safe_q_text}</div>')
+
+    quotes_markup = "\n".join(quote_slides_html)
+
+    # Màu sắc giao diện theo theme
+    if theme == "light":
+        bg_bubble = "#FFFFFF"
+        border_bubble = "#EAB308"
+        text_bubble = "#0F172A"
+        shadow_bubble = "0 10px 28px rgba(234, 179, 8, 0.22), 0 4px 12px rgba(0, 0, 0, 0.08)"
+        hint_close = "#94A3B8"
+        hint_close_hover = "#0F172A"
+    else:
+        bg_bubble = "#111C2E"
+        border_bubble = "#38BDF8"
+        text_bubble = "#F8FAFC"
+        shadow_bubble = "0 12px 32px rgba(0, 0, 0, 0.65), 0 0 20px rgba(56, 189, 248, 0.22)"
+        hint_close = "#64748B"
+        hint_close_hover = "#F8FAFC"
+
+    # HTML / CSS hoàn toàn flush (không thụt lề 4 khoảng trắng) để Markdown không bao giờ tạo thẻ <pre><code>
+    widget_html = textwrap.dedent(f"""
+<style>
+#capybara-companion-container {{
+position: fixed;
+bottom: 20px;
+right: 24px;
+z-index: 999999;
+display: flex;
+flex-direction: row;
+align-items: flex-end;
+gap: 12px;
+pointer-events: none;
+font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}}
+#capybara-companion-container * {{
+pointer-events: auto;
+}}
+.capy-bubble {{
+position: relative;
+width: 280px;
+max-width: min(320px, calc(100vw - 130px));
+background-color: {bg_bubble};
+border: 2px solid {border_bubble};
+border-radius: 20px;
+padding: 14px 16px;
+padding-top: 18px;
+box-shadow: {shadow_bubble};
+color: {text_bubble};
+transform-origin: bottom right;
+transition: all 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+margin-bottom: 8px;
+}}
+/* Mũi tên chỉ ngang sang bên PHẢI trỏ trực tiếp vào chú Capybara */
+.capy-bubble::after {{
+content: "";
+position: absolute;
+right: -10px;
+bottom: 22px;
+width: 0;
+height: 0;
+border-top: 8px solid transparent;
+border-bottom: 8px solid transparent;
+border-left: 10px solid {border_bubble};
+}}
+.capy-bubble::before {{
+content: "";
+position: absolute;
+right: -7px;
+bottom: 22px;
+width: 0;
+height: 0;
+border-top: 8px solid transparent;
+border-bottom: 8px solid transparent;
+border-left: 10px solid {bg_bubble};
+z-index: 1;
+}}
+.capy-bubble-toggle {{
+display: none !important;
+}}
+.capy-bubble-toggle:checked ~ .capy-bubble {{
+opacity: 0;
+transform: scale(0.6) translateX(24px);
+pointer-events: none !important;
+visibility: hidden;
+max-height: 0;
+padding: 0;
+margin: 0;
+border: none;
+}}
+.capy-close-btn {{
+position: absolute;
+top: 6px;
+right: 8px;
+background: transparent;
+border: none;
+color: {hint_close};
+font-size: 13px;
+cursor: pointer;
+padding: 2px 6px;
+border-radius: 6px;
+transition: all 0.15s ease;
+line-height: 1;
+user-select: none;
+-webkit-user-select: none;
+z-index: 10;
+}}
+.capy-close-btn:hover {{
+color: {hint_close_hover};
+transform: scale(1.15);
+}}
+/* KHUNG CHỨA CÂU THOẠI XOAY VÒNG TỰ ĐỘNG */
+.capy-carousel-wrap {{
+position: relative;
+min-height: 48px;
+overflow: hidden;
+display: flex;
+align-items: center;
+}}
+.capy-slide {{
+position: absolute;
+top: 0;
+left: 0;
+right: 0;
+opacity: 0;
+font-size: 13.5px;
+line-height: 1.45;
+font-weight: 600;
+color: {text_bubble};
+animation: capyRotateQuotes 24s infinite ease-in-out;
+}}
+.capy-slide.slide-1 {{
+animation-delay: 0s;
+}}
+.capy-slide.slide-2 {{
+animation-delay: 8s;
+}}
+.capy-slide.slide-3 {{
+animation-delay: 16s;
+}}
+@keyframes capyRotateQuotes {{
+0% {{
+opacity: 0;
+transform: translateY(6px);
+}}
+3%, 29% {{
+opacity: 1;
+transform: translateY(0);
+}}
+33%, 100% {{
+opacity: 0;
+transform: translateY(-6px);
+}}
+}}
+.capy-avatar-btn {{
+width: 86px;
+height: 86px;
+cursor: pointer;
+position: relative;
+display: flex;
+align-items: flex-end;
+justify-content: center;
+transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.35));
+user-select: none;
+-webkit-user-select: none;
+flex-shrink: 0;
+}}
+.capy-avatar-btn:hover {{
+transform: scale(1.1) translateY(-4px);
+}}
+.capy-avatar-btn:active {{
+transform: scale(0.95);
+}}
+.capy-svg-wrap {{
+animation: capyGentleFloat 3.2s ease-in-out infinite;
+display: flex;
+align-items: center;
+justify-content: center;
+}}
+@keyframes capyGentleFloat {{
+0%, 100% {{ transform: translateY(0); }}
+50% {{ transform: translateY(-6px); }}
+}}
+.capy-status-dot {{
+position: absolute;
+bottom: 6px;
+right: 8px;
+width: 14px;
+height: 14px;
+border-radius: 50%;
+background-color: {dot_color};
+border: 2px solid {bg_bubble};
+box-shadow: 0 0 8px {dot_color};
+animation: capyPulse 2s infinite;
+}}
+@keyframes capyPulse {{
+0% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({dot_rgb}, 0.7); }}
+70% {{ transform: scale(1.1); box-shadow: 0 0 0 8px rgba({dot_rgb}, 0); }}
+100% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({dot_rgb}, 0); }}
+}}
+</style>
+<div id="capybara-companion-container">
+<input type="checkbox" id="capy-bubble-toggle" class="capy-bubble-toggle" />
+<div class="capy-bubble">
+<label for="capy-bubble-toggle" class="capy-close-btn" title="Thu nhỏ lời thoại">✕</label>
+<div class="capy-carousel-wrap">
+{quotes_markup}
+</div>
+</div>
+<label for="capy-bubble-toggle" class="capy-avatar-btn" title="Nhấp vào chú Capybara để ẩn hoặc hiện lời thoại!">
+<div class="capy-svg-wrap">
+{svg_content}
+</div>
+<div class="capy-status-dot" title="{status_title}"></div>
+</label>
+</div>
+""").strip()
+
+    st.markdown(widget_html, unsafe_allow_html=True)

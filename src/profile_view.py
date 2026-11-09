@@ -37,8 +37,9 @@ def render_profile_view():
             if saved:
                 profile = {**profile, **saved}
                 # Never let stale local JSON replace current signed-in email.
-                if st.session_state["user_profile"].get("email"):
-                    profile["email"] = st.session_state["user_profile"]["email"]
+                curr_user = st.session_state.get("user_profile")
+                if isinstance(curr_user, dict) and curr_user.get("email"):
+                    profile["email"] = curr_user["email"]
                 st.session_state["user_profile"] = profile
         except ValueError as exc:
             st.warning(str(exc) + " Bạn có thể nhập lại và lưu hồ sơ mới.")
@@ -183,13 +184,7 @@ def render_profile_view():
             except (ValueError, TypeError):
                 dur_val = 45
             dur_val = max(15, min(90, round(dur_val / 5) * 5))
-            duration = st.slider(
-                "Thời gian mỗi buổi (phút):",
-                min_value=15,
-                max_value=90,
-                value=dur_val,
-                step=5
-            )
+            duration = st.slider("Thời gian mỗi buổi (phút):", min_value=15, max_value=90, value=dur_val, step=5)
 
     st.markdown("---")
     if st.button(
