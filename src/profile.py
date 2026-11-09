@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import tempfile
 from typing import Any
@@ -24,6 +25,15 @@ def validate_profile(profile: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not isinstance(profile, dict):
         return ["Hồ sơ không đúng định dạng."]
+
+    # Email is optional for Demo, but must have a valid shape if present.
+    email = profile.get("email")
+    if email is not None and email != "":
+        if not isinstance(email, str) or not re.fullmatch(
+            r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+",
+            email.strip(),
+        ):
+            errors.append("Email không hợp lệ.")
 
     for field, label in (("name", "Họ tên"), ("goal", "Mục tiêu"),
                          ("fitness_level", "Trình độ"), ("environment", "Môi trường")):
@@ -60,6 +70,20 @@ def validate_profile(profile: dict[str, Any]) -> list[str]:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
             errors.append(f"{label} phải nằm trong khoảng {low}–{high}.")
     return errors
+
+
+def sync_registered_profile(users: dict, email: str | None, updated: dict) -> bool:
+    """Update the in-session registered user's profile without changing credentials.
+
+    This does not persist the authentication registry across new Streamlit sessions.
+    """
+    if not email or not isinstance(users, dict):
+        return False
+    record = users.get(email)
+    if not isinstance(record, dict):
+        return False
+    record["profile"] = updated.copy()
+    return True
 
 
 def profile_path(identifier: str, directory: Path = PROFILE_DIR) -> Path:
