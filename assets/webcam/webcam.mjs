@@ -7,6 +7,9 @@ const joints = [
 const labels = joints.map(() => get("angles").appendChild(document.createElement("span")));
 let encodedModel, detector, connections, stream, animation, mirrored = true;
 let lastVideoTime, frameCount, windowStart;
+let pendingFrames = [], batchSequence = 0, lastBatchAt = 0;
+const streamId = globalThis.crypto?.randomUUID?.() ??
+  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
@@ -35,6 +38,74 @@ function updateAngles(points) {
       }
     }
     labels[i].textContent = label + ": " + value;
+  });
+}
+function angleAt(a, b, c) {
+  if (!a || !b || !c) return null;
+  const ux = a.x - b.x, uy = a.y - b.y;
+  const vx = c.x - b.x, vy = c.y - b.y;
+  if ((!ux && !uy) || (!vx && !vy)) return null;
+  return Math.atan2(Math.abs(ux*vy - uy*vx), ux*vx + uy*vy) * 180 / Math.PI;
+}
+function visiblePoint(pose, index) {
+  const point = pose[index];
+  return point && point.visibility >= 0.5 ? point : null;
+}
+function getPoseFeatures(pose) {
+  const nose = visiblePoint(pose, 0);
+  const leftShoulder = visiblePoint(pose, 11), rightShoulder = visiblePoint(pose, 12);
+  const leftElbow = visiblePoint(pose, 13), rightElbow = visiblePoint(pose, 14);
+  const leftWrist = visiblePoint(pose, 15), rightWrist = visiblePoint(pose, 16);
+  const leftHip = visiblePoint(pose, 23), rightHip = visiblePoint(pose, 24);
+  const leftKnee = visiblePoint(pose, 25), rightKnee = visiblePoint(pose, 26);
+  const leftAnkle = visiblePoint(pose, 27), rightAnkle = visiblePoint(pose, 28);
+
+  const kneeAngles = [
+    angleAt(leftHip, leftKnee, leftAnkle),
+    angleAt(rightHip, rightKnee, rightAnkle)
+  ].filter(Number.isFinite);
+  const kneeAngle = kneeAngles.length
+    ? kneeAngles.reduce((total, angle) => total + angle, 0) / kneeAngles.length
+    : null;
+
+  let startDetected = false;
+  if (nose && leftHip && rightHip) {
+    const bodyHeight = Math.abs((leftHip.y + rightHip.y) / 2 - nose.y);
+    if (bodyHeight > 0) {
+      startDetected = [
+        [leftWrist, leftElbow, leftShoulder, leftHip],
+        [rightWrist, rightElbow, rightShoulder, rightHip]
+      ].some(([wrist, elbow, shoulder, hip]) =>
+        wrist && angleAt(elbow, shoulder, hip) >= 140 &&
+        wrist.y < nose.y - 0.15 * bodyHeight
+      );
+    }
+  }
+
+  let xDetected = false;
+  if (leftWrist && rightWrist && leftShoulder && rightShoulder && leftHip && rightHip) {
+    const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+    const hipY = (leftHip.y + rightHip.y) / 2;
+    const bodyWidth = Math.abs(rightShoulder.x - leftShoulder.x);
+    xDetected = bodyWidth > 0 &&
+      shoulderY < leftWrist.y && leftWrist.y < hipY &&
+      shoulderY < rightWrist.y && rightWrist.y < hipY &&
+      Math.abs(leftWrist.x - rightWrist.x) < 0.08 * bodyWidth;
+  }
+
+  return {
+    knee_angle: kneeAngle,
+    start_detected: startDetected,
+    x_detected: xDetected
+  };
+}
+function sendFrameBatch() {
+  if (!pendingFrames.length) return;
+  const frames = pendingFrames;
+  pendingFrames = [];
+  send("streamlit:setComponentValue", {
+    value: {stream_id: streamId, sequence: ++batchSequence, frames},
+    dataType: "json"
   });
 }
 function stopCamera(message = "Đã tắt camera.") {
@@ -74,6 +145,11 @@ function draw(now) {
       }
       updateAngles(points);
       get("status").textContent = pose.length ? "Đang theo dõi" : "Hãy đứng trong khung hình.";
+      pendingFrames.push(getPoseFeatures(pose));
+      if (now - lastBatchAt >= 200) {
+        lastBatchAt = now;
+        sendFrameBatch();
+      }
       frameCount++;
       if (now - windowStart >= 1000) {
         get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
@@ -105,6 +181,7 @@ get("start").onclick = async () => {
     });
     connections = PoseLandmarker.POSE_CONNECTIONS;
     frameCount = 0; lastVideoTime = -1; windowStart = performance.now();
+    pendingFrames = []; lastBatchAt = windowStart;
     get("stop").disabled = false;
     animation = requestAnimationFrame(draw);
   } catch (err) {
@@ -112,6 +189,9 @@ get("start").onclick = async () => {
       "Không mở được camera: " + err.message);
   }
 };
-get("stop").onclick = () => stopCamera();
+get("stop").onclick = () => {
+  sendFrameBatch();
+  stopCamera();
+};
 window.addEventListener("pagehide", () => stopCamera());
 updateAngles([]);
