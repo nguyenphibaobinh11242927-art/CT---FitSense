@@ -3,9 +3,20 @@
 Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ kép) và Chế độ Tự do Không Camera.
 """
 
-import os
+import base64
+from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
+
+
+ROOT = Path(__file__).resolve().parents[1]
+webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
+
+
+@st.cache_data
+def webcam_model():
+    model = ROOT / "models" / "pose_landmarker_lite.task"
+    return base64.b64encode(model.read_bytes()).decode("ascii")
 
 
 def render_session_view():
@@ -28,16 +39,7 @@ def render_session_view():
     if mode == "🤖 Chế độ AI Vision (Camera Rảnh tay)":
         with col_left:
             st.subheader("Màn hình Giám sát Chuyển động AI (Live Feed)")
-            st.info("💡 **Hệ thống điều khiển rảnh tay bằng cử chỉ:**\n- ✋ **Giơ tay cao quá đầu:** Kích hoạt bắt đầu bài tập.\n- 🙅 **Bắt chéo 2 tay hình chữ X trước ngực:** Dừng khẩn cấp khi đuối sức.")
-
-            # Nhúng file HTML MediaPipe đã nâng cấp bộ lọc EMA và FSM 2 pha
-            html_path = os.path.join(os.path.dirname(__file__), "..", "docs_private", "test_webcam_live.html")
-            if os.path.exists(html_path):
-                with open(html_path, "r", encoding="utf-8") as f:
-                    html_content = f.read()
-                components.html(html_content, height=730, scrolling=False)
-            else:
-                st.warning("Đang tải module camera AI...")
+            webcam(model=webcam_model(), key="live_pose")
 
         with col_right:
             st.subheader("Bảng Điều hành Phiên tập (HUD)")

@@ -70,4 +70,5 @@ python -m unittest tests/test_fitsense_ui.py
 ## 🔗 Liên kết Dự án
 
 - **Jira Board:** https://ratatouille2026.atlassian.net (Project: `FitSense - AI Fitness & Workout Assistant`, Key: `SCRUM`)
-- **Git Branch:** `scrum-11-streamlit-ui`
+- **Git Branch:** `scrum-14-mediapipe-pose`
+Tài liệu dự án nằm trong `docs/`. Chạy webcam SCRUM-14 bằng `python -m src.pose_tracking`.

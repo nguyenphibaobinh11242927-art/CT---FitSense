@@ -1,1 +1,1 @@
-"""FitSense application modules for UI and logic components."""
+"""FitSense application modules."""

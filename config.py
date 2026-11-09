@@ -1,0 +1,1 @@
+CAMERA_INDEX = 0  # Thử camera đầu tiên trên máy
