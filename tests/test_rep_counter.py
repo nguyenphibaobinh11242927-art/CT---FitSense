@@ -27,14 +27,19 @@ class RepCounterFSMTests(unittest.TestCase):
         self.assertEqual(result["rep_count"], 0)
         self.assertFalse(result["rep_incremented"])
 
-    def test_preserve_missing_data(self):
-        """Không có góc gối thì bộ đếm không đổi trạng thái."""
-        counter = RepCounterFSM()
-        counter.update(140)
-
-        result = counter.update(None)
-        self.assertEqual(result["state"], RepCounterFSM.STATE_GOING_DOWN)
-        self.assertEqual(result["rep_count"], 0)
+    def test_tracking_loss_discards_partial_rep_and_preserves_total(self):
+        squat = (170, 145, 90, 120, 165)
+        for interruption in range(1, len(squat)):
+            with self.subTest(interruption=interruption):
+                counter = RepCounterFSM()
+                for angle in squat * 2 + squat[:interruption]:
+                    counter.update(angle)
+                for angle in (None, None, 145, 90, 120, 165):
+                    counter.update(angle)
+                    self.assertEqual(counter.rep_count, 2)
+                for angle in squat:
+                    counter.update(angle)
+                self.assertEqual(counter.rep_count, 3)
 
     def test_reset_counter(self):
         """Reset đưa số lần và trạng thái về ban đầu."""
