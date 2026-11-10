@@ -10,6 +10,7 @@ class RepCounterResult(TypedDict):
 
 class RepCounterFSM:
     STATE_UP = "STATE_UP"
+    WAITING_FOR_UP = "WAITING_FOR_UP"
     STATE_GOING_DOWN = "STATE_GOING_DOWN"
     STATE_DOWN = "STATE_DOWN"
     STATE_GOING_UP = "STATE_GOING_UP"
@@ -37,10 +38,15 @@ class RepCounterFSM:
     def update(self, angle: float | None) -> RepCounterResult:
         """Nhận góc gối của một khung hình và đếm squat hoàn chỉnh."""
         rep_incremented = False
-        if angle is None: return self._result(rep_incremented)
+        if angle is None:
+            self.state = self.WAITING_FOR_UP
+            return self._result(False)
         if not 0 <= angle <= 180: raise ValueError("Góc phải nằm trong khoảng từ 0 đến 180 độ.")
 
-        if self.state == self.STATE_UP:
+        if self.state == self.WAITING_FOR_UP:
+            if angle >= self.up_thresh:
+                self.state = self.STATE_UP
+        elif self.state == self.STATE_UP:
             if angle < self.going_down_thresh: self.state = self.STATE_GOING_DOWN
         elif self.state == self.STATE_GOING_DOWN:
             if angle <= self.down_thresh: self.state = self.STATE_DOWN

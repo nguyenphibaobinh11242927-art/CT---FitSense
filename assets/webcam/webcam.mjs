@@ -126,18 +126,14 @@ function angleAt(a, b, c) {
   if ((!ux && !uy) || (!vx && !vy)) return null;
   return Math.atan2(Math.abs(ux*vy - uy*vx), ux*vx + uy*vy) * 180 / Math.PI;
 }
-function visiblePoint(pose, index) {
-  const point = pose[index];
-  return point && point.visibility >= 0.5 ? point : null;
-}
 function getPoseFeatures(pose) {
-  const nose = visiblePoint(pose, 0);
-  const leftShoulder = visiblePoint(pose, 11), rightShoulder = visiblePoint(pose, 12);
-  const leftElbow = visiblePoint(pose, 13), rightElbow = visiblePoint(pose, 14);
-  const leftWrist = visiblePoint(pose, 15), rightWrist = visiblePoint(pose, 16);
-  const leftHip = visiblePoint(pose, 23), rightHip = visiblePoint(pose, 24);
-  const leftKnee = visiblePoint(pose, 25), rightKnee = visiblePoint(pose, 26);
-  const leftAnkle = visiblePoint(pose, 27), rightAnkle = visiblePoint(pose, 28);
+  const nose = pose[0];
+  const leftShoulder = pose[11], rightShoulder = pose[12];
+  const leftElbow = pose[13], rightElbow = pose[14];
+  const leftWrist = pose[15], rightWrist = pose[16];
+  const leftHip = pose[23], rightHip = pose[24];
+  const leftKnee = pose[25], rightKnee = pose[26];
+  const leftAnkle = pose[27], rightAnkle = pose[28];
 
   const kneeAngles = [
     angleAt(leftHip, leftKnee, leftAnkle),
@@ -148,8 +144,9 @@ function getPoseFeatures(pose) {
     : null;
 
   let startDetected = false;
-  if (nose && leftHip && rightHip) {
-    const bodyHeight = Math.abs((leftHip.y + rightHip.y) / 2 - nose.y);
+  if (nose && (leftHip || rightHip)) {
+    const hips = [leftHip, rightHip].filter(Boolean);
+    const bodyHeight = Math.abs(hips.reduce((sum, hip) => sum + hip.y, 0) / hips.length - nose.y);
     if (bodyHeight > 0) {
       startDetected = [
         [leftWrist, leftElbow, leftShoulder, leftHip],
@@ -228,8 +225,11 @@ function draw(now) {
         ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill();
       }
       updateAngles(points);
-      get("status").textContent = pose.length ? "Đang theo dõi" : "Hãy đứng trong khung hình.";
-      pendingFrames.push({...getPoseFeatures(pose), captured_at: now});
+      const features = getPoseFeatures(points);
+      const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
+      const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
+      get("status").textContent = pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.";
+      pendingFrames.push({...features, captured_at: now});
       if (now - lastBatchAt >= 200) {
         lastBatchAt = now;
         sendFrameBatch();
