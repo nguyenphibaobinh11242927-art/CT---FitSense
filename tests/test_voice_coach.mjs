@@ -56,14 +56,9 @@ test("plays Vietnamese rep and form clips with only one audio download", async (
   assert.equal(played.length, 2);
   assert.equal(played[1].stopped, undefined);
   played[1].onended();
-  coach.receive({kind: "shallow_squat"});
   await flush();
   assert.deepEqual(played[2].args, [3, ...VI_CUES[102]]);
   assert.match(cues.at(-1), /Hạ thấp hơn/);
-  played[2].onended();
-  coach.receive({kind: "shallow_squat"});
-  await flush();
-  assert.equal(played.length, 3);
   assert.deepEqual(calls, ["resume", "fetch", "decode"]);
 });
 
@@ -91,6 +86,7 @@ test("finishes the current rep and keeps only the most recent pending count", as
   played.shift().onended();
   coach.receive({kind: "rep", count: 1});
   await flush();
+  coach.receive({kind: "shallow_squat"});
   coach.receive({kind: "rep", count: 2});
   coach.receive({kind: "rep", count: 3});
   await flush();
@@ -99,6 +95,9 @@ test("finishes the current rep and keeps only the most recent pending count", as
   played[0].onended();
   await flush();
   assert.deepEqual(played[1].args, [3, ...VI_CUES[3]]);
+  played[1].onended();
+  await flush();
+  assert.equal(played.length, 2);
 });
 
 test("shows a playback error and retries the download when re-enabled", async () => {

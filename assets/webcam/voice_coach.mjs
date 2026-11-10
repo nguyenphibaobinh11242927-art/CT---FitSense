@@ -4,7 +4,6 @@ const MAX_RECORDED_REP = 100;
 const ENABLE_CUE = MAX_RECORDED_REP + 1;
 const SHALLOW_SQUAT_CUE = ENABLE_CUE + 1;
 const VOICE_URL = new URL("./voice/vi.mp3", import.meta.url);
-const CORRECTION_COOLDOWN_MS = 8000;
 
 export function createVoiceCoach({
   AudioContext, fetchAudio = globalThis.fetch, showCue, showStatus, now = () => performance.now(),
@@ -12,12 +11,11 @@ export function createVoiceCoach({
   const supported = typeof AudioContext === "function";
   let enabled = false;
   let context, audioBuffer;
-  let current, pendingRep;
-  let lastCorrectionAt = -Infinity;
+  let current, pendingRep, pendingCorrection;
 
   function stop() {
     const playback = current;
-    current = pendingRep = null;
+    current = pendingRep = pendingCorrection = null;
     for (const source of playback?.sources ?? []) source.stop();
   }
 
@@ -53,6 +51,10 @@ export function createVoiceCoach({
             const next = pendingRep;
             pendingRep = null;
             void playRep(next);
+          } else if (pendingCorrection) {
+            const next = pendingCorrection;
+            pendingCorrection = null;
+            void playCorrection(next);
           }
         };
         source.start(when, offset, duration);
@@ -75,6 +77,11 @@ export function createVoiceCoach({
     return play(cues, capturedAt);
   }
 
+  function playCorrection({captured_at: capturedAt}) {
+    showCue("Hạ thấp hơn nếu thấy thoải mái.");
+    return play([SHALLOW_SQUAT_CUE], capturedAt);
+  }
+
   return {
     supported,
     get enabled() { return enabled; },
@@ -82,7 +89,6 @@ export function createVoiceCoach({
       if (!supported) return;
       enabled = !enabled;
       if (enabled) {
-        lastCorrectionAt = -Infinity;
         showStatus("Đang nạp giọng tiếng Việt…");
         void play([ENABLE_CUE]);
       } else {
@@ -94,14 +100,14 @@ export function createVoiceCoach({
     receive(event) {
       if (!enabled) return;
       if (event?.kind === "rep" && Number.isSafeInteger(event.count) && event.count > 0) {
+        pendingCorrection = null;
         showCue("");
         // Keep the latest rep while a clip finishes, without building up a queue.
         if (current) pendingRep = event;
         else void playRep(event);
-      } else if (event?.kind === "shallow_squat" && !current && now() - lastCorrectionAt >= CORRECTION_COOLDOWN_MS) {
-        lastCorrectionAt = now();
-        showCue("Hạ thấp hơn nếu thấy thoải mái.");
-        void play([SHALLOW_SQUAT_CUE], event.captured_at);
+      } else if (event?.kind === "shallow_squat") {
+        if (current) pendingCorrection = event;
+        else void playCorrection(event);
       }
     },
     stop,

@@ -31,8 +31,14 @@ def webcam_model():
 class SquatCorrection:
     deepest_angle: float = 180
     shallow_attempts: int = 0
+    notified: bool = False
 
     def update(self, angle, previous_state, result):
+        if result["rep_incremented"]:
+            self.notified = False
+        if self.notified:
+            return False
+
         if angle is None or result["state"] == RepCounterFSM.STATE_DOWN or result["rep_incremented"]:
             self.deepest_angle = 180
             self.shallow_attempts = 0
@@ -44,6 +50,7 @@ class SquatCorrection:
             self.shallow_attempts = self.shallow_attempts + 1 if attempted_squat else 0
             if self.shallow_attempts >= SHALLOW_ATTEMPTS_TO_CUE:
                 self.shallow_attempts = 0
+                self.notified = True
                 return True
         return False
 
