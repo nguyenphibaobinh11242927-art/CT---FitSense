@@ -1,3 +1,5 @@
+import {createVoiceCoach} from "./voice_coach.mjs";
+
 const get = id => document.getElementById(id);
 const video = get("input"), canvas = get("view"), ctx = canvas.getContext("2d");
 const joints = [
@@ -10,6 +12,24 @@ let lastVideoTime, frameCount, windowStart;
 let pendingFrames = [], batchSequence = 0, lastBatchAt = 0;
 const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let lastVoiceSequence = 0;
+const voiceButton = get("voice");
+const voiceCoach = createVoiceCoach({
+  synthesis: window.speechSynthesis,
+  Utterance: window.SpeechSynthesisUtterance,
+  showCue: text => { get("voice-cue").textContent = text; },
+  showStatus: text => { get("voice-status").textContent = text; },
+});
+voiceButton.disabled = !voiceCoach.supported;
+if (voiceCoach.supported) {
+  window.speechSynthesis.getVoices();
+} else {
+  get("voice-status").textContent = "Trình duyệt này không hỗ trợ phát giọng nói.";
+}
+voiceButton.onclick = () => {
+  voiceCoach.toggle();
+  voiceButton.setAttribute("aria-pressed", String(voiceCoach.enabled));
+};
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
@@ -17,11 +37,27 @@ function send(type, data) {
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  if (encodedModel) return;
-  encodedModel = event.data.args.model;
+  const {model, voice_feedback: feedback} = event.data.args;
+  if (!encodedModel) {
+    encodedModel = model;
+    get("start").disabled = false;
+    get("status").textContent = "Sẵn sàng bật camera.";
+  }
 
-  get("start").disabled = false;
-  if (!stream) get("status").textContent = "Sẵn sàng bật camera.";
+  if (!detector) return;
+  if (!feedback) {
+    if (lastVoiceSequence > 0) voiceCoach.stop();
+    get("voice-cue").textContent = "";
+    return;
+  }
+  if (feedback.stream_id !== streamId || feedback.sequence <= lastVoiceSequence) return;
+  lastVoiceSequence = feedback.sequence;
+  if (feedback.stopped) {
+    voiceCoach.stop();
+    get("voice-cue").textContent = "";
+  } else {
+    voiceCoach.receive(feedback.event);
+  }
 });
 send("streamlit:componentReady", {apiVersion: 1});
 new ResizeObserver(() => send("streamlit:setFrameHeight", {height: document.body.offsetHeight + 2}))
@@ -110,6 +146,9 @@ function sendFrameBatch() {
   });
 }
 function stopCamera(message = "Đã tắt camera.") {
+  voiceCoach.stop();
+  lastVoiceSequence = batchSequence;
+  get("voice-cue").textContent = "";
   cancelAnimationFrame(animation);
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
@@ -146,7 +185,7 @@ function draw(now) {
       }
       updateAngles(points);
       get("status").textContent = pose.length ? "Đang theo dõi" : "Hãy đứng trong khung hình.";
-      pendingFrames.push(getPoseFeatures(pose));
+      pendingFrames.push({...getPoseFeatures(pose), captured_at: now});
       if (now - lastBatchAt >= 200) {
         lastBatchAt = now;
         sendFrameBatch();

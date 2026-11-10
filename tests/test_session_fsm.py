@@ -1,4 +1,8 @@
+import json
 import unittest
+
+from streamlit.proto.WidgetStates_pb2 import WidgetStates
+from streamlit.testing.v1 import AppTest
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 from src.fsm_rep_counter import RepCounterFSM
@@ -87,6 +91,42 @@ class SessionFsmIntegrationTests(unittest.TestCase):
         self.process(frames, session_started = True)
         self.assertFalse(self.stop_fsm.is_rep_locked)
         self.assertEqual(self.stop_fsm.active_frames, 0)
+
+    def test_voice_feedback_reaches_webcam_on_the_same_rerun(self):
+        app = AppTest.from_string("""
+import streamlit as st
+from src.fsm_gestures import StartGestureFSM, StopGestureFSM
+from src.fsm_rep_counter import RepCounterFSM
+from src.session_view import render_session_view
+
+if "scrum16_rep_fsm" not in st.session_state:
+    st.session_state["scrum16_rep_fsm"] = RepCounterFSM()
+    st.session_state["scrum16_start_fsm"] = StartGestureFSM()
+    st.session_state["scrum16_stop_fsm"] = StopGestureFSM(required_frames=1)
+    st.session_state["scrum16_session_started"] = True
+render_session_view()
+""").run()
+        component_id = app.get("component_instance")[0].proto.id
+
+        def send(sequence, frames):
+            states = WidgetStates()
+            states.widgets.add(id=component_id, json_value=json.dumps({
+                "stream_id": "test-camera", "sequence": sequence, "frames": frames,
+            }))
+            app._run(states)
+            self.assertFalse(app.exception)
+            component = app.get("component_instance")[0].proto
+            self.assertEqual(component.id, component_id)
+            return json.loads(component.json_args)["voice_feedback"]
+
+        shallow = send(1, [self.frame(145), self.frame(165) | {"captured_at": 123}])
+        self.assertEqual(shallow["event"], {"kind": "shallow_squat", "captured_at": 123})
+        rep = send(2, [self.frame(angle) for angle in (145, 90, 120, 165)])
+        self.assertEqual(rep["event"], {"kind": "rep", "count": 1})
+        self.assertEqual(send(2, [self.frame(165)]), rep)
+        stopped = send(3, [self.frame(x_detected=True)])
+        self.assertTrue(stopped["stopped"])
+        self.assertIsNone(stopped["event"])
 
 
 if __name__ == "__main__":

@@ -6,9 +6,12 @@
 </style>
 <main>
 <button id="start" disabled>Bật camera</button> <button id="stop" disabled>Tắt camera</button> <button id="mirror" aria-pressed="true">Chế độ gương</button>
+<button id="voice" type="button" aria-pressed="false">🔊 Voice Coach</button>
 <p id="status" role="status">Đang chuẩn bị camera…</p>
 <video id="input" playsinline muted hidden></video><canvas id="view" width="640" height="360"></canvas>
 <p id="fps">FPS: —</p><div class="readings" id="angles"></div>
+<p id="voice-status" role="status">Bấm Voice Coach để bật giọng tiếng Việt.</p>
+<output id="voice-cue"></output>
 </main>
 <script type="module" src="./webcam.mjs"></script>
 </html>

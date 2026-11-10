@@ -15,6 +15,7 @@ from src.fsm_rep_counter import RepCounterFSM
 
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
+WEBCAM_KEY = "live_pose"
 
 
 @st.cache_data
@@ -29,6 +30,8 @@ def process_pose_frames(
     start_fsm: StartGestureFSM,
     stop_fsm: StopGestureFSM,
     session_started: bool,
+    *,
+    voice_events: list[dict] | None = None,
 ) -> bool:
     """Apply a webcam batch to the FSMs and return the updated session status."""
     for frame in frames:
@@ -61,7 +64,20 @@ def process_pose_frames(
 
         stop_result = stop_fsm.update(x_detected, head_detected)
         if not stop_result["is_rep_locked"]:
-            rep_fsm.update(knee_angle)
+            previous_state = rep_fsm.state
+            result = rep_fsm.update(knee_angle)
+            if voice_events is None:
+                continue
+            if result["rep_incremented"]:
+                event = {"kind": "rep", "count": result["rep_count"]}
+            elif previous_state == rep_fsm.STATE_GOING_DOWN and result["state"] == rep_fsm.STATE_UP:
+                event = {"kind": "shallow_squat"}
+            else:
+                continue
+            captured_at = frame.get("captured_at")
+            if type(captured_at) in (int, float) and 0 <= captured_at < math.inf:
+                event["captured_at"] = captured_at
+            voice_events.append(event)
     return session_started
 
 
@@ -88,6 +104,7 @@ def _handle_webcam_value(value) -> None:
     ):
         return
 
+    voice_events = []
     try:
         st.session_state["scrum16_session_started"] = process_pose_frames(
             frames,
@@ -95,6 +112,7 @@ def _handle_webcam_value(value) -> None:
             st.session_state["scrum16_start_fsm"],
             st.session_state["scrum16_stop_fsm"],
             st.session_state["scrum16_session_started"],
+            voice_events=voice_events,
         )
     except ValueError as error:
         st.error(f"Không thể xử lý dữ liệu camera: {error}")
@@ -102,6 +120,17 @@ def _handle_webcam_value(value) -> None:
 
     st.session_state["scrum16_stream_id"] = stream_id
     st.session_state["scrum16_stream_sequence"] = sequence
+    st.session_state["voice_feedback"] = {
+        "stream_id": stream_id,
+        "sequence": sequence,
+        "event": voice_events[-1] if voice_events else None,
+        "stopped": st.session_state["scrum16_stop_fsm"].is_rep_locked,
+    }
+
+
+def _on_webcam_change() -> None:
+    # Streamlit invokes this before rerendering, so feedback rides the same rerun.
+    _handle_webcam_value(st.session_state.get(WEBCAM_KEY))
 
 
 def render_session_view():
@@ -130,8 +159,12 @@ def render_session_view():
     if mode == "🤖 Chế độ AI Vision (Camera Rảnh tay)":
         with col_left:
             st.subheader("Màn hình Giám sát Chuyển động AI (Live Feed)")
-            webcam_value = webcam(model=webcam_model(), key="live_pose")
-            _handle_webcam_value(webcam_value)
+            webcam(
+                model=webcam_model(),
+                voice_feedback=st.session_state.get("voice_feedback"),
+                key=WEBCAM_KEY,
+                on_change=_on_webcam_change,
+            )
 
         with col_right:
             st.subheader("Bảng Điều hành Phiên tập (HUD)")
@@ -174,6 +207,7 @@ def render_session_view():
                 st.session_state["scrum16_start_fsm"].reset()
                 st.session_state["scrum16_stop_fsm"].reset()
                 st.session_state["scrum16_session_started"] = False
+                st.session_state.pop("voice_feedback", None)
                 st.rerun()
 
             with st.container(border=True):
