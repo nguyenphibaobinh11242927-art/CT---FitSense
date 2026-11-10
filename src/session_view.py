@@ -4,9 +4,13 @@ Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ 
 """
 
 import base64
+import math
 from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
+
+from src.fsm_gestures import StartGestureFSM, StopGestureFSM
+from src.fsm_rep_counter import RepCounterFSM
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,8 +23,95 @@ def webcam_model():
     return base64.b64encode(model.read_bytes()).decode("ascii")
 
 
+def process_pose_frames(
+    frames: list[dict],
+    rep_fsm: RepCounterFSM,
+    start_fsm: StartGestureFSM,
+    stop_fsm: StopGestureFSM,
+    session_started: bool,
+) -> bool:
+    """Apply a webcam batch to the FSMs and return the updated session status."""
+    for frame in frames:
+        if not isinstance(frame, dict):
+            raise ValueError("Mẫu pose không đúng định dạng.")
+
+        start_detected = frame.get("start_detected")
+        x_detected = frame.get("x_detected")
+        head_detected = frame.get("head_detected")
+        knee_angle = frame.get("knee_angle")
+        if (
+            type(start_detected) is not bool
+            or type(x_detected) is not bool
+            or type(head_detected) is not bool
+        ):
+            raise ValueError("Trạng thái cử chỉ phải là kiểu đúng/sai.")
+        if knee_angle is not None and (
+            isinstance(knee_angle, bool)
+            or not isinstance(knee_angle, (int, float))
+            or not math.isfinite(knee_angle)
+            or not 0 <= knee_angle <= 180
+        ):
+            raise ValueError("Góc gối phải nằm trong khoảng 0 đến 180 độ.")
+
+        if not session_started:
+            start_result = start_fsm.update(start_detected)
+            if start_result["triggered"]:
+                session_started = True
+            continue
+
+        stop_result = stop_fsm.update(x_detected, head_detected)
+        if not stop_result["is_rep_locked"]:
+            rep_fsm.update(knee_angle)
+    return session_started
+
+
+def _handle_webcam_value(value) -> None:
+    if not isinstance(value, dict):
+        return
+
+    stream_id = value.get("stream_id")
+    sequence = value.get("sequence")
+    frames = value.get("frames")
+    if (
+        not isinstance(stream_id, str)
+        or type(sequence) is not int
+        or sequence < 0
+        or not isinstance(frames, list)
+        or len(frames) > 100
+    ):
+        st.error("Dữ liệu nhận được từ camera không đúng định dạng.")
+        return
+
+    if (
+        stream_id == st.session_state.get("scrum16_stream_id")
+        and sequence <= st.session_state.get("scrum16_stream_sequence", -1)
+    ):
+        return
+
+    try:
+        st.session_state["scrum16_session_started"] = process_pose_frames(
+            frames,
+            st.session_state["scrum16_rep_fsm"],
+            st.session_state["scrum16_start_fsm"],
+            st.session_state["scrum16_stop_fsm"],
+            st.session_state["scrum16_session_started"],
+        )
+    except ValueError as error:
+        st.error(f"Không thể xử lý dữ liệu camera: {error}")
+        return
+
+    st.session_state["scrum16_stream_id"] = stream_id
+    st.session_state["scrum16_stream_sequence"] = sequence
+
+
 def render_session_view():
     """Hiển thị HUD điều hành buổi tập trực tiếp rảnh tay hoặc tự nhập sau khi tập."""
+    if "scrum16_rep_fsm" not in st.session_state:
+        st.session_state["scrum16_rep_fsm"] = RepCounterFSM()
+        st.session_state["scrum16_start_fsm"] = StartGestureFSM()
+        st.session_state["scrum16_stop_fsm"] = StopGestureFSM()
+        st.session_state["scrum16_session_started"] = False
+
     st.header("⚡ Phòng tập Trực tiếp (Workout HUD)")
 
     c_empty_l, c_center, c_empty_r = st.columns([1, 2.8, 1])
@@ -39,7 +130,8 @@ def render_session_view():
     if mode == "🤖 Chế độ AI Vision (Camera Rảnh tay)":
         with col_left:
             st.subheader("Màn hình Giám sát Chuyển động AI (Live Feed)")
-            webcam(model=webcam_model(), key="live_pose")
+            webcam_value = webcam(model=webcam_model(), key="live_pose")
+            _handle_webcam_value(webcam_value)
 
         with col_right:
             st.subheader("Bảng Điều hành Phiên tập (HUD)")
@@ -52,7 +144,37 @@ def render_session_view():
                 with c1:
                     st.metric(label="Hiệp hiện tại", value="Set 2 / 3")
                 with c2:
-                    st.metric(label="Số Reps AI đếm", value="12 Reps", delta="Đạt chuẩn")
+                    st.metric(
+                        label="Số Reps AI đếm",
+                        value=f"{st.session_state['scrum16_rep_fsm'].rep_count} Reps",
+                    )
+
+                if st.session_state["scrum16_session_started"]:
+                    st.success("Đã bắt đầu buổi tập bằng cử chỉ giơ tay.")
+                else:
+                    start_fsm = st.session_state["scrum16_start_fsm"]
+                    st.info(
+                        "Giơ một tay cao hơn đầu để bắt đầu "
+                        f"({start_fsm.active_frames}/{start_fsm.required_frames} khung hình)."
+                    )
+
+                stop_fsm = st.session_state["scrum16_stop_fsm"]
+                st.progress(
+                    stop_fsm.active_frames / stop_fsm.required_frames,
+                    text=(
+                        "Giữ hai tay thành chữ X để dừng: "
+                        f"{stop_fsm.active_frames}/{stop_fsm.required_frames} khung hình"
+                    ),
+                )
+                if stop_fsm.is_rep_locked:
+                    st.warning("Đã xác nhận dừng; số reps đã được khóa.")
+
+            if st.button("Đặt lại phiên tập", key="scrum16_reset_session"):
+                st.session_state["scrum16_rep_fsm"].reset()
+                st.session_state["scrum16_start_fsm"].reset()
+                st.session_state["scrum16_stop_fsm"].reset()
+                st.session_state["scrum16_session_started"] = False
+                st.rerun()
 
             with st.container(border=True):
                 st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
