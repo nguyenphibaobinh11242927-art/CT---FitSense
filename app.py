@@ -117,69 +117,9 @@ def init_app_state(force_reset: bool = False):
         }
     ]
 
-    # Thư viện Bài tập
-    st.session_state["exercise_library"] = [
-        {
-            "name": "Squat Thể dục (Bodyweight Squat)",
-            "icon": "🦵",
-            "primary_muscle": "Đùi & Mông (Quads/Glutes)",
-            "secondary_muscle": "Bắp chân, Lưng dưới",
-            "equipment": "Bodyweight",
-            "difficulty": "Beginner",
-            "description": "Bài tập vua cho thân dưới, phát triển sức mạnh đùi trước và mông săn chắc.",
-            "steps": ["Đứng thẳng, chân mở rộng bằng vai, mũi chân xoay nhẹ 15 độ.", "Hạ mông về sau như ngồi ghế, giữ ngực mở và lưng thẳng.", "Đạt góc gối 90 - 100 độ thì dừng lại.", "Dùng gót chân đẩy người đứng thẳng hoàn toàn."],
-            "common_mistake": "Đầu gối chụm vào nhau, võng lưng hoặc nhấc gót chân khỏi sàn.",
-            "substitute": "Wall Sit (Ngồi tựa tường) nếu có vấn đề khớp gối."
-        },
-        {
-            "name": "Standard Push-up (Hít đất chuẩn)",
-            "icon": "💪",
-            "primary_muscle": "Ngực (Chest)",
-            "secondary_muscle": "Tay sau (Triceps), Vai (Shoulders)",
-            "equipment": "Bodyweight",
-            "difficulty": "Intermediate",
-            "description": "Bài tập phát triển toàn diện ngực, vai và sức bền tay sau.",
-            "steps": ["Chống hai tay xuống sàn rộng hơn vai một chút.", "Siết chặt cơ bụng và cơ mông để cơ thể tạo thành một đường thẳng.", "Hạ ngực chạm gần sàn trong khi hít vào.", "Thở ra và đẩy mạnh cơ thể trở lại vị trí ban đầu."],
-            "common_mistake": "Võng bụng sà xuống sàn, xòe cùi chỏ quá rộng 90 độ gây mỏi vai.",
-            "substitute": "Knee Push-up (Hít đất quỳ gối) hoặc Incline Push-up (Chống tay lên bàn)."
-        },
-        {
-            "name": "Plank Tĩnh (Core Plank)",
-            "icon": "🧱",
-            "primary_muscle": "Bụng & Core",
-            "secondary_muscle": "Lưng dưới, Vai",
-            "equipment": "Thảm",
-            "difficulty": "Beginner",
-            "description": "Bài tập đẳng trường (isometric) xây dựng cơ bụng và bảo vệ cột sống thắt lưng.",
-            "steps": ["Chống cùi chỏ vuông góc 90 độ dưới vai.", "Mắt nhìn xuống sàn, siết cứng bụng, mông và đùi.", "Hít thở đều đặn và giữ vững tư thế không để hông sà xuống."],
-            "common_mistake": "Nâng mông quá cao hoặc võng lưng dưới làm đau thắt lưng.",
-            "substitute": "Dead Bug hoặc Bird Dog."
-        },
-        {
-            "name": "Glute Bridge (Nâng mông trên thảm)",
-            "icon": "🍑",
-            "primary_muscle": "Đùi & Mông (Quads/Glutes)",
-            "secondary_muscle": "Đùi sau (Hamstrings)",
-            "equipment": "Thảm",
-            "difficulty": "Beginner",
-            "description": "Kích hoạt cơ mông cực tốt mà hoàn toàn không gây áp lực lên khớp gối.",
-            "steps": ["Nằm ngửa trên thảm, co 2 đầu gối lại và đặt bàn chân sát mông.", "Dùng lực từ gót chân đẩy hông lên cao đến khi gối, hông và vai tạo thành đường thẳng.", "Siết chặt cơ mông ở đỉnh trong 1-2 giây rồi từ từ hạ xuống."],
-            "common_mistake": "Đẩy hông quá cao gây uốn cong cột sống lưng quá mức.",
-            "substitute": "Single Leg Glute Bridge."
-        },
-        {
-            "name": "Dips trên ghế (Bench Dips)",
-            "icon": "🪑",
-            "primary_muscle": "Tay sau (Triceps)",
-            "secondary_muscle": "Ngực (Chest)",
-            "equipment": "Ghế / Giường",
-            "difficulty": "Beginner",
-            "description": "Bài tập tác động mạnh mẽ vào bắp tay sau mà không cần tạ.",
-            "steps": ["Ngồi cạnh mép ghế, đặt hai bàn tay cạnh đùi, các ngón tay hướng về phía trước.", "Trượt mông ra khỏi mép ghế, hạ người xuống bằng cách gập cùi chỏ góc 90 độ.", "Dùng lực bắp tay sau đẩy người thẳng lên."],
-            "common_mistake": "Hạ người quá sâu làm xoay khớp vai gây chấn thương.",
-            "substitute": "Dây kháng lực duỗi tay sau (Tricep Pushdown)."
-        }
-    ]
+    # SCRUM-17: Thư viện chuẩn hoá dùng chung, không hardcode trong UI.
+    from src.exercise_library import load_catalog
+    st.session_state["exercise_library"] = load_catalog()
 
     # Bảng nhiệt Phục hồi Cơ bắp
     st.session_state["muscle_recovery"] = {
