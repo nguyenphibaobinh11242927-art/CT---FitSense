@@ -1,3 +1,7 @@
+import {createVoiceCoach} from "./voice_coach.mjs";
+
+const FRAME_BATCH_INTERVAL_MS = 200;
+const FRAME_STALL_TIMEOUT_MS = 600;
 const get = id => document.getElementById(id);
 const video = get("input"), canvas = get("view"), ctx = canvas.getContext("2d");
 const joints = [
@@ -6,26 +10,106 @@ const joints = [
 ];
 const labels = joints.map(() => get("angles").appendChild(document.createElement("span")));
 let encodedModel, detector, connections, stream, animation, mirrored = true;
-let lastVideoTime, frameCount, windowStart;
-let pendingFrames = [], batchSequence = 0, lastBatchAt = 0;
+const observesVideoFrames = typeof video.requestVideoFrameCallback === "function";
+let sessionId, frameCount, windowStart, lastFrameAt;
+let videoFrameCallback, presentedFrame, lastDrawnFrame;
+let pendingFrames = [], frameSequence = 0, lastBatchAt = 0, cameraRun = 0;
+let trackingInterrupted = true;
 const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let lastVoiceSequence = 0;
+const voiceButton = get("voice");
+const cameraDevice = get("camera-device");
+const mediaDevices = navigator.mediaDevices;
+const cameraErrors = {
+  NotAllowedError: "Trình duyệt hoặc hệ điều hành đang chặn camera. Hãy kiểm tra quyền camera cho trang này rồi thử lại.",
+  NotFoundError: "Không tìm thấy camera. Hãy kết nối camera hoặc chọn Chế độ Tự do trong phòng tập.",
+  NotReadableError: "Không đọc được camera. Hãy kiểm tra kết nối và đóng ứng dụng khác đang dùng camera.",
+  OverconstrainedError: "Camera đã chọn không còn khả dụng. Hãy chọn thiết bị khác rồi thử lại.",
+};
+const voiceCoach = createVoiceCoach({
+  AudioContext: window.AudioContext ?? window.webkitAudioContext,
+  showCue: text => { get("voice-cue").textContent = text; },
+  showStatus: text => { get("voice-status").textContent = text; },
+});
+voiceButton.disabled = !voiceCoach.supported;
+if (!voiceCoach.supported) {
+  get("voice-status").textContent = "Trình duyệt này không hỗ trợ phát giọng nói.";
+}
+voiceButton.onclick = () => {
+  voiceCoach.toggle();
+  get("voice-icon").textContent = voiceCoach.enabled ? "🔊" : "🔇";
+  voiceButton.setAttribute("aria-pressed", String(voiceCoach.enabled));
+};
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
 }
+
+async function refreshCameraDevices() {
+  if (!mediaDevices?.enumerateDevices) return;
+  try {
+    const devices = await mediaDevices.enumerateDevices();
+    const cameras = devices.filter(device => device.kind === "videoinput" && device.deviceId);
+    const selected = cameraDevice.value;
+    cameraDevice.replaceChildren(new Option("Mặc định của trình duyệt", ""));
+    cameras.forEach((camera, index) => {
+      cameraDevice.add(new Option(camera.label || `Camera ${index + 1}`, camera.deviceId));
+    });
+    if (cameras.some(camera => camera.deviceId === selected)) cameraDevice.value = selected;
+  } catch {
+    // The browser's default camera remains available even if listing devices fails.
+  }
+}
+
+const setupTimer = window.parent === window ? null : setTimeout(() => {
+  get("status").textContent = "Chưa nhận được dữ liệu camera từ FitSense. Hãy tải lại trang phòng tập.";
+}, 8000);
+if (window.parent === window) {
+  get("status").textContent = "Hãy mở Phòng tập Trực tiếp trong app FitSense để dùng camera. Trang này cần dữ liệu từ app.";
+}
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  if (encodedModel) return;
-  encodedModel = event.data.args.model;
+  const {model, session_id: renderSessionId, last_event_id: acknowledged, voice_feedback: feedback} = event.data.args;
+  if (!encodedModel && model && renderSessionId) {
+    encodedModel = model;
+    sessionId = renderSessionId;
+    frameSequence = acknowledged ?? 0;
+    clearTimeout(setupTimer);
+    if (!mediaDevices?.getUserMedia) {
+      get("status").textContent = window.isSecureContext
+        ? "Trình duyệt này không mở được camera. Hãy thử Chrome, Edge hoặc Chế độ Tự do."
+        : "Camera cần HTTPS hoặc localhost. Hãy mở FitSense qua một trong hai địa chỉ này.";
+      return;
+    }
+    get("start").disabled = false;
+    cameraDevice.disabled = false;
+    get("status").textContent = "Sẵn sàng bật camera.";
+    void refreshCameraDevices();
+  }
 
-  get("start").disabled = false;
-  if (!stream) get("status").textContent = "Sẵn sàng bật camera.";
+  if (renderSessionId !== sessionId) return;
+  if (Number.isInteger(acknowledged) && acknowledged <= frameSequence) {
+    const received = pendingFrames.length - (frameSequence - acknowledged);
+    if (received > 0) pendingFrames.splice(0, received);
+  }
+  if (!detector || feedback?.session_id !== sessionId || feedback.stream_id !== streamId ||
+      feedback.sequence <= lastVoiceSequence) return;
+  lastVoiceSequence = feedback.sequence;
+  if (feedback.stopped) {
+    voiceCoach.stop();
+    get("voice-cue").textContent = "";
+  } else {
+    voiceCoach.receive(feedback.event);
+  }
 });
-send("streamlit:componentReady", {apiVersion: 1});
-new ResizeObserver(() => send("streamlit:setFrameHeight", {height: document.body.offsetHeight + 2}))
-  .observe(document.body);
+if (window.parent !== window) {
+  send("streamlit:componentReady", {apiVersion: 1});
+  new ResizeObserver(() => send("streamlit:setFrameHeight", {height: document.body.offsetHeight + 2}))
+    .observe(document.body);
+}
+mediaDevices?.addEventListener("devicechange", refreshCameraDevices);
 
 function updateAngles(points) {
   joints.forEach(([label, a, b, c], i) => {
@@ -97,33 +181,61 @@ function getPoseFeatures(pose) {
     head_detected: Boolean(nose)
   };
 }
+function queueFrame(frame) {
+  pendingFrames.push(frame);
+  if (pendingFrames.length > 100) pendingFrames.shift();
+  frameSequence++;
+}
 function sendFrameBatch() {
   if (!pendingFrames.length) return;
-  const frames = pendingFrames;
-  pendingFrames = [];
   send("streamlit:setComponentValue", {
-    value: {stream_id: streamId, sequence: ++batchSequence, frames},
+    value: {session_id: sessionId, stream_id: streamId, sequence: frameSequence, frames: pendingFrames},
     dataType: "json"
   });
 }
+function sendTrackingLoss() {
+  trackingInterrupted = true;
+  queueFrame(getPoseFeatures([]));
+  lastVoiceSequence = frameSequence;
+  voiceCoach.stop();
+  get("voice-cue").textContent = "";
+  sendFrameBatch();
+}
 function stopCamera(message = "Đã tắt camera.") {
+  cameraRun++;
+  if (stream) sendTrackingLoss();
+  else voiceCoach.stop();
   cancelAnimationFrame(animation);
+  if (videoFrameCallback !== undefined) video.cancelVideoFrameCallback(videoFrameCallback);
+  videoFrameCallback = undefined;
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
   video.srcObject = null;
   detector?.close();
   detector = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  get("start").disabled = !encodedModel;
+  get("start").disabled = !encodedModel || !mediaDevices?.getUserMedia;
+  cameraDevice.disabled = get("start").disabled;
   get("stop").disabled = true;
   get("status").textContent = message;
   get("fps").textContent = "FPS: —";
   updateAngles([]);
 }
+function observeVideoFrame(_now, metadata) {
+  presentedFrame = metadata.presentedFrames;
+  videoFrameCallback = video.requestVideoFrameCallback(observeVideoFrame);
+}
 function draw(now) {
   try {
-    if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
-      lastVideoTime = video.currentTime;
+    if (!trackingInterrupted && now - lastFrameAt >= FRAME_STALL_TIMEOUT_MS) {
+      sendTrackingLoss();
+      get("status").textContent = "Camera chưa gửi khung hình mới. Phiên tập đang tạm dừng.";
+    }
+    const frame = observesVideoFrames ? presentedFrame : video.currentTime;
+    if (video.readyState >= 2 && frame !== undefined && frame !== lastDrawnFrame) {
+      lastDrawnFrame = frame;
+      lastFrameAt = now;
+      trackingInterrupted = false;
       const pose = detector.detectForVideo(video, now).landmarks[0] ?? [];
       const w = video.videoWidth, h = video.videoHeight;
       if (canvas.width !== w || canvas.height !== h) {
@@ -146,8 +258,8 @@ function draw(now) {
       const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
       const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
       get("status").textContent = pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.";
-      pendingFrames.push(features);
-      if (now - lastBatchAt >= 200) {
+      queueFrame({...features, captured_at: now});
+      if (now - lastBatchAt >= FRAME_BATCH_INTERVAL_MS) {
         lastBatchAt = now;
         sendFrameBatch();
       }
@@ -167,32 +279,51 @@ get("mirror").onclick = () => {
   get("mirror").setAttribute("aria-pressed", String(mirrored));
 };
 get("start").onclick = async () => {
+  const run = ++cameraRun;
   get("start").disabled = true;
+  cameraDevice.disabled = true;
   get("status").textContent = "Đang mở camera và nạp model…";
   try {
-    stream = await navigator.mediaDevices.getUserMedia({video: {width:{ideal:640}, height:{ideal:480}}, audio:false});
-    stream.getVideoTracks()[0].onended = () => stopCamera("Camera đã ngắt kết nối.");
+    const constraints = {width: {ideal: 640}, height: {ideal: 480}};
+    if (cameraDevice.value) constraints.deviceId = {exact: cameraDevice.value};
+    const openedStream = await mediaDevices.getUserMedia({video: constraints, audio: false});
+    if (run !== cameraRun) {
+      openedStream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    stream = openedStream;
+    void refreshCameraDevices();
+    stream.getVideoTracks()[0].onended = () => {
+      if (run === cameraRun) stopCamera("Camera đã ngắt kết nối.");
+    };
     video.srcObject = stream;
     await video.play();
     const {FilesetResolver, PoseLandmarker} = await import("./vendor/mediapipe/vision_bundle.mjs");
     const files = await FilesetResolver.forVisionTasks(new URL("./vendor/mediapipe/wasm", location.href).href);
-    detector = await PoseLandmarker.createFromOptions(files, {
+    const loadedDetector = await PoseLandmarker.createFromOptions(files, {
       baseOptions:{modelAssetBuffer:Uint8Array.from(atob(encodedModel), c => c.charCodeAt(0))},
       runningMode:"VIDEO", numPoses:1
     });
+    if (run !== cameraRun) {
+      loadedDetector.close();
+      return;
+    }
+    detector = loadedDetector;
     connections = PoseLandmarker.POSE_CONNECTIONS;
-    frameCount = 0; lastVideoTime = -1; windowStart = performance.now();
-    pendingFrames = []; lastBatchAt = windowStart;
+    frameCount = 0;
+    presentedFrame = lastDrawnFrame = undefined;
+    windowStart = performance.now();
+    lastFrameAt = lastBatchAt = windowStart;
+    sendTrackingLoss();
     get("stop").disabled = false;
+    if (observesVideoFrames) videoFrameCallback = video.requestVideoFrameCallback(observeVideoFrame);
     animation = requestAnimationFrame(draw);
   } catch (err) {
-    stopCamera(err.name === "NotAllowedError" ? "Hãy cho phép camera trong trình duyệt rồi bật lại." :
-      "Không mở được camera: " + err.message);
+    if (run !== cameraRun) return;
+    stopCamera(cameraErrors[err.name] ?? "Không mở được camera: " + err.message);
+    void refreshCameraDevices();
   }
 };
-get("stop").onclick = () => {
-  sendFrameBatch();
-  stopCamera();
-};
+get("stop").onclick = () => stopCamera();
 window.addEventListener("pagehide", () => stopCamera());
 updateAngles([]);

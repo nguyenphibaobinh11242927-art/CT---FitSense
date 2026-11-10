@@ -5,16 +5,21 @@ Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ 
 
 import base64
 import math
+from dataclasses import dataclass, field
 from pathlib import Path
+
 import streamlit as st
 import streamlit.components.v1 as components
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 from src.fsm_rep_counter import RepCounterFSM
+from src.workout_session import WorkoutSession, finish_session, start_session
 
 
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
+SHALLOW_ATTEMPT_ANGLE = 130
+SHALLOW_ATTEMPTS_TO_CUE = 2
 
 
 @st.cache_data
@@ -23,12 +28,43 @@ def webcam_model():
     return base64.b64encode(model.read_bytes()).decode("ascii")
 
 
+@dataclass
+class SquatCorrection:
+    deepest_angle: float = 180
+    shallow_attempts: int = 0
+    notified: bool = False
+
+    def update(self, angle, previous_state, result):
+        if result["rep_incremented"]:
+            self.notified = False
+        if self.notified:
+            return False
+
+        if angle is None or result["state"] == RepCounterFSM.STATE_DOWN or result["rep_incremented"]:
+            self.deepest_angle = 180
+            self.shallow_attempts = 0
+        elif result["state"] == RepCounterFSM.STATE_GOING_DOWN:
+            self.deepest_angle = min(self.deepest_angle, angle)
+        elif previous_state == RepCounterFSM.STATE_GOING_DOWN and result["state"] == RepCounterFSM.STATE_UP:
+            attempted_squat = self.deepest_angle <= SHALLOW_ATTEMPT_ANGLE
+            self.deepest_angle = 180
+            self.shallow_attempts = self.shallow_attempts + 1 if attempted_squat else 0
+            if self.shallow_attempts >= SHALLOW_ATTEMPTS_TO_CUE:
+                self.shallow_attempts = 0
+                self.notified = True
+                return True
+        return False
+
+
 def process_pose_frames(
     frames: list[dict],
     rep_fsm: RepCounterFSM,
     start_fsm: StartGestureFSM,
     stop_fsm: StopGestureFSM,
     session_started: bool,
+    *,
+    voice_events: list[dict] | None = None,
+    correction: SquatCorrection | None = None,
 ) -> bool:
     """Apply a webcam batch to the FSMs and return the updated session status."""
     for frame in frames:
@@ -61,57 +97,123 @@ def process_pose_frames(
 
         stop_result = stop_fsm.update(x_detected, head_detected)
         if not stop_result["is_rep_locked"]:
-            rep_fsm.update(knee_angle)
+            previous_state = rep_fsm.state
+            result = rep_fsm.update(knee_angle)
+            if voice_events is None:
+                continue
+            needs_cue = correction is not None and correction.update(knee_angle, previous_state, result)
+            if result["rep_incremented"]:
+                event = {"kind": "rep", "count": result["rep_count"]}
+            elif needs_cue:
+                event = {"kind": "shallow_squat"}
+            else:
+                continue
+            captured_at = frame.get("captured_at")
+            if type(captured_at) in (int, float) and 0 <= captured_at < math.inf:
+                event["captured_at"] = captured_at
+            voice_events.append(event)
     return session_started
 
 
-def _handle_webcam_value(value) -> None:
-    if not isinstance(value, dict):
-        return
+@dataclass
+class PoseSession:
+    rep: RepCounterFSM = field(default_factory=RepCounterFSM)
+    start: StartGestureFSM = field(default_factory=StartGestureFSM)
+    stop: StopGestureFSM = field(default_factory=StopGestureFSM)
+    started: bool = False
+    correction: SquatCorrection = field(default_factory=SquatCorrection)
+    stream_id: str | None = None
+    retired_streams: set[str] = field(default_factory=set)
+    voice_feedback: dict | None = None
 
-    stream_id = value.get("stream_id")
-    sequence = value.get("sequence")
-    frames = value.get("frames")
-    if (
-        not isinstance(stream_id, str)
-        or type(sequence) is not int
-        or sequence < 0
-        or not isinstance(frames, list)
-        or len(frames) > 100
-    ):
-        st.error("Dữ liệu nhận được từ camera không đúng định dạng.")
-        return
+    def consume(self, session: WorkoutSession, batch) -> None:
+        if not isinstance(batch, dict) or batch.get("session_id") != session.session_id:
+            return
+        if session.status in ("completed", "abandoned") or session.mode != "ai":
+            return
+        stream_id = batch.get("stream_id")
+        end = batch.get("sequence")
+        frames = batch.get("frames")
+        if (
+            not isinstance(stream_id, str) or not stream_id or stream_id in self.retired_streams
+            or type(end) is not int or not isinstance(frames, list) or not 0 < len(frames) <= 100
+        ):
+            return
+        first = end - len(frames) + 1
+        if end <= session.last_event_id or first < 1:
+            return
+        switched = self.stream_id is not None and self.stream_id != stream_id
+        if switched:
+            self.retired_streams.add(self.stream_id)
+        self.stream_id = stream_id
 
-    if (
-        stream_id == st.session_state.get("scrum16_stream_id")
-        and sequence <= st.session_state.get("scrum16_stream_sequence", -1)
-    ):
-        return
+        if switched or first > session.last_event_id + 1:
+            previous_state = self.rep.state
+            self.correction.update(None, previous_state, self.rep.update(None))
+            self.start.update(False)
+            self.stop.update(False, False)
+            session.status = "paused"
 
+        voice_events = []
+        for seq, frame in enumerate(frames, first):
+            if seq <= session.last_event_id:
+                continue
+            self.started = process_pose_frames(
+                [frame], self.rep, self.start, self.stop, self.started,
+                voice_events=voice_events, correction=self.correction,
+            )
+            session.ai_reps = self.rep.rep_count
+            tracking = frame.get("knee_angle") is not None
+            if not tracking:
+                voice_events.clear()
+            session.status = "active" if tracking and self.started and not self.stop.is_rep_locked else "paused"
+            session.last_event_id = seq
+
+        self.voice_feedback = {
+            "session_id": session.session_id,
+            "stream_id": stream_id,
+            "sequence": end,
+            "event": voice_events[-1] if voice_events else None,
+            "stopped": self.stop.is_rep_locked or (self.started and not tracking),
+        }
+
+
+def _on_webcam_change(key: str) -> None:
+    session = st.session_state.get("workout_session")
+    pose = st.session_state.get("pose_session")
+    if session is None or pose is None:
+        return
     try:
-        st.session_state["scrum16_session_started"] = process_pose_frames(
-            frames,
-            st.session_state["scrum16_rep_fsm"],
-            st.session_state["scrum16_start_fsm"],
-            st.session_state["scrum16_stop_fsm"],
-            st.session_state["scrum16_session_started"],
-        )
+        pose.consume(session, st.session_state.get(key))
     except ValueError as error:
         st.error(f"Không thể xử lý dữ liệu camera: {error}")
-        return
 
-    st.session_state["scrum16_stream_id"] = stream_id
-    st.session_state["scrum16_stream_sequence"] = sequence
+
+def save_result(session, outcome, manual=None):
+    finish_session(session, outcome)
+    results = st.session_state.setdefault("workout_results", {})
+    results.setdefault(session.session_id, {
+        "mode": session.mode, "status": session.status,
+        "reps": session.ai_reps if manual is None else manual["squat"] + manual["pushup"],
+        "manual": manual,
+    })
+    st.session_state["review_session_id"] = session.session_id
+    if session.status == "completed":
+        st.session_state["has_worked_out_today"] = True
+    st.session_state["pending_navigation"] = "📝 Đánh giá Sau Buổi tập"
+    st.rerun()
 
 
 def render_session_view():
     """Hiển thị HUD điều hành buổi tập trực tiếp rảnh tay hoặc tự nhập sau khi tập."""
-    if "scrum16_rep_fsm" not in st.session_state:
-        st.session_state["scrum16_rep_fsm"] = RepCounterFSM()
-        st.session_state["scrum16_start_fsm"] = StartGestureFSM()
-        st.session_state["scrum16_stop_fsm"] = StopGestureFSM()
-        st.session_state["scrum16_session_started"] = False
+    if "workout_session" not in st.session_state:
+        session = start_session(mode="ai")
+        session.status = "paused"  # Chờ camera nhìn thấy người lần đầu.
+        st.session_state["workout_session"] = session
+        st.session_state["pose_session"] = PoseSession()
 
+    session = st.session_state["workout_session"]
+    pose = st.session_state["pose_session"]
     st.header("⚡ Phòng tập Trực tiếp (Workout HUD)")
 
     c_empty_l, c_center, c_empty_r = st.columns([1, 2.8, 1])
@@ -128,10 +230,23 @@ def render_session_view():
     col_left, col_right = st.columns([1.6, 1], gap="medium")
 
     if mode == "🤖 Chế độ AI Vision (Camera Rảnh tay)":
+        if session.status in ("completed", "abandoned"):
+            st.info("Phiên tập đã kết thúc.")
+            if st.button("Bắt đầu buổi mới"):
+                del st.session_state["workout_session"]
+                st.rerun()
+            return
         with col_left:
             st.subheader("Màn hình Giám sát Chuyển động AI (Live Feed)")
-            webcam_value = webcam(model=webcam_model(), key="live_pose")
-            _handle_webcam_value(webcam_value)
+            widget_key = f"live_pose_{session.session_id}"
+            webcam(
+                model=webcam_model(),
+                session_id=session.session_id,
+                last_event_id=session.last_event_id,
+                voice_feedback=pose.voice_feedback,
+                key=widget_key,
+                on_change=lambda: _on_webcam_change(widget_key),
+            )
 
         with col_right:
             st.subheader("Bảng Điều hành Phiên tập (HUD)")
@@ -144,38 +259,24 @@ def render_session_view():
                 with c1:
                     st.metric(label="Hiệp hiện tại", value="Set 2 / 3")
                 with c2:
-                    st.metric(
-                        label="Số Reps AI đếm",
-                        value=f"{st.session_state['scrum16_rep_fsm'].rep_count} Reps",
-                    )
+                    st.metric(label="Số Reps AI đếm", value=f"{session.ai_reps} Reps")
+                    status = "Đang tập" if session.status == "active" else "Tạm dừng"
+                    st.caption(f"Trạng thái: {status}")
 
-                if st.session_state["scrum16_session_started"]:
+                if pose.started:
                     st.success("Đã bắt đầu buổi tập bằng cử chỉ giơ tay.")
                 else:
-                    start_fsm = st.session_state["scrum16_start_fsm"]
                     st.info(
                         "Giơ một tay cao hơn đầu để bắt đầu "
-                        f"({start_fsm.active_frames}/{start_fsm.required_frames} khung hình)."
+                        f"({pose.start.active_frames}/{pose.start.required_frames} khung hình)."
                     )
-
-                stop_fsm = st.session_state["scrum16_stop_fsm"]
                 st.progress(
-                    stop_fsm.active_frames / stop_fsm.required_frames,
-                    text=(
-                        "Giữ hai tay thành chữ X để dừng: "
-                        f"{stop_fsm.active_frames}/{stop_fsm.required_frames} khung hình"
-                    ),
+                    pose.stop.active_frames / pose.stop.required_frames,
+                    text=("Giữ hai tay thành chữ X để dừng: "
+                          f"{pose.stop.active_frames}/{pose.stop.required_frames} khung hình"),
                 )
-                if stop_fsm.is_rep_locked:
+                if pose.stop.is_rep_locked:
                     st.warning("Đã xác nhận dừng; số reps đã được khóa.")
-
-            if st.button("Đặt lại phiên tập", key="scrum16_reset_session"):
-                st.session_state["scrum16_rep_fsm"].reset()
-                st.session_state["scrum16_start_fsm"].reset()
-                st.session_state["scrum16_stop_fsm"].reset()
-                st.session_state["scrum16_session_started"] = False
-                st.rerun()
-
             with st.container(border=True):
                 st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
                 st.progress(60 / 60, text="Thời gian nghỉ: 60s còn lại")
@@ -189,9 +290,9 @@ def render_session_view():
 
             st.markdown("---")
             if st.button("🏁 Hoàn tất Buổi tập & Sang Đánh giá", type="primary", use_container_width=True):
-                st.session_state["has_worked_out_today"] = True
-                st.session_state["nav_selection"] = "📝 Đánh giá Sau Buổi tập"
-                st.rerun()
+                save_result(session, "completed")
+            if st.button("Bỏ dở buổi tập", use_container_width=True):
+                save_result(session, "abandoned")
 
     else:
         # Chế độ Tự do Không Camera
@@ -201,16 +302,16 @@ def render_session_view():
 
             with st.form("manual_session_form"):
                 st.markdown("#### Nhập kết quả thực tế từng bài:")
-                st.number_input("1. Squat Thể dục — Số reps hoàn thành:", min_value=0, max_value=100, value=36)
-                st.number_input("2. Push-up — Số reps hoàn thành:", min_value=0, max_value=100, value=30)
-                st.number_input("3. Plank tĩnh — Tổng giây giữ được:", min_value=0, max_value=300, value=120)
+                squat = st.number_input("1. Squat Thể dục — Số reps hoàn thành:", min_value=0, max_value=100, value=36)
+                pushup = st.number_input("2. Push-up — Số reps hoàn thành:", min_value=0, max_value=100, value=30)
+                plank = st.number_input("3. Plank tĩnh — Tổng giây giữ được:", min_value=0, max_value=300, value=120)
 
                 submitted = st.form_submit_button("Lưu & Kết thúc Buổi tập", type="primary")
-                if submitted:
-                    st.session_state["has_worked_out_today"] = True
-                    st.success("Đã ghi nhận toàn bộ kết quả vào nhật ký!")
-                    st.session_state["nav_selection"] = "📝 Đánh giá Sau Buổi tập"
-                    st.rerun()
+                abandoned = st.form_submit_button("Lưu buổi bỏ dở")
+                if submitted or abandoned:
+                    manual_session = start_session(mode="manual")
+                    save_result(manual_session, "completed" if submitted else "abandoned",
+                                {"squat": squat, "pushup": pushup, "plank_seconds": plank})
 
         with col_right:
             st.subheader("Hướng dẫn buổi tập")

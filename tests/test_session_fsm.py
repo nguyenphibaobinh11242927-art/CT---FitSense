@@ -1,4 +1,8 @@
+import json
 import unittest
+
+from streamlit.proto.WidgetStates_pb2 import WidgetStates
+from streamlit.testing.v1 import AppTest
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 from src.fsm_rep_counter import RepCounterFSM
@@ -87,6 +91,59 @@ class SessionFsmIntegrationTests(unittest.TestCase):
         self.process(frames, session_started = True)
         self.assertFalse(self.stop_fsm.is_rep_locked)
         self.assertEqual(self.stop_fsm.active_frames, 0)
+
+    def test_voice_feedback_reaches_webcam_on_the_same_rerun(self):
+        app = AppTest.from_string("""
+import streamlit as st
+from src.fsm_gestures import StopGestureFSM
+from src.session_view import PoseSession, render_session_view
+from src.workout_session import start_session
+
+if "workout_session" not in st.session_state:
+    st.session_state["workout_session"] = start_session()
+    st.session_state["pose_session"] = PoseSession(started=True, stop=StopGestureFSM(required_frames=1))
+render_session_view()
+""").run()
+        component_id = app.get("component_instance")[0].proto.id
+        session = app.session_state["workout_session"]
+
+        def send(frames, sequence=None):
+            if sequence is None:
+                sequence = session.last_event_id + len(frames)
+            states = WidgetStates()
+            states.widgets.add(id=component_id, json_value=json.dumps({
+                "session_id": session.session_id, "stream_id": "test-camera",
+                "sequence": sequence, "frames": frames,
+            }))
+            app._run(states)
+            self.assertFalse(app.exception)
+            component = app.get("component_instance")[0].proto
+            self.assertEqual(component.id, component_id)
+            return json.loads(component.json_args)["voice_feedback"]
+
+        slight_bend = send([self.frame(angle) for angle in (145, 165)] * 2)
+        self.assertIsNone(slight_bend["event"])
+        attempt = [self.frame(angle) for angle in (145, 115, 165)]
+        self.assertIsNone(send(attempt)["event"])
+        self.assertTrue(send([self.frame(None)])["stopped"])
+        self.assertEqual(session.status, "paused")
+        self.assertIsNone(send([self.frame(165), *attempt])["event"])
+        shallow = send([*attempt[:-1], self.frame(165) | {"captured_at": 123}])
+        self.assertEqual(shallow["event"], {"kind": "shallow_squat", "captured_at": 123})
+        self.assertIsNone(send(attempt * 4)["event"])
+        rep = send([self.frame(angle) for angle in (145, 90, 120, 165)])
+        self.assertEqual(rep["event"], {"kind": "rep", "count": 1})
+        self.assertEqual(rep["session_id"], session.session_id)
+        self.assertEqual(rep["stream_id"], "test-camera")
+        self.assertEqual(session.ai_reps, 1)
+        self.assertEqual(send([self.frame(165)], sequence=rep["sequence"]), rep)
+        self.assertIsNone(send(attempt)["event"])
+        self.assertEqual(send(attempt)["event"], {"kind": "shallow_squat"})
+        stopped = send([self.frame(x_detected=True)])
+        self.assertTrue(stopped["stopped"])
+        self.assertIsNone(stopped["event"])
+        self.assertIsNone(send([self.frame(angle) for angle in (145, 90, 120, 165)])["event"])
+        self.assertEqual(session.ai_reps, 1)
 
 
 if __name__ == "__main__":
