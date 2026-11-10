@@ -37,8 +37,13 @@ def process_pose_frames(
 
         start_detected = frame.get("start_detected")
         x_detected = frame.get("x_detected")
+        head_detected = frame.get("head_detected")
         knee_angle = frame.get("knee_angle")
-        if type(start_detected) is not bool or type(x_detected) is not bool:
+        if (
+            type(start_detected) is not bool
+            or type(x_detected) is not bool
+            or type(head_detected) is not bool
+        ):
             raise ValueError("Trạng thái cử chỉ phải là kiểu đúng/sai.")
         if knee_angle is not None and (
             isinstance(knee_angle, bool)
@@ -54,7 +59,7 @@ def process_pose_frames(
                 session_started = True
             continue
 
-        stop_result = stop_fsm.update(x_detected)
+        stop_result = stop_fsm.update(x_detected, head_detected)
         if not stop_result["is_rep_locked"]:
             rep_fsm.update(knee_angle)
     return session_started

@@ -1,5 +1,4 @@
 """Bộ máy trạng thái hữu hạn (FSM) đếm số lần squat hoàn chỉnh."""
-
 from typing import TypedDict
 
 
@@ -38,29 +37,22 @@ class RepCounterFSM:
     def update(self, angle: float | None) -> RepCounterResult:
         """Nhận góc gối của một khung hình và đếm squat hoàn chỉnh."""
         rep_incremented = False
-        if angle is None:
-            return self._result(rep_incremented)
-        if not 0 <= angle <= 180:
-            raise ValueError("Góc phải nằm trong khoảng từ 0 đến 180 độ.")
+        if angle is None: return self._result(rep_incremented)
+        if not 0 <= angle <= 180: raise ValueError("Góc phải nằm trong khoảng từ 0 đến 180 độ.")
 
         if self.state == self.STATE_UP:
-            if angle < self.going_down_thresh:
-                self.state = self.STATE_GOING_DOWN
+            if angle < self.going_down_thresh: self.state = self.STATE_GOING_DOWN
         elif self.state == self.STATE_GOING_DOWN:
-            if angle <= self.down_thresh:
-                self.state = self.STATE_DOWN
-            elif angle >= self.up_thresh:
-                self.state = self.STATE_UP
+            if angle <= self.down_thresh: self.state = self.STATE_DOWN
+            elif angle >= self.up_thresh: self.state = self.STATE_UP
         elif self.state == self.STATE_DOWN:
-            if angle > self.going_up_thresh:
-                self.state = self.STATE_GOING_UP
+            if angle > self.going_up_thresh: self.state = self.STATE_GOING_UP
         elif self.state == self.STATE_GOING_UP:
             if angle >= self.up_thresh:
                 self.state = self.STATE_UP
                 self.rep_count += 1
                 rep_incremented = True
-            elif angle <= self.down_thresh:
-                self.state = self.STATE_DOWN
+            elif angle <= self.down_thresh: self.state = self.STATE_DOWN
 
         return self._result(rep_incremented)
 

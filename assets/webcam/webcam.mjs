@@ -96,7 +96,8 @@ function getPoseFeatures(pose) {
   return {
     knee_angle: kneeAngle,
     start_detected: startDetected,
-    x_detected: xDetected
+    x_detected: xDetected,
+    head_detected: Boolean(nose)
   };
 }
 function sendFrameBatch() {

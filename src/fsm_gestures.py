@@ -1,5 +1,4 @@
 """FSM nhận diện giơ tay để bắt đầu và cử chỉ chữ X để dừng. """
-
 from typing import TypedDict
 
 
@@ -28,8 +27,7 @@ class StartGestureFSM:
         self, wrist_y: float, nose_y: float, body_height: float, shoulder_angle: float
     ) -> bool:
         """Kiểm tra cổ tay có cao hơn đầu và vai có được nâng lên hay không."""
-        if body_height <= 0:
-            return False
+        if body_height <= 0: return False
         is_above_head = wrist_y < (nose_y - 0.15 * body_height)
         return is_above_head and shoulder_angle >= 140.0
 
@@ -41,8 +39,7 @@ class StartGestureFSM:
                 self.state = "COUNTDOWN_321"
                 triggered = self.active_frames == self.required_frames and not self._triggered
                 self._triggered = True
-            else:
-                self.state = "DETECTING_START"
+            else: self.state = "DETECTING_START"
         else:
             self.state = "STATE_STANDBY"
             self.active_frames = 0
@@ -85,19 +82,19 @@ class StopGestureFSM:
         body_width: float,
     ) -> bool:
         """Kiểm tra hai cổ tay có bắt chéo trước thân người hay không."""
-        if body_width <= 0 or shoulder_y >= hip_y:
-            return False
+        if body_width <= 0 or shoulder_y >= hip_y: return False
         in_vertical_range = (
             shoulder_y < wrist_l_y < hip_y and shoulder_y < wrist_r_y < hip_y
         )
         is_crossed = abs(wrist_l_x - wrist_r_x) < (0.08 * body_width)
         return in_vertical_range and is_crossed
 
-    def update(self, is_detected: bool) -> StopGestureResult:
+    def update(self, is_detected: bool, head_visible: bool) -> StopGestureResult:
+        """Chỉ đếm cử chỉ dừng khi nhìn thấy cả đầu và cử chỉ chữ X."""
         triggered = False
-        if self.state == self.STATE_CONFIRMED_STOP:
-            return self._result()
+        if self.state == self.STATE_CONFIRMED_STOP: return self._result()
 
+        is_detected = is_detected and head_visible
         if is_detected:
             self.active_frames += 1
             if self.active_frames >= self.required_frames:
@@ -105,8 +102,7 @@ class StopGestureFSM:
                 self.state = self.STATE_CONFIRMED_STOP
                 self.is_rep_locked = True
                 triggered = True
-            else:
-                self.state = self.STATE_DETECTING_X
+            else: self.state = self.STATE_DETECTING_X
         else:
             self.state = self.STATE_NORMAL
             self.active_frames = 0
