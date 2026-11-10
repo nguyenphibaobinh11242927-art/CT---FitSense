@@ -3,7 +3,11 @@
 Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ kép) và Chế độ Tự do Không Camera.
 """
 
-from src.workout_session import apply_event, finish_session, start_session
+from src.workout_session import finish_session, start_session
+from src.fsm_gestures import StartGestureFSM, StopGestureFSM
+from src.fsm_rep_counter import RepCounterFSM
+from dataclasses import dataclass, field
+import math
 import base64
 from pathlib import Path
 import streamlit as st
@@ -18,6 +22,81 @@ webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets
 def webcam_model():
     model = ROOT / "models" / "pose_landmarker_lite.task"
     return base64.b64encode(model.read_bytes()).decode("ascii")
+
+
+def process_pose_frames(
+    frames: list[dict],
+    rep_fsm: RepCounterFSM,
+    start_fsm: StartGestureFSM,
+    stop_fsm: StopGestureFSM,
+    session_started: bool,
+) -> bool:
+    """Apply a webcam batch to the FSMs and return the updated session status."""
+    for frame in frames:
+        if not isinstance(frame, dict):
+            raise ValueError("Mẫu pose không đúng định dạng.")
+
+        start_detected = frame.get("start_detected")
+        x_detected = frame.get("x_detected")
+        head_detected = frame.get("head_detected")
+        knee_angle = frame.get("knee_angle")
+        if (
+            type(start_detected) is not bool
+            or type(x_detected) is not bool
+            or type(head_detected) is not bool
+        ):
+            raise ValueError("Trạng thái cử chỉ phải là kiểu đúng/sai.")
+        if knee_angle is not None and (
+            isinstance(knee_angle, bool)
+            or not isinstance(knee_angle, (int, float))
+            or not math.isfinite(knee_angle)
+            or not 0 <= knee_angle <= 180
+        ):
+            raise ValueError("Góc gối phải nằm trong khoảng 0 đến 180 độ.")
+
+        if not session_started:
+            start_result = start_fsm.update(start_detected)
+            if start_result["triggered"]:
+                session_started = True
+            continue
+
+        stop_result = stop_fsm.update(x_detected, head_detected)
+        if not stop_result["is_rep_locked"]:
+            rep_fsm.update(knee_angle)
+    return session_started
+
+
+@dataclass
+class PoseSession:
+    rep: RepCounterFSM = field(default_factory=RepCounterFSM)
+    start: StartGestureFSM = field(default_factory=StartGestureFSM)
+    stop: StopGestureFSM = field(default_factory=StopGestureFSM)
+    started: bool = False
+
+    def consume(self, session, batch):
+        if not batch or batch.get("session_id") != session.session_id:
+            return
+        if session.status in ("completed", "abandoned") or session.mode != "ai":
+            return
+        end = batch.get("sequence")
+        frames = batch.get("frames")
+        if type(end) is not int or not isinstance(frames, list) or not 0 < len(frames) <= 100:
+            return
+        first = end - len(frames) + 1
+        if end <= session.last_event_id or first < 1:
+            return
+        if first > session.last_event_id + 1:
+            self.rep.update(None)
+            self.start.update(False)
+            self.stop.update(False, False)
+        for seq, frame in enumerate(frames, first):
+            if seq <= session.last_event_id:
+                continue
+            self.started = process_pose_frames([frame], self.rep, self.start, self.stop, self.started)
+            session.ai_reps = self.rep.rep_count
+            tracking = frame["knee_angle"] is not None
+            session.status = "active" if tracking and self.started and not self.stop.is_rep_locked else "paused"
+            session.last_event_id = seq
 
 
 def save_result(session, outcome, manual=None):
@@ -41,6 +120,7 @@ def render_session_view():
         session = start_session(mode="ai")
         session.status = "paused"  # Chờ camera nhìn thấy người lần đầu.
         st.session_state["workout_session"] = session
+        st.session_state["pose_session"] = PoseSession()
 
     session = st.session_state["workout_session"]
     st.header("⚡ Phòng tập Trực tiếp (Workout HUD)")
@@ -74,8 +154,14 @@ def render_session_view():
                 key=f"live_pose_{session.session_id}",
             )
 
-            if event is not None:
-                apply_event(session, **event)
+            pose = st.session_state.setdefault("pose_session", PoseSession())
+            pose.consume(session, event)
+            if pose.stop.is_rep_locked:
+                st.warning("Cử chỉ chữ X đã khóa số rep.")
+            elif not pose.started:
+                st.info(f"Giơ tay cao để bắt đầu: {pose.start.active_frames}/{pose.start.required_frames}")
+            else:
+                st.caption(f"Đã bắt đầu · Giữ chữ X để khóa: {pose.stop.active_frames}/{pose.stop.required_frames}")
 
         with col_right:
             st.subheader("Bảng Điều hành Phiên tập (HUD)")
