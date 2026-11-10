@@ -5,6 +5,7 @@ Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ 
 
 import base64
 import math
+from dataclasses import dataclass
 from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
@@ -16,12 +17,35 @@ from src.fsm_rep_counter import RepCounterFSM
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
 WEBCAM_KEY = "live_pose"
+SHALLOW_ATTEMPT_ANGLE = 130
+SHALLOW_ATTEMPTS_TO_CUE = 2
 
 
 @st.cache_data
 def webcam_model():
     model = ROOT / "models" / "pose_landmarker_lite.task"
     return base64.b64encode(model.read_bytes()).decode("ascii")
+
+
+@dataclass
+class SquatCorrection:
+    deepest_angle: float = 180
+    shallow_attempts: int = 0
+
+    def update(self, angle, previous_state, result):
+        if angle is None or result["state"] == RepCounterFSM.STATE_DOWN or result["rep_incremented"]:
+            self.deepest_angle = 180
+            self.shallow_attempts = 0
+        elif result["state"] == RepCounterFSM.STATE_GOING_DOWN:
+            self.deepest_angle = min(self.deepest_angle, angle)
+        elif previous_state == RepCounterFSM.STATE_GOING_DOWN and result["state"] == RepCounterFSM.STATE_UP:
+            attempted_squat = self.deepest_angle <= SHALLOW_ATTEMPT_ANGLE
+            self.deepest_angle = 180
+            self.shallow_attempts = self.shallow_attempts + 1 if attempted_squat else 0
+            if self.shallow_attempts >= SHALLOW_ATTEMPTS_TO_CUE:
+                self.shallow_attempts = 0
+                return True
+        return False
 
 
 def process_pose_frames(
@@ -32,6 +56,7 @@ def process_pose_frames(
     session_started: bool,
     *,
     voice_events: list[dict] | None = None,
+    correction: SquatCorrection | None = None,
 ) -> bool:
     """Apply a webcam batch to the FSMs and return the updated session status."""
     for frame in frames:
@@ -68,9 +93,10 @@ def process_pose_frames(
             result = rep_fsm.update(knee_angle)
             if voice_events is None:
                 continue
+            needs_cue = correction is not None and correction.update(knee_angle, previous_state, result)
             if result["rep_incremented"]:
                 event = {"kind": "rep", "count": result["rep_count"]}
-            elif previous_state == rep_fsm.STATE_GOING_DOWN and result["state"] == rep_fsm.STATE_UP:
+            elif needs_cue:
                 event = {"kind": "shallow_squat"}
             else:
                 continue
@@ -104,6 +130,9 @@ def _handle_webcam_value(value) -> None:
     ):
         return
 
+    if stream_id != st.session_state.get("scrum16_stream_id"):
+        st.session_state["voice_correction"] = SquatCorrection()
+    correction = st.session_state.setdefault("voice_correction", SquatCorrection())
     voice_events = []
     try:
         st.session_state["scrum16_session_started"] = process_pose_frames(
@@ -113,6 +142,7 @@ def _handle_webcam_value(value) -> None:
             st.session_state["scrum16_stop_fsm"],
             st.session_state["scrum16_session_started"],
             voice_events=voice_events,
+            correction=correction,
         )
     except ValueError as error:
         st.error(f"Không thể xử lý dữ liệu camera: {error}")
@@ -207,6 +237,7 @@ def render_session_view():
                 st.session_state["scrum16_start_fsm"].reset()
                 st.session_state["scrum16_stop_fsm"].reset()
                 st.session_state["scrum16_session_started"] = False
+                st.session_state.pop("voice_correction", None)
                 st.session_state.pop("voice_feedback", None)
                 st.rerun()
 

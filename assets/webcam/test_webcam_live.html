@@ -4,9 +4,10 @@
 <style>
 *{box-sizing:border-box}body{margin:0;color:#eff6ff;background:#101d31;font:16px system-ui}main{padding:14px}button{font:inherit;color:inherit;background:#225479;border:1px solid #5984a2;border-radius:8px;padding:8px 12px;cursor:pointer}button:disabled{opacity:.5}canvas{display:block;width:100%;max-height:380px;object-fit:contain;background:#080f19;border-radius:8px}p{margin:10px 0}.readings{display:grid;grid-template-columns:1fr 1fr;gap:5px}
 #camera-device{max-width:100%;font:inherit;color:inherit;background:#225479;border:1px solid #5984a2;border-radius:8px;padding:6px}
+#camera-toggle[aria-pressed="true"]{background:#326552;border-color:#73ac92}#status:empty{display:none}
 </style>
 <main>
-<button id="start" disabled>Bật camera</button> <button id="stop" disabled>Tắt camera</button> <button id="mirror" aria-pressed="true">Chế độ gương</button>
+<button id="camera-toggle" type="button" aria-pressed="false" disabled>📷 Bật camera</button> <button id="mirror" aria-pressed="true">Chế độ gương</button>
 <button id="voice" type="button" aria-pressed="false">🔊 Voice Coach</button>
 <p id="status" role="status">Đang chuẩn bị camera…</p>
 <p><label for="camera-device">Camera</label>

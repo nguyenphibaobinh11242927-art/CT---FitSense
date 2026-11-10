@@ -1,10 +1,10 @@
 import {VI_CUES} from "./voice/vi_cues.mjs";
 
-const REP_WORDS = ["", "Một", "Hai", "Ba", "Bốn", "Năm", "Sáu", "Bảy", "Tám", "Chín", "Mười"];
 const MAX_RECORDED_REP = 100;
 const ENABLE_CUE = MAX_RECORDED_REP + 1;
 const SHALLOW_SQUAT_CUE = ENABLE_CUE + 1;
 const VOICE_URL = new URL("./voice/vi.mp3", import.meta.url);
+const CORRECTION_COOLDOWN_MS = 8000;
 
 export function createVoiceCoach({
   AudioContext, fetchAudio = globalThis.fetch, showCue, showStatus, now = () => performance.now(),
@@ -12,17 +12,18 @@ export function createVoiceCoach({
   const supported = typeof AudioContext === "function";
   let enabled = false;
   let context, audioBuffer;
-  let sources = [], playbackId = 0;
+  let current, pendingRep;
+  let lastCorrectionAt = -Infinity;
 
   function stop() {
-    playbackId++;
-    for (const source of sources) source.stop();
-    sources = [];
+    const playback = current;
+    current = pendingRep = null;
+    for (const source of playback?.sources ?? []) source.stop();
   }
 
   async function play(cueIds, capturedAt) {
-    stop();
-    const id = playbackId;
+    const playback = {sources: new Set()};
+    current = playback;
     try {
       context ??= new AudioContext();
       // Call resume before awaiting so the Voice Coach click can unlock playback.
@@ -35,7 +36,7 @@ export function createVoiceCoach({
         throw error;
       });
       const [buffer] = await Promise.all([audioBuffer, ready]);
-      if (id !== playbackId) return;
+      if (current !== playback) return;
 
       let when = context.currentTime;
       for (const cueId of cueIds) {
@@ -45,10 +46,17 @@ export function createVoiceCoach({
         source.connect(context.destination);
         source.onended = () => {
           source.disconnect();
-          sources = sources.filter(playing => playing !== source);
+          playback.sources.delete(source);
+          if (current !== playback || playback.sources.size) return;
+          current = null;
+          if (pendingRep) {
+            const next = pendingRep;
+            pendingRep = null;
+            void playRep(next);
+          }
         };
         source.start(when, offset, duration);
-        sources.push(source);
+        playback.sources.add(source);
         when += duration;
       }
       const elapsed = Number.isFinite(capturedAt) ? now() - capturedAt : -1;
@@ -56,8 +64,15 @@ export function createVoiceCoach({
         ? `Từ khung hình đến lúc lên lịch phát: ${Math.round(elapsed)} ms.`
         : "Đã bật giọng tiếng Việt.");
     } catch {
-      if (id === playbackId) showStatus("Không phát được âm thanh. Hãy tắt rồi bật lại Voice Coach.");
+      if (current !== playback) return;
+      stop();
+      showStatus("Không phát được âm thanh. Hãy tắt rồi bật lại Voice Coach.");
     }
+  }
+
+  function playRep({count, captured_at: capturedAt}) {
+    const cues = count <= MAX_RECORDED_REP ? [count] : Array.from(String(count), Number);
+    return play(cues, capturedAt);
   }
 
   return {
@@ -67,27 +82,27 @@ export function createVoiceCoach({
       if (!supported) return;
       enabled = !enabled;
       if (enabled) {
+        lastCorrectionAt = -Infinity;
         showStatus("Đang nạp giọng tiếng Việt…");
         void play([ENABLE_CUE]);
       } else {
         stop();
+        showCue("");
         showStatus("Đã tắt giọng nói.");
       }
     },
     receive(event) {
-      let text;
-      let cues;
+      if (!enabled) return;
       if (event?.kind === "rep" && Number.isSafeInteger(event.count) && event.count > 0) {
-        text = REP_WORDS[event.count] ?? String(event.count);
-        cues = event.count <= MAX_RECORDED_REP ? [event.count] : Array.from(String(event.count), Number);
-      } else if (event?.kind === "shallow_squat") {
-        text = "Hạ thấp hơn một chút nếu thấy thoải mái.";
-        cues = [SHALLOW_SQUAT_CUE];
-      } else {
-        return;
+        showCue("");
+        // Keep the latest rep while a clip finishes, without building up a queue.
+        if (current) pendingRep = event;
+        else void playRep(event);
+      } else if (event?.kind === "shallow_squat" && !current && now() - lastCorrectionAt >= CORRECTION_COOLDOWN_MS) {
+        lastCorrectionAt = now();
+        showCue("Hạ thấp hơn nếu thấy thoải mái.");
+        void play([SHALLOW_SQUAT_CUE], event.captured_at);
       }
-      showCue(text);
-      if (enabled) void play(cues, event.captured_at);
     },
     stop,
   };

@@ -119,12 +119,18 @@ render_session_view()
             self.assertEqual(component.id, component_id)
             return json.loads(component.json_args)["voice_feedback"]
 
-        shallow = send(1, [self.frame(145), self.frame(165) | {"captured_at": 123}])
+        slight_bend = send(1, [self.frame(angle) for angle in (145, 165)] * 2)
+        self.assertIsNone(slight_bend["event"])
+        attempt = [self.frame(angle) for angle in (145, 115, 165)]
+        self.assertIsNone(send(2, attempt)["event"])
+        self.assertIsNone(send(3, [self.frame(None)])["event"])
+        self.assertIsNone(send(4, [self.frame(165), *attempt])["event"])
+        shallow = send(5, [*attempt[:-1], self.frame(165) | {"captured_at": 123}])
         self.assertEqual(shallow["event"], {"kind": "shallow_squat", "captured_at": 123})
-        rep = send(2, [self.frame(angle) for angle in (145, 90, 120, 165)])
+        rep = send(6, [self.frame(angle) for angle in (145, 90, 120, 165)])
         self.assertEqual(rep["event"], {"kind": "rep", "count": 1})
-        self.assertEqual(send(2, [self.frame(165)]), rep)
-        stopped = send(3, [self.frame(x_detected=True)])
+        self.assertEqual(send(6, [self.frame(165)]), rep)
+        stopped = send(7, [self.frame(x_detected=True)])
         self.assertTrue(stopped["stopped"])
         self.assertIsNone(stopped["event"])
 

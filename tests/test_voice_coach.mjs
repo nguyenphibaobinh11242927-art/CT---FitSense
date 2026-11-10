@@ -36,30 +36,42 @@ function setup(response) {
 test("plays Vietnamese rep and form clips with only one audio download", async () => {
   const {coach, played, cues, status, calls} = setup();
   coach.receive({kind: "rep", count: 1});
-  assert.deepEqual(cues, ["Một"]);
+  assert.deepEqual(cues, []);
   assert.deepEqual(calls, []);
 
   coach.toggle();
   assert.deepEqual(calls, ["resume", "fetch"]);
   await flush();
   assert.deepEqual(played[0].args, [3, ...VI_CUES[101]]);
+  played[0].onended();
 
   coach.receive({kind: "rep", count: 2, captured_at: 100});
   await flush();
-  assert.equal(played[0].stopped, true);
   assert.deepEqual(played[1].args, [3, ...VI_CUES[2]]);
   assert.match(status.at(-1), /150 ms/);
+  assert.ok(cues.every(cue => cue === ""));
 
+  coach.receive({kind: "shallow_squat"});
+  await flush();
+  assert.equal(played.length, 2);
+  assert.equal(played[1].stopped, undefined);
+  played[1].onended();
   coach.receive({kind: "shallow_squat"});
   await flush();
   assert.deepEqual(played[2].args, [3, ...VI_CUES[102]]);
   assert.match(cues.at(-1), /Hạ thấp hơn/);
+  played[2].onended();
+  coach.receive({kind: "shallow_squat"});
+  await flush();
+  assert.equal(played.length, 3);
   assert.deepEqual(calls, ["resume", "fetch", "decode"]);
 });
 
 test("reads counts past 100 digit by digit and stops all clips when muted", async () => {
   const {coach, played, cues} = setup();
   coach.toggle();
+  await flush();
+  played.shift().onended();
   coach.receive({kind: "rep", count: 105});
   await flush();
   assert.deepEqual(played.map(source => source.args.slice(1)), [VI_CUES[1], VI_CUES[0], VI_CUES[5]]);
@@ -68,8 +80,25 @@ test("reads counts past 100 digit by digit and stops all clips when muted", asyn
   assert.ok(played.every(source => source.stopped));
   coach.receive({kind: "rep", count: 3});
   await flush();
-  assert.equal(cues.at(-1), "Ba");
+  assert.ok(cues.every(cue => cue === ""));
   assert.equal(played.length, 3);
+});
+
+test("finishes the current rep and keeps only the most recent pending count", async () => {
+  const {coach, played} = setup();
+  coach.toggle();
+  await flush();
+  played.shift().onended();
+  coach.receive({kind: "rep", count: 1});
+  await flush();
+  coach.receive({kind: "rep", count: 2});
+  coach.receive({kind: "rep", count: 3});
+  await flush();
+  assert.equal(played.length, 1);
+  assert.equal(played[0].stopped, undefined);
+  played[0].onended();
+  await flush();
+  assert.deepEqual(played[1].args, [3, ...VI_CUES[3]]);
 });
 
 test("shows a playback error and retries the download when re-enabled", async () => {
