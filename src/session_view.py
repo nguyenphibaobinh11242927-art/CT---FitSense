@@ -3,19 +3,23 @@
 Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ kép) và Chế độ Tự do Không Camera.
 """
 
-from src.workout_session import finish_session, start_session
-from src.fsm_gestures import StartGestureFSM, StopGestureFSM
-from src.fsm_rep_counter import RepCounterFSM
-from dataclasses import dataclass, field
-import math
 import base64
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
+
 import streamlit as st
 import streamlit.components.v1 as components
+
+from src.fsm_gestures import StartGestureFSM, StopGestureFSM
+from src.fsm_rep_counter import RepCounterFSM
+from src.workout_session import WorkoutSession, finish_session, start_session
 
 
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
+SHALLOW_ATTEMPT_ANGLE = 130
+SHALLOW_ATTEMPTS_TO_CUE = 2
 
 
 @st.cache_data
@@ -24,12 +28,43 @@ def webcam_model():
     return base64.b64encode(model.read_bytes()).decode("ascii")
 
 
+@dataclass
+class SquatCorrection:
+    deepest_angle: float = 180
+    shallow_attempts: int = 0
+    notified: bool = False
+
+    def update(self, angle, previous_state, result):
+        if result["rep_incremented"]:
+            self.notified = False
+        if self.notified:
+            return False
+
+        if angle is None or result["state"] == RepCounterFSM.STATE_DOWN or result["rep_incremented"]:
+            self.deepest_angle = 180
+            self.shallow_attempts = 0
+        elif result["state"] == RepCounterFSM.STATE_GOING_DOWN:
+            self.deepest_angle = min(self.deepest_angle, angle)
+        elif previous_state == RepCounterFSM.STATE_GOING_DOWN and result["state"] == RepCounterFSM.STATE_UP:
+            attempted_squat = self.deepest_angle <= SHALLOW_ATTEMPT_ANGLE
+            self.deepest_angle = 180
+            self.shallow_attempts = self.shallow_attempts + 1 if attempted_squat else 0
+            if self.shallow_attempts >= SHALLOW_ATTEMPTS_TO_CUE:
+                self.shallow_attempts = 0
+                self.notified = True
+                return True
+        return False
+
+
 def process_pose_frames(
     frames: list[dict],
     rep_fsm: RepCounterFSM,
     start_fsm: StartGestureFSM,
     stop_fsm: StopGestureFSM,
     session_started: bool,
+    *,
+    voice_events: list[dict] | None = None,
+    correction: SquatCorrection | None = None,
 ) -> bool:
     """Apply a webcam batch to the FSMs and return the updated session status."""
     for frame in frames:
@@ -62,7 +97,21 @@ def process_pose_frames(
 
         stop_result = stop_fsm.update(x_detected, head_detected)
         if not stop_result["is_rep_locked"]:
-            rep_fsm.update(knee_angle)
+            previous_state = rep_fsm.state
+            result = rep_fsm.update(knee_angle)
+            if voice_events is None:
+                continue
+            needs_cue = correction is not None and correction.update(knee_angle, previous_state, result)
+            if result["rep_incremented"]:
+                event = {"kind": "rep", "count": result["rep_count"]}
+            elif needs_cue:
+                event = {"kind": "shallow_squat"}
+            else:
+                continue
+            captured_at = frame.get("captured_at")
+            if type(captured_at) in (int, float) and 0 <= captured_at < math.inf:
+                event["captured_at"] = captured_at
+            voice_events.append(event)
     return session_started
 
 
@@ -72,31 +121,72 @@ class PoseSession:
     start: StartGestureFSM = field(default_factory=StartGestureFSM)
     stop: StopGestureFSM = field(default_factory=StopGestureFSM)
     started: bool = False
+    correction: SquatCorrection = field(default_factory=SquatCorrection)
+    stream_id: str | None = None
+    retired_streams: set[str] = field(default_factory=set)
+    voice_feedback: dict | None = None
 
-    def consume(self, session, batch):
-        if not batch or batch.get("session_id") != session.session_id:
+    def consume(self, session: WorkoutSession, batch) -> None:
+        if not isinstance(batch, dict) or batch.get("session_id") != session.session_id:
             return
         if session.status in ("completed", "abandoned") or session.mode != "ai":
             return
+        stream_id = batch.get("stream_id")
         end = batch.get("sequence")
         frames = batch.get("frames")
-        if type(end) is not int or not isinstance(frames, list) or not 0 < len(frames) <= 100:
+        if (
+            not isinstance(stream_id, str) or not stream_id or stream_id in self.retired_streams
+            or type(end) is not int or not isinstance(frames, list) or not 0 < len(frames) <= 100
+        ):
             return
         first = end - len(frames) + 1
         if end <= session.last_event_id or first < 1:
             return
-        if first > session.last_event_id + 1:
-            self.rep.update(None)
+        switched = self.stream_id is not None and self.stream_id != stream_id
+        if switched:
+            self.retired_streams.add(self.stream_id)
+        self.stream_id = stream_id
+
+        if switched or first > session.last_event_id + 1:
+            previous_state = self.rep.state
+            self.correction.update(None, previous_state, self.rep.update(None))
             self.start.update(False)
             self.stop.update(False, False)
+            session.status = "paused"
+
+        voice_events = []
         for seq, frame in enumerate(frames, first):
             if seq <= session.last_event_id:
                 continue
-            self.started = process_pose_frames([frame], self.rep, self.start, self.stop, self.started)
+            self.started = process_pose_frames(
+                [frame], self.rep, self.start, self.stop, self.started,
+                voice_events=voice_events, correction=self.correction,
+            )
             session.ai_reps = self.rep.rep_count
-            tracking = frame["knee_angle"] is not None
+            tracking = frame.get("knee_angle") is not None
+            if not tracking:
+                voice_events.clear()
             session.status = "active" if tracking and self.started and not self.stop.is_rep_locked else "paused"
             session.last_event_id = seq
+
+        self.voice_feedback = {
+            "session_id": session.session_id,
+            "stream_id": stream_id,
+            "sequence": end,
+            "event": voice_events[-1] if voice_events else None,
+            "stopped": self.stop.is_rep_locked or (self.started and not tracking),
+        }
+
+
+def _on_webcam_change(key: str) -> None:
+    session = st.session_state.get("workout_session")
+    pose = st.session_state.get("pose_session")
+    if session is None or pose is None:
+        return
+    try:
+        pose.consume(session, st.session_state.get(key))
+    except ValueError as error:
+        st.error(f"Không thể xử lý dữ liệu camera: {error}")
 
 
 def save_result(session, outcome, manual=None):
@@ -123,6 +213,7 @@ def render_session_view():
         st.session_state["pose_session"] = PoseSession()
 
     session = st.session_state["workout_session"]
+    pose = st.session_state["pose_session"]
     st.header("⚡ Phòng tập Trực tiếp (Workout HUD)")
 
     c_empty_l, c_center, c_empty_r = st.columns([1, 2.8, 1])
@@ -147,21 +238,15 @@ def render_session_view():
             return
         with col_left:
             st.subheader("Màn hình Giám sát Chuyển động AI (Live Feed)")
-            event = webcam(
+            widget_key = f"live_pose_{session.session_id}"
+            webcam(
                 model=webcam_model(),
                 session_id=session.session_id,
                 last_event_id=session.last_event_id,
-                key=f"live_pose_{session.session_id}",
+                voice_feedback=pose.voice_feedback,
+                key=widget_key,
+                on_change=lambda: _on_webcam_change(widget_key),
             )
-
-            pose = st.session_state.setdefault("pose_session", PoseSession())
-            pose.consume(session, event)
-            if pose.stop.is_rep_locked:
-                st.warning("Cử chỉ chữ X đã khóa số rep.")
-            elif not pose.started:
-                st.info(f"Giơ tay cao để bắt đầu: {pose.start.active_frames}/{pose.start.required_frames}")
-            else:
-                st.caption(f"Đã bắt đầu · Giữ chữ X để khóa: {pose.stop.active_frames}/{pose.stop.required_frames}")
 
         with col_right:
             st.subheader("Bảng Điều hành Phiên tập (HUD)")
@@ -174,14 +259,24 @@ def render_session_view():
                 with c1:
                     st.metric(label="Hiệp hiện tại", value="Set 2 / 3")
                 with c2:
-                    st.metric("Số Reps AI đếm", session.ai_reps)
-                    status_labels = {
-                        "paused": "Tạm dừng",
-                        "active": "Đang tập",
-                        "completed": "Đã hoàn thành",
-                        "abandoned": "Đã bỏ dở",
-                    }
-                    st.caption(f"Trạng thái: {status_labels[session.status]}")
+                    st.metric(label="Số Reps AI đếm", value=f"{session.ai_reps} Reps")
+                    status = "Đang tập" if session.status == "active" else "Tạm dừng"
+                    st.caption(f"Trạng thái: {status}")
+
+                if pose.started:
+                    st.success("Đã bắt đầu buổi tập bằng cử chỉ giơ tay.")
+                else:
+                    st.info(
+                        "Giơ một tay cao hơn đầu để bắt đầu "
+                        f"({pose.start.active_frames}/{pose.start.required_frames} khung hình)."
+                    )
+                st.progress(
+                    pose.stop.active_frames / pose.stop.required_frames,
+                    text=("Giữ hai tay thành chữ X để dừng: "
+                          f"{pose.stop.active_frames}/{pose.stop.required_frames} khung hình"),
+                )
+                if pose.stop.is_rep_locked:
+                    st.warning("Đã xác nhận dừng; số reps đã được khóa.")
             with st.container(border=True):
                 st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
                 st.progress(60 / 60, text="Thời gian nghỉ: 60s còn lại")
