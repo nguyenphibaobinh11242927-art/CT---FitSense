@@ -1685,6 +1685,8 @@ def main():
                 st.session_state["has_worked_out_today"] = False
                 st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 70}
                 st.session_state["session_history"] = []
+                for key in ("workout_session", "workout_results", "review_session_id", "pending_navigation"):
+                    st.session_state.pop(key, None)
                 st.rerun()
 
             st.markdown("<div style='font-size: 11px; font-weight: 700; text-transform: uppercase; margin: 12px 0 8px 0; letter-spacing: 0.5px;'>MENU TÍNH NĂNG</div>", unsafe_allow_html=True)
@@ -1703,6 +1705,8 @@ def main():
             if "nav_selection" in st.session_state and st.session_state["nav_selection"] in nav_options:
                 default_idx = nav_options.index(st.session_state["nav_selection"])
 
+            if "pending_navigation" in st.session_state:
+                st.session_state["main_navigation_radio"] = st.session_state.pop("pending_navigation")
             selected_nav = st.radio(
                 "App Menu",
                 options=nav_options,

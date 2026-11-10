@@ -8,16 +8,17 @@ const labels = joints.map(() => get("angles").appendChild(document.createElement
 let encodedModel, detector, connections, stream, animation, mirrored = true;
 let lastVideoTime, frameCount, windowStart;
 let pendingFrames = [], batchSequence = 0, lastBatchAt = 0;
-const streamId = globalThis.crypto?.randomUUID?.() ??
-  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
+let sessionId;
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
 }
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
+  const args = event.data.args;
   if (encodedModel) return;
+  sessionId = args.session_id;
+  batchSequence = args.last_event_id ?? 0;
   encodedModel = event.data.args.model;
 
   get("start").disabled = false;
@@ -97,16 +98,24 @@ function getPoseFeatures(pose) {
     head_detected: Boolean(nose)
   };
 }
+function queueFrame(frame) {
+  pendingFrames.push(frame);
+  if (pendingFrames.length > 100) pendingFrames.shift();
+  batchSequence++;
+}
 function sendFrameBatch() {
   if (!pendingFrames.length) return;
   const frames = pendingFrames;
-  pendingFrames = [];
   send("streamlit:setComponentValue", {
-    value: {stream_id: streamId, sequence: ++batchSequence, frames},
+    value: {session_id: sessionId, sequence: batchSequence, frames},
     dataType: "json"
   });
 }
 function stopCamera(message = "Đã tắt camera.") {
+  if (stream) {
+    queueFrame(getPoseFeatures([]));
+    sendFrameBatch();
+  }
   cancelAnimationFrame(animation);
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
@@ -124,7 +133,9 @@ function draw(now) {
   try {
     if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
+      const detectStart = performance.now();
       const pose = detector.detectForVideo(video, now).landmarks[0] ?? [];
+      const detectMs = performance.now() - detectStart;
       const w = video.videoWidth, h = video.videoHeight;
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w; canvas.height = h;
@@ -146,14 +157,14 @@ function draw(now) {
       const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
       const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
       get("status").textContent = pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.";
-      pendingFrames.push(features);
+      queueFrame(features);
       if (now - lastBatchAt >= 200) {
         lastBatchAt = now;
         sendFrameBatch();
       }
       frameCount++;
       if (now - windowStart >= 1000) {
-        get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
+        get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1) + " · Nhận diện: " + detectMs.toFixed(1) + " ms";
         frameCount = 0; windowStart = now;
       }
     }
@@ -182,7 +193,8 @@ get("start").onclick = async () => {
     });
     connections = PoseLandmarker.POSE_CONNECTIONS;
     frameCount = 0; lastVideoTime = -1; windowStart = performance.now();
-    pendingFrames = []; lastBatchAt = windowStart;
+    queueFrame(getPoseFeatures([]));
+    lastBatchAt = windowStart;
     get("stop").disabled = false;
     animation = requestAnimationFrame(draw);
   } catch (err) {
