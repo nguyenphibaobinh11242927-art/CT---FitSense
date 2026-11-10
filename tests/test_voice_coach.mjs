@@ -1,57 +1,89 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {createVoiceCoach} from "../assets/webcam/voice_coach.mjs";
+import {VI_CUES} from "../assets/webcam/voice/vi_cues.mjs";
 
-const vietnamese = {lang: "vi-VN", localService: true};
+const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function setup(voices = [vietnamese]) {
-  const spoken = [], cues = [], status = [];
-  let cancellations = 0;
+function setup(response) {
+  const played = [], cues = [], status = [], calls = [];
   const coach = createVoiceCoach({
-    synthesis: {
-      getVoices: () => voices,
-      speak: utterance => spoken.push(utterance),
-      cancel: () => { cancellations++; },
+    AudioContext: class {
+      state = "suspended";
+      currentTime = 3;
+      resume() { this.state = "running"; calls.push("resume"); }
+      decodeAudioData() { calls.push("decode"); return {}; }
+      createBufferSource() {
+        return {
+          connect() {}, disconnect() {},
+          start(...args) { this.args = args; played.push(this); },
+          stop() { this.stopped = true; },
+        };
+      }
     },
-    Utterance: class { constructor(text) { this.text = text; } },
+    fetchAudio: async url => {
+      assert.match(url.pathname, /\/voice\/vi\.mp3$/);
+      calls.push("fetch");
+      return response?.() ?? {ok: true, arrayBuffer: () => new ArrayBuffer(1)};
+    },
     showCue: text => cues.push(text),
     showStatus: text => status.push(text),
     now: () => 250,
   });
-  return {coach, spoken, cues, status, cancelled: () => cancellations};
+  return {coach, played, cues, status, calls};
 }
 
-test("reads reps and corrections immediately using the local Vietnamese voice", () => {
-  const {coach, spoken, cues, status, cancelled} = setup([
-    {lang: "en-US", localService: true}, {lang: "vi-VN", localService: false}, vietnamese,
-  ]);
+test("plays Vietnamese rep and form clips with only one audio download", async () => {
+  const {coach, played, cues, status, calls} = setup();
   coach.receive({kind: "rep", count: 1});
   assert.deepEqual(cues, ["Một"]);
-  assert.equal(spoken.length, 0);
+  assert.deepEqual(calls, []);
 
   coach.toggle();
+  assert.deepEqual(calls, ["resume", "fetch"]);
+  await flush();
+  assert.deepEqual(played[0].args, [3, ...VI_CUES[101]]);
+
   coach.receive({kind: "rep", count: 2, captured_at: 100});
-  assert.equal(spoken[1].text, "Hai");
-  assert.equal(spoken[1].voice, vietnamese);
-  spoken[1].onstart();
+  await flush();
+  assert.equal(played[0].stopped, true);
+  assert.deepEqual(played[1].args, [3, ...VI_CUES[2]]);
   assert.match(status.at(-1), /150 ms/);
 
   coach.receive({kind: "shallow_squat"});
-  assert.match(spoken[2].text, /Hạ thấp hơn/);
-  assert.equal(cancelled(), 2);
-  coach.stop();
-  assert.equal(cancelled(), 3);
-  coach.toggle();
-  coach.receive({kind: "rep", count: 3});
-  assert.equal(spoken.length, 3);
+  await flush();
+  assert.deepEqual(played[2].args, [3, ...VI_CUES[102]]);
+  assert.match(cues.at(-1), /Hạ thấp hơn/);
+  assert.deepEqual(calls, ["resume", "fetch", "decode"]);
 });
 
-test("shows cues and an explanation when Vietnamese speech is unavailable", () => {
-  const {coach, spoken, cues, status} = setup([{lang: "en-US"}]);
+test("reads counts past 100 digit by digit and stops all clips when muted", async () => {
+  const {coach, played, cues} = setup();
   coach.toggle();
+  coach.receive({kind: "rep", count: 105});
+  await flush();
+  assert.deepEqual(played.map(source => source.args.slice(1)), [VI_CUES[1], VI_CUES[0], VI_CUES[5]]);
+  assert.ok(played[1].args[0] > played[0].args[0]);
+  coach.toggle();
+  assert.ok(played.every(source => source.stopped));
   coach.receive({kind: "rep", count: 3});
-  coach.receive({kind: "rep", count: 0});
-  assert.deepEqual(cues, ["Ba"]);
-  assert.equal(spoken.length, 0);
-  assert.match(status.at(-1), /Chưa có giọng tiếng Việt/);
+  await flush();
+  assert.equal(cues.at(-1), "Ba");
+  assert.equal(played.length, 3);
+});
+
+test("shows a playback error and retries the download when re-enabled", async () => {
+  let available = false;
+  const {coach, played, status, calls} = setup(() => ({
+    ok: available, arrayBuffer: () => new ArrayBuffer(1),
+  }));
+  coach.toggle();
+  await flush();
+  assert.match(status.at(-1), /Không phát được âm thanh/);
+  available = true;
+  coach.toggle();
+  coach.toggle();
+  await flush();
+  assert.equal(played.length, 1);
+  assert.equal(calls.filter(call => call === "fetch").length, 2);
 });

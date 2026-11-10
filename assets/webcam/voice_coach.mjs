@@ -1,45 +1,63 @@
-const REP_WORDS = ["", "Một", "Hai", "Ba", "Bốn", "Năm", "Sáu", "Bảy", "Tám", "Chín", "Mười"];
+import {VI_CUES} from "./voice/vi_cues.mjs";
 
-export function createVoiceCoach({synthesis, Utterance, showCue, showStatus, now = () => performance.now()}) {
-  const supported = Boolean(synthesis && Utterance);
+const REP_WORDS = ["", "Một", "Hai", "Ba", "Bốn", "Năm", "Sáu", "Bảy", "Tám", "Chín", "Mười"];
+const MAX_RECORDED_REP = 100;
+const ENABLE_CUE = MAX_RECORDED_REP + 1;
+const SHALLOW_SQUAT_CUE = ENABLE_CUE + 1;
+const VOICE_URL = new URL("./voice/vi.mp3", import.meta.url);
+
+export function createVoiceCoach({
+  AudioContext, fetchAudio = globalThis.fetch, showCue, showStatus, now = () => performance.now(),
+}) {
+  const supported = typeof AudioContext === "function";
   let enabled = false;
-  let active;
+  let context, audioBuffer;
+  let sources = [], playbackId = 0;
 
   function stop() {
-    if (!active) return;
-    active = null;
-    synthesis.cancel();
+    playbackId++;
+    for (const source of sources) source.stop();
+    sources = [];
   }
 
-  function speak(text, capturedAt) {
+  async function play(cueIds, capturedAt) {
     stop();
-    const voices = synthesis.getVoices().filter(voice => /^vi(?:-|$)/i.test(voice.lang));
-    const voice = voices.find(voice => voice.localService) ?? voices[0];
-    if (!voice) {
-      showStatus("Chưa có giọng tiếng Việt. Hãy cài giọng tiếng Việt cho thiết bị.");
-      return;
-    }
+    const id = playbackId;
+    try {
+      context ??= new AudioContext();
+      // Call resume before awaiting so the Voice Coach click can unlock playback.
+      const ready = context.state === "running" ? undefined : context.resume();
+      audioBuffer ??= fetchAudio(VOICE_URL).then(response => {
+        if (!response.ok) throw new Error("Voice cues unavailable");
+        return response.arrayBuffer();
+      }).then(bytes => context.decodeAudioData(bytes)).catch(error => {
+        audioBuffer = undefined;
+        throw error;
+      });
+      const [buffer] = await Promise.all([audioBuffer, ready]);
+      if (id !== playbackId) return;
 
-    const utterance = new Utterance(text);
-    utterance.lang = voice.lang;
-    utterance.voice = voice;
-    utterance.onstart = () => {
-      if (active !== utterance) return;
+      let when = context.currentTime;
+      for (const cueId of cueIds) {
+        const [offset, duration] = VI_CUES[cueId];
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
+        source.onended = () => {
+          source.disconnect();
+          sources = sources.filter(playing => playing !== source);
+        };
+        source.start(when, offset, duration);
+        sources.push(source);
+        when += duration;
+      }
       const elapsed = Number.isFinite(capturedAt) ? now() - capturedAt : -1;
       showStatus(elapsed >= 0
-        ? `Từ khung hình đến lúc bắt đầu đọc: ${Math.round(elapsed)} ms.`
+        ? `Từ khung hình đến lúc lên lịch phát: ${Math.round(elapsed)} ms.`
         : "Đã bật giọng tiếng Việt.");
-    };
-    utterance.onend = () => {
-      if (active === utterance) active = null;
-    };
-    utterance.onerror = () => {
-      if (active !== utterance) return;
-      active = null;
-      showStatus("Không phát được giọng nói. Hãy tắt rồi bật lại Voice Coach.");
-    };
-    active = utterance;
-    synthesis.speak(utterance);
+    } catch {
+      if (id === playbackId) showStatus("Không phát được âm thanh. Hãy tắt rồi bật lại Voice Coach.");
+    }
   }
 
   return {
@@ -49,8 +67,8 @@ export function createVoiceCoach({synthesis, Utterance, showCue, showStatus, now
       if (!supported) return;
       enabled = !enabled;
       if (enabled) {
-        showStatus("Đang thử giọng tiếng Việt…");
-        speak("Đã bật trợ lý giọng nói.");
+        showStatus("Đang nạp giọng tiếng Việt…");
+        void play([ENABLE_CUE]);
       } else {
         stop();
         showStatus("Đã tắt giọng nói.");
@@ -58,15 +76,18 @@ export function createVoiceCoach({synthesis, Utterance, showCue, showStatus, now
     },
     receive(event) {
       let text;
+      let cues;
       if (event?.kind === "rep" && Number.isSafeInteger(event.count) && event.count > 0) {
         text = REP_WORDS[event.count] ?? String(event.count);
+        cues = event.count <= MAX_RECORDED_REP ? [event.count] : Array.from(String(event.count), Number);
       } else if (event?.kind === "shallow_squat") {
         text = "Hạ thấp hơn một chút nếu thấy thoải mái.";
+        cues = [SHALLOW_SQUAT_CUE];
       } else {
         return;
       }
       showCue(text);
-      if (enabled) speak(text, event.captured_at);
+      if (enabled) void play(cues, event.captured_at);
     },
     stop,
   };

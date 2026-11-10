@@ -23,15 +23,12 @@ const cameraErrors = {
   OverconstrainedError: "Camera đã chọn không còn khả dụng. Hãy chọn thiết bị khác rồi thử lại.",
 };
 const voiceCoach = createVoiceCoach({
-  synthesis: window.speechSynthesis,
-  Utterance: window.SpeechSynthesisUtterance,
+  AudioContext: window.AudioContext ?? window.webkitAudioContext,
   showCue: text => { get("voice-cue").textContent = text; },
   showStatus: text => { get("voice-status").textContent = text; },
 });
 voiceButton.disabled = !voiceCoach.supported;
-if (voiceCoach.supported) {
-  window.speechSynthesis.getVoices();
-} else {
+if (!voiceCoach.supported) {
   get("voice-status").textContent = "Trình duyệt này không hỗ trợ phát giọng nói.";
 }
 voiceButton.onclick = () => {
