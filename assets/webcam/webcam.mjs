@@ -14,6 +14,14 @@ const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let lastVoiceSequence = 0;
 const voiceButton = get("voice");
+const cameraDevice = get("camera-device");
+const mediaDevices = navigator.mediaDevices;
+const cameraErrors = {
+  NotAllowedError: "Trình duyệt hoặc hệ điều hành đang chặn camera. Hãy kiểm tra quyền camera cho trang này rồi thử lại.",
+  NotFoundError: "Không tìm thấy camera. Hãy kết nối camera hoặc chọn Chế độ Tự do trong phòng tập.",
+  NotReadableError: "Không đọc được camera. Hãy kiểm tra kết nối và đóng ứng dụng khác đang dùng camera.",
+  OverconstrainedError: "Camera đã chọn không còn khả dụng. Hãy chọn thiết bị khác rồi thử lại.",
+};
 const voiceCoach = createVoiceCoach({
   synthesis: window.speechSynthesis,
   Utterance: window.SpeechSynthesisUtterance,
@@ -34,14 +42,46 @@ voiceButton.onclick = () => {
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
 }
+
+async function refreshCameraDevices() {
+  if (!mediaDevices?.enumerateDevices) return;
+  try {
+    const devices = await mediaDevices.enumerateDevices();
+    const cameras = devices.filter(device => device.kind === "videoinput" && device.deviceId);
+    const selected = cameraDevice.value;
+    cameraDevice.replaceChildren(new Option("Mặc định của trình duyệt", ""));
+    cameras.forEach((camera, index) => {
+      cameraDevice.add(new Option(camera.label || `Camera ${index + 1}`, camera.deviceId));
+    });
+    if (cameras.some(camera => camera.deviceId === selected)) cameraDevice.value = selected;
+  } catch {
+    // The browser's default camera remains available even if listing devices fails.
+  }
+}
+
+const setupTimer = window.parent === window ? null : setTimeout(() => {
+  get("status").textContent = "Chưa nhận được dữ liệu camera từ FitSense. Hãy tải lại trang phòng tập.";
+}, 8000);
+if (window.parent === window) {
+  get("status").textContent = "Hãy mở Phòng tập Trực tiếp trong app FitSense để dùng camera. Trang này cần dữ liệu từ app.";
+}
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
   const {model, voice_feedback: feedback} = event.data.args;
-  if (!encodedModel) {
+  if (!encodedModel && model) {
     encodedModel = model;
+    clearTimeout(setupTimer);
+    if (!mediaDevices?.getUserMedia) {
+      get("status").textContent = window.isSecureContext
+        ? "Trình duyệt này không mở được camera. Hãy thử Chrome, Edge hoặc Chế độ Tự do."
+        : "Camera cần HTTPS hoặc localhost. Hãy mở FitSense qua một trong hai địa chỉ này.";
+      return;
+    }
     get("start").disabled = false;
+    cameraDevice.disabled = false;
     get("status").textContent = "Sẵn sàng bật camera.";
+    void refreshCameraDevices();
   }
 
   if (!detector) return;
@@ -59,9 +99,12 @@ window.addEventListener("message", event => {
     voiceCoach.receive(feedback.event);
   }
 });
-send("streamlit:componentReady", {apiVersion: 1});
-new ResizeObserver(() => send("streamlit:setFrameHeight", {height: document.body.offsetHeight + 2}))
-  .observe(document.body);
+if (window.parent !== window) {
+  send("streamlit:componentReady", {apiVersion: 1});
+  new ResizeObserver(() => send("streamlit:setFrameHeight", {height: document.body.offsetHeight + 2}))
+    .observe(document.body);
+}
+mediaDevices?.addEventListener("devicechange", refreshCameraDevices);
 
 function updateAngles(points) {
   joints.forEach(([label, a, b, c], i) => {
@@ -156,7 +199,8 @@ function stopCamera(message = "Đã tắt camera.") {
   detector?.close();
   detector = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  get("start").disabled = !encodedModel;
+  get("start").disabled = !encodedModel || !mediaDevices?.getUserMedia;
+  cameraDevice.disabled = get("start").disabled;
   get("stop").disabled = true;
   get("status").textContent = message;
   get("fps").textContent = "FPS: —";
@@ -207,9 +251,13 @@ get("mirror").onclick = () => {
 };
 get("start").onclick = async () => {
   get("start").disabled = true;
+  cameraDevice.disabled = true;
   get("status").textContent = "Đang mở camera và nạp model…";
   try {
-    stream = await navigator.mediaDevices.getUserMedia({video: {width:{ideal:640}, height:{ideal:480}}, audio:false});
+    const constraints = {width: {ideal: 640}, height: {ideal: 480}};
+    if (cameraDevice.value) constraints.deviceId = {exact: cameraDevice.value};
+    stream = await mediaDevices.getUserMedia({video: constraints, audio: false});
+    void refreshCameraDevices();
     stream.getVideoTracks()[0].onended = () => stopCamera("Camera đã ngắt kết nối.");
     video.srcObject = stream;
     await video.play();
@@ -225,8 +273,8 @@ get("start").onclick = async () => {
     get("stop").disabled = false;
     animation = requestAnimationFrame(draw);
   } catch (err) {
-    stopCamera(err.name === "NotAllowedError" ? "Hãy cho phép camera trong trình duyệt rồi bật lại." :
-      "Không mở được camera: " + err.message);
+    stopCamera(cameraErrors[err.name] ?? "Không mở được camera: " + err.message);
+    void refreshCameraDevices();
   }
 };
 get("stop").onclick = () => {
