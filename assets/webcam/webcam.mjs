@@ -14,7 +14,6 @@ const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let lastVoiceSequence = 0;
 const voiceButton = get("voice");
-const cameraButton = get("camera-toggle");
 const cameraDevice = get("camera-device");
 const mediaDevices = navigator.mediaDevices;
 const cameraErrors = {
@@ -34,13 +33,9 @@ if (!voiceCoach.supported) {
 }
 voiceButton.onclick = () => {
   voiceCoach.toggle();
+  get("voice-icon").textContent = voiceCoach.enabled ? "🔊" : "🔇";
   voiceButton.setAttribute("aria-pressed", String(voiceCoach.enabled));
 };
-
-function showCameraActive(active) {
-  cameraButton.textContent = active ? "⏹ Tắt camera" : "📷 Bật camera";
-  cameraButton.setAttribute("aria-pressed", String(active));
-}
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
@@ -81,9 +76,9 @@ window.addEventListener("message", event => {
         : "Camera cần HTTPS hoặc localhost. Hãy mở FitSense qua một trong hai địa chỉ này.";
       return;
     }
-    cameraButton.disabled = false;
+    get("start").disabled = false;
     cameraDevice.disabled = false;
-    get("status").textContent = "";
+    get("status").textContent = "Sẵn sàng bật camera.";
     void refreshCameraDevices();
   }
 
@@ -188,7 +183,7 @@ function sendFrameBatch() {
     dataType: "json"
   });
 }
-function stopCamera(message = "") {
+function stopCamera(message = "Đã tắt camera.") {
   voiceCoach.stop();
   lastVoiceSequence = batchSequence;
   get("voice-cue").textContent = "";
@@ -199,9 +194,9 @@ function stopCamera(message = "") {
   detector?.close();
   detector = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  showCameraActive(false);
-  cameraButton.disabled = !encodedModel || !mediaDevices?.getUserMedia;
-  cameraDevice.disabled = cameraButton.disabled;
+  get("start").disabled = !encodedModel || !mediaDevices?.getUserMedia;
+  cameraDevice.disabled = get("start").disabled;
+  get("stop").disabled = true;
   get("status").textContent = message;
   get("fps").textContent = "FPS: —";
   updateAngles([]);
@@ -229,6 +224,9 @@ function draw(now) {
       }
       updateAngles(points);
       const features = getPoseFeatures(points);
+      const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
+      const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
+      get("status").textContent = pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.";
       pendingFrames.push({...features, captured_at: now});
       if (now - lastBatchAt >= 200) {
         lastBatchAt = now;
@@ -249,8 +247,8 @@ get("mirror").onclick = () => {
   canvas.style.transform = mirrored ? "scaleX(-1)" : "";
   get("mirror").setAttribute("aria-pressed", String(mirrored));
 };
-async function startCamera() {
-  cameraButton.disabled = true;
+get("start").onclick = async () => {
+  get("start").disabled = true;
   cameraDevice.disabled = true;
   get("status").textContent = "Đang mở camera và nạp model…";
   try {
@@ -270,22 +268,16 @@ async function startCamera() {
     connections = PoseLandmarker.POSE_CONNECTIONS;
     frameCount = 0; lastVideoTime = -1; windowStart = performance.now();
     pendingFrames = []; lastBatchAt = windowStart;
-    showCameraActive(true);
-    cameraButton.disabled = false;
-    get("status").textContent = "";
+    get("stop").disabled = false;
     animation = requestAnimationFrame(draw);
   } catch (err) {
     stopCamera(cameraErrors[err.name] ?? "Không mở được camera: " + err.message);
     void refreshCameraDevices();
   }
-}
-cameraButton.onclick = () => {
-  if (stream) {
-    sendFrameBatch();
-    stopCamera();
-  } else {
-    void startCamera();
-  }
+};
+get("stop").onclick = () => {
+  sendFrameBatch();
+  stopCamera();
 };
 window.addEventListener("pagehide", () => stopCamera());
 updateAngles([]);
