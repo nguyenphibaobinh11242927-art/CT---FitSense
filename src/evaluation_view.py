@@ -11,6 +11,20 @@ def render_evaluation_view():
     st.header("📝 Đánh giá Sau Buổi tập & Tối ưu Thích ứng Thể lực")
     st.caption("AI lắng nghe phản hồi sinh học của bạn để điều chỉnh độ khó cho các buổi kế tiếp.")
 
+    results = st.session_state.get("workout_results", {})
+    result = None
+    if results:
+        ids = list(reversed(results))
+        selected = st.selectbox("Buổi tập cần đánh giá", ids,
+                                format_func=lambda sid: f"Buổi {sid[:8]}", key="review_session_id")
+        result = results[selected]
+        outcome = "Hoàn thành" if result["status"] == "completed" else "Bỏ dở"
+        mode = "AI Vision" if result["mode"] == "ai" else "Tự do"
+        st.write(f"{outcome} · {mode} · {result['reps']} rep")
+        if result["manual"]:
+            counts = result["manual"]
+            st.caption(f"Squat: {counts['squat']} · Push-up: {counts['pushup']} · Plank: {counts['plank_seconds']} giây")
+
     col1, col2 = st.columns([1.2, 1], gap="medium")
 
     with col1:
@@ -48,7 +62,8 @@ def render_evaluation_view():
         user_note = st.text_area("Ghi chú cá nhân (tùy chọn):", placeholder="Hôm nay trời hơi oi bức, hiệp cuối Squat bị mỏi gối nhẹ nên dừng sớm...")
 
         if st.button("💾 Gửi Đánh giá & Xem Đề xuất AI", type="primary", use_container_width=True):
-            st.session_state["has_worked_out_today"] = True
+            if result is None or result["status"] == "completed":
+                st.session_state["has_worked_out_today"] = True
             st.session_state["last_eval"] = {
                 "completion_rate": completion_rate,
                 "rpe": rpe,

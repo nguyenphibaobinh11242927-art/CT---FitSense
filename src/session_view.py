@@ -3,6 +3,7 @@
 Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ kép) và Chế độ Tự do Không Camera.
 """
 
+from src.workout_session import apply_event, finish_session, start_session
 import base64
 from pathlib import Path
 import streamlit as st
@@ -19,9 +20,29 @@ def webcam_model():
     return base64.b64encode(model.read_bytes()).decode("ascii")
 
 
+def save_result(session, outcome, manual=None):
+    finish_session(session, outcome)
+    results = st.session_state.setdefault("workout_results", {})
+    results.setdefault(session.session_id, {
+        "mode": session.mode, "status": session.status,
+        "reps": session.ai_reps if manual is None else manual["squat"] + manual["pushup"],
+        "manual": manual,
+    })
+    st.session_state["review_session_id"] = session.session_id
+    if session.status == "completed":
+        st.session_state["has_worked_out_today"] = True
+    st.session_state["pending_navigation"] = "📝 Đánh giá Sau Buổi tập"
+    st.rerun()
+
+
 def render_session_view():
     """Hiển thị HUD điều hành buổi tập trực tiếp rảnh tay hoặc tự nhập sau khi tập."""
-    st.session_state.setdefault("ai_reps", 0)
+    if "workout_session" not in st.session_state:
+        session = start_session(mode="ai")
+        session.status = "paused"  # Chờ camera nhìn thấy người lần đầu.
+        st.session_state["workout_session"] = session
+
+    session = st.session_state["workout_session"]
     st.header("⚡ Phòng tập Trực tiếp (Workout HUD)")
 
     c_empty_l, c_center, c_empty_r = st.columns([1, 2.8, 1])
@@ -38,9 +59,23 @@ def render_session_view():
     col_left, col_right = st.columns([1.6, 1], gap="medium")
 
     if mode == "🤖 Chế độ AI Vision (Camera Rảnh tay)":
+        if session.status in ("completed", "abandoned"):
+            st.info("Phiên tập đã kết thúc.")
+            if st.button("Bắt đầu buổi mới"):
+                del st.session_state["workout_session"]
+                st.rerun()
+            return
         with col_left:
             st.subheader("Màn hình Giám sát Chuyển động AI (Live Feed)")
-            webcam(model=webcam_model(), key="live_pose")
+            event = webcam(
+                model=webcam_model(),
+                session_id=session.session_id,
+                last_event_id=session.last_event_id,
+                key=f"live_pose_{session.session_id}",
+            )
+
+            if event is not None:
+                apply_event(session, **event)
 
         with col_right:
             st.subheader("Bảng Điều hành Phiên tập (HUD)")
@@ -53,8 +88,14 @@ def render_session_view():
                 with c1:
                     st.metric(label="Hiệp hiện tại", value="Set 2 / 3")
                 with c2:
-                    st.metric(label="Số Reps AI đếm", value=st.session_state["ai_reps"])
-
+                    st.metric("Số Reps AI đếm", session.ai_reps)
+                    status_labels = {
+                        "paused": "Tạm dừng",
+                        "active": "Đang tập",
+                        "completed": "Đã hoàn thành",
+                        "abandoned": "Đã bỏ dở",
+                    }
+                    st.caption(f"Trạng thái: {status_labels[session.status]}")
             with st.container(border=True):
                 st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
                 st.progress(60 / 60, text="Thời gian nghỉ: 60s còn lại")
@@ -68,9 +109,9 @@ def render_session_view():
 
             st.markdown("---")
             if st.button("🏁 Hoàn tất Buổi tập & Sang Đánh giá", type="primary", use_container_width=True):
-                st.session_state["has_worked_out_today"] = True
-                st.session_state["nav_selection"] = "📝 Đánh giá Sau Buổi tập"
-                st.rerun()
+                save_result(session, "completed")
+            if st.button("Bỏ dở buổi tập", use_container_width=True):
+                save_result(session, "abandoned")
 
     else:
         # Chế độ Tự do Không Camera
@@ -80,16 +121,16 @@ def render_session_view():
 
             with st.form("manual_session_form"):
                 st.markdown("#### Nhập kết quả thực tế từng bài:")
-                st.number_input("1. Squat Thể dục — Số reps hoàn thành:", min_value=0, max_value=100, value=36)
-                st.number_input("2. Push-up — Số reps hoàn thành:", min_value=0, max_value=100, value=30)
-                st.number_input("3. Plank tĩnh — Tổng giây giữ được:", min_value=0, max_value=300, value=120)
+                squat = st.number_input("1. Squat Thể dục — Số reps hoàn thành:", min_value=0, max_value=100, value=36)
+                pushup = st.number_input("2. Push-up — Số reps hoàn thành:", min_value=0, max_value=100, value=30)
+                plank = st.number_input("3. Plank tĩnh — Tổng giây giữ được:", min_value=0, max_value=300, value=120)
 
                 submitted = st.form_submit_button("Lưu & Kết thúc Buổi tập", type="primary")
-                if submitted:
-                    st.session_state["has_worked_out_today"] = True
-                    st.success("Đã ghi nhận toàn bộ kết quả vào nhật ký!")
-                    st.session_state["nav_selection"] = "📝 Đánh giá Sau Buổi tập"
-                    st.rerun()
+                abandoned = st.form_submit_button("Lưu buổi bỏ dở")
+                if submitted or abandoned:
+                    manual_session = start_session(mode="manual")
+                    save_result(manual_session, "completed" if submitted else "abandoned",
+                                {"squat": squat, "pushup": pushup, "plank_seconds": plank})
 
         with col_right:
             st.subheader("Hướng dẫn buổi tập")

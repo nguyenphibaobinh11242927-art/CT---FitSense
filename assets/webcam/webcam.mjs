@@ -7,6 +7,24 @@ const joints = [
 const labels = joints.map(() => get("angles").appendChild(document.createElement("span")));
 let encodedModel, detector, connections, stream, animation, mirrored = true;
 let lastVideoTime, frameCount, windowStart;
+let sessionId;
+let lastEventId = 0;
+let previousTracking = null;
+
+function reportTracking(isTracking) {
+  if (!sessionId || previousTracking === isTracking) return;
+
+  previousTracking = isTracking;
+  lastEventId += 1;
+  send("streamlit:setComponentValue", {
+    dataType: "json",
+    value: {
+      session_id: sessionId,
+      event_id: lastEventId,
+      event_type: isTracking ? "tracking_restored" : "tracking_lost"
+    }
+  });
+}
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
@@ -14,6 +32,8 @@ function send(type, data) {
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
+  sessionId = event.data.args.session_id;
+  lastEventId = Math.max(lastEventId, event.data.args.last_event_id ?? 0);
   if (encodedModel) return;
   encodedModel = event.data.args.model;
 
@@ -38,6 +58,7 @@ function updateAngles(points) {
   });
 }
 function stopCamera(message = "Đã tắt camera.") {
+  reportTracking(false);
   cancelAnimationFrame(animation);
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
@@ -55,7 +76,10 @@ function draw(now) {
   try {
     if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
+      const detectStart = performance.now();
       const pose = detector.detectForVideo(video, now).landmarks[0] ?? [];
+      const detectMs = performance.now() - detectStart;
+      reportTracking(pose.length > 0);
       const w = video.videoWidth, h = video.videoHeight;
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w; canvas.height = h;
@@ -76,8 +100,8 @@ function draw(now) {
       get("status").textContent = pose.length ? "Đang theo dõi" : "Hãy đứng trong khung hình.";
       frameCount++;
       if (now - windowStart >= 1000) {
-        get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
-        frameCount = 0; windowStart = now;
+        get("fps").textContent =
+          `FPS: ${(1000 * frameCount / (now - windowStart)).toFixed(1)} | Nhận diện: ${detectMs.toFixed(1)} ms`;
       }
     }
     animation = requestAnimationFrame(draw);
@@ -100,7 +124,8 @@ get("start").onclick = async () => {
     const {FilesetResolver, PoseLandmarker} = await import("./vendor/mediapipe/vision_bundle.mjs");
     const files = await FilesetResolver.forVisionTasks(new URL("./vendor/mediapipe/wasm", location.href).href);
     detector = await PoseLandmarker.createFromOptions(files, {
-      baseOptions:{modelAssetBuffer:Uint8Array.from(atob(encodedModel), c => c.charCodeAt(0))},
+      baseOptions:{modelAssetBuffer:Uint8Array.from(atob(encodedModel), c => c.charCodeAt(0))
+      },
       runningMode:"VIDEO", numPoses:1
     });
     connections = PoseLandmarker.POSE_CONNECTIONS;
