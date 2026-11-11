@@ -4,17 +4,27 @@ const MAX_RECORDED_REP = 100;
 const ENABLE_CUE = MAX_RECORDED_REP + 1;
 const SHALLOW_SQUAT_CUE = ENABLE_CUE + 1;
 const VOICE_URL = new URL("./voice/vi.mp3", import.meta.url);
+const CORRECTION_COOLDOWN_MS = 4000;
+const CORRECTION_MAX_AGE_MS = 1000;
 
 export function createVoiceCoach({
   AudioContext, fetchAudio = globalThis.fetch, showCue, showStatus, now = () => performance.now(),
+  onEnabledChange = () => {}, onCorrection = () => {},
 }) {
   const supported = typeof AudioContext === "function";
   let enabled = false;
   let context, audioBuffer;
   let current, pendingRep, pendingCorrection;
+  let lastCorrectionAt = -Infinity;
+
+  function setEnabled(value) {
+    enabled = value;
+    onEnabledChange(enabled);
+  }
 
   function stop() {
     const playback = current;
+    if (pendingCorrection) onCorrection(pendingCorrection.event, "stopped");
     current = pendingRep = pendingCorrection = null;
     for (const source of playback?.sources ?? []) source.stop();
   }
@@ -54,7 +64,7 @@ export function createVoiceCoach({
           } else if (pendingCorrection) {
             const next = pendingCorrection;
             pendingCorrection = null;
-            void playCorrection(next);
+            scheduleCorrection(next);
           }
         };
         source.start(when, offset, duration);
@@ -65,10 +75,13 @@ export function createVoiceCoach({
       showStatus(elapsed >= 0
         ? `Từ khung hình đến lúc lên lịch phát: ${Math.round(elapsed)} ms.`
         : "Đã bật giọng tiếng Việt.");
+      return true;
     } catch {
       if (current !== playback) return;
       stop();
-      showStatus("Không phát được âm thanh. Hãy tắt rồi bật lại Voice Coach.");
+      setEnabled(false);
+      showCue("");
+      showStatus("Không phát được âm thanh. Bấm Voice Coach để thử lại.");
     }
   }
 
@@ -77,9 +90,32 @@ export function createVoiceCoach({
     return play(cues, capturedAt);
   }
 
-  function playCorrection({captured_at: capturedAt}) {
+  async function playCorrection(event) {
     showCue("Hạ thấp hơn nếu thấy thoải mái.");
-    return play([SHALLOW_SQUAT_CUE], capturedAt);
+    if (await play([SHALLOW_SQUAT_CUE], event.captured_at)) {
+      lastCorrectionAt = now();
+      onCorrection(event, "scheduled");
+    } else {
+      onCorrection(event, "not-played");
+    }
+  }
+
+  function scheduleCorrection(request) {
+    const {event, expiresAt} = request;
+    const timestamp = now();
+    if (!enabled) {
+      onCorrection(event, "muted");
+    } else if (timestamp >= expiresAt) {
+      onCorrection(event, "expired");
+    } else if (timestamp - lastCorrectionAt < CORRECTION_COOLDOWN_MS) {
+      onCorrection(event, "cooldown");
+    } else if (current) {
+      if (pendingCorrection) onCorrection(pendingCorrection.event, "replaced");
+      pendingCorrection = request;
+      onCorrection(event, "waiting");
+    } else {
+      void playCorrection(event);
+    }
   }
 
   return {
@@ -87,7 +123,7 @@ export function createVoiceCoach({
     get enabled() { return enabled; },
     toggle() {
       if (!supported) return;
-      enabled = !enabled;
+      setEnabled(!enabled);
       if (enabled) {
         showStatus("Đang nạp giọng tiếng Việt…");
         void play([ENABLE_CUE]);
@@ -98,16 +134,20 @@ export function createVoiceCoach({
       }
     },
     receive(event) {
+      if (event?.kind === "shallow_squat") {
+        onCorrection(event, "detected");
+        const capturedAt = Number.isFinite(event.captured_at) ? event.captured_at : now();
+        scheduleCorrection({event, expiresAt: capturedAt + CORRECTION_MAX_AGE_MS});
+        return;
+      }
       if (!enabled) return;
       if (event?.kind === "rep" && Number.isSafeInteger(event.count) && event.count > 0) {
+        if (pendingCorrection) onCorrection(pendingCorrection.event, "rep-completed");
         pendingCorrection = null;
         showCue("");
         // Keep the latest rep while a clip finishes, without building up a queue.
         if (current) pendingRep = event;
         else void playRep(event);
-      } else if (event?.kind === "shallow_squat") {
-        if (current) pendingCorrection = event;
-        else void playCorrection(event);
       }
     },
     stop,

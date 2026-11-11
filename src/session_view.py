@@ -4,6 +4,7 @@ Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ 
 """
 
 import base64
+import logging
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +20,7 @@ from src.workout_session import WorkoutSession, finish_session, start_session
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
 SHALLOW_ATTEMPT_ANGLE = 130
-SHALLOW_ATTEMPTS_TO_CUE = 2
+logger = logging.getLogger(__name__)
 
 
 @st.cache_data
@@ -31,28 +32,16 @@ def webcam_model():
 @dataclass
 class SquatCorrection:
     deepest_angle: float = 180
-    shallow_attempts: int = 0
-    notified: bool = False
 
     def update(self, angle, previous_state, result):
-        if result["rep_incremented"]:
-            self.notified = False
-        if self.notified:
-            return False
-
         if angle is None or result["state"] == RepCounterFSM.STATE_DOWN or result["rep_incremented"]:
             self.deepest_angle = 180
-            self.shallow_attempts = 0
         elif result["state"] == RepCounterFSM.STATE_GOING_DOWN:
             self.deepest_angle = min(self.deepest_angle, angle)
         elif previous_state == RepCounterFSM.STATE_GOING_DOWN and result["state"] == RepCounterFSM.STATE_UP:
             attempted_squat = self.deepest_angle <= SHALLOW_ATTEMPT_ANGLE
             self.deepest_angle = 180
-            self.shallow_attempts = self.shallow_attempts + 1 if attempted_squat else 0
-            if self.shallow_attempts >= SHALLOW_ATTEMPTS_TO_CUE:
-                self.shallow_attempts = 0
-                self.notified = True
-                return True
+            return attempted_squat
         return False
 
 
@@ -158,10 +147,15 @@ class PoseSession:
         for seq, frame in enumerate(frames, first):
             if seq <= session.last_event_id:
                 continue
+            previous_event_count = len(voice_events)
             self.started = process_pose_frames(
                 [frame], self.rep, self.start, self.stop, self.started,
                 voice_events=voice_events, correction=self.correction,
             )
+            if len(voice_events) > previous_event_count and voice_events[-1]["kind"] == "shallow_squat":
+                event = voice_events[-1]
+                event["frame_sequence"] = seq
+                logger.debug("Detected shallow squat at frame %s (%s ms)", seq, event.get("captured_at"))
             session.ai_reps = self.rep.rep_count
             tracking = frame.get("knee_angle") is not None
             if not tracking:
@@ -173,7 +167,7 @@ class PoseSession:
             "session_id": session.session_id,
             "stream_id": stream_id,
             "sequence": end,
-            "event": voice_events[-1] if voice_events else None,
+            "events": voice_events,
             "stopped": self.stop.is_rep_locked or (self.started and not tracking),
         }
 

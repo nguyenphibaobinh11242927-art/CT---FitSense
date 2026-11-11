@@ -47,4 +47,4 @@ class PoseHandoffTests(unittest.TestCase):
         self.assertEqual(session.last_event_id, 5)
         deliver("second", 10, [170, 145, 90, 120, 165])
         self.assertEqual(session.ai_reps, 1)
-        self.assertEqual(pose.voice_feedback["event"], {"kind": "rep", "count": 1})
+        self.assertEqual(pose.voice_feedback["events"], [{"kind": "rep", "count": 1}])

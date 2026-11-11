@@ -31,16 +31,19 @@ const voiceCoach = createVoiceCoach({
   AudioContext: window.AudioContext ?? window.webkitAudioContext,
   showCue: text => { get("voice-cue").textContent = text; },
   showStatus: text => { get("voice-status").textContent = text; },
+  onEnabledChange: enabled => {
+    get("voice-icon").textContent = enabled ? "🔊" : "🔇";
+    voiceButton.setAttribute("aria-pressed", String(enabled));
+  },
+  onCorrection: (event, decision) => {
+    console.debug("Voice Coach squat nông", {frame: event.frame_sequence, decision});
+  },
 });
 voiceButton.disabled = !voiceCoach.supported;
 if (!voiceCoach.supported) {
   get("voice-status").textContent = "Trình duyệt này không hỗ trợ phát giọng nói.";
 }
-voiceButton.onclick = () => {
-  voiceCoach.toggle();
-  get("voice-icon").textContent = voiceCoach.enabled ? "🔊" : "🔇";
-  voiceButton.setAttribute("aria-pressed", String(voiceCoach.enabled));
-};
+voiceButton.onclick = () => voiceCoach.toggle();
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
@@ -101,7 +104,7 @@ window.addEventListener("message", event => {
     voiceCoach.stop();
     get("voice-cue").textContent = "";
   } else {
-    voiceCoach.receive(feedback.event);
+    for (const event of feedback.events ?? []) voiceCoach.receive(event);
   }
 });
 if (window.parent !== window) {

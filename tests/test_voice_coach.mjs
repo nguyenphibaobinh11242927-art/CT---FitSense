@@ -6,7 +6,8 @@ import {VI_CUES} from "../assets/webcam/voice/vi_cues.mjs";
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function setup(response) {
-  const played = [], cues = [], status = [], calls = [];
+  const played = [], cues = [], status = [], calls = [], enabledStates = [], corrections = [];
+  let now = 250;
   const coach = createVoiceCoach({
     AudioContext: class {
       state = "suspended";
@@ -28,9 +29,11 @@ function setup(response) {
     },
     showCue: text => cues.push(text),
     showStatus: text => status.push(text),
-    now: () => 250,
+    onEnabledChange: enabled => enabledStates.push(enabled),
+    onCorrection: (event, decision) => corrections.push([event.frame_sequence, decision]),
+    now: () => now,
   });
-  return {coach, played, cues, status, calls};
+  return {coach, played, cues, status, calls, enabledStates, corrections, advance(ms) { now += ms; }};
 }
 
 test("plays Vietnamese rep and form clips with only one audio download", async () => {
@@ -102,16 +105,52 @@ test("finishes the current rep and keeps only the most recent pending count", as
 
 test("shows a playback error and retries the download when re-enabled", async () => {
   let available = false;
-  const {coach, played, status, calls} = setup(() => ({
+  const {coach, played, status, calls, enabledStates} = setup(() => ({
     ok: available, arrayBuffer: () => new ArrayBuffer(1),
   }));
   coach.toggle();
   await flush();
   assert.match(status.at(-1), /Không phát được âm thanh/);
+  assert.equal(coach.enabled, false);
+  assert.deepEqual(enabledStates, [true, false]);
   available = true;
   coach.toggle();
-  coach.toggle();
   await flush();
+  assert.deepEqual(enabledStates, [true, false, true]);
   assert.equal(played.length, 1);
   assert.equal(calls.filter(call => call === "fetch").length, 2);
+});
+
+test("logs each shallow squat, skips cues inside four seconds, and drops stale cues", async () => {
+  const {coach, played, corrections, advance} = setup();
+  coach.toggle();
+  await flush();
+  played.shift().onended();
+  const squat = frame => coach.receive({kind: "shallow_squat", frame_sequence: frame});
+
+  squat(1);
+  await flush();
+  played[0].onended();
+  advance(3999);
+  squat(2);
+  await flush();
+  assert.equal(played.length, 1);
+  advance(1);
+  squat(3);
+  await flush();
+  assert.equal(played.length, 2);
+  played[1].onended();
+
+  advance(4000);
+  coach.receive({kind: "rep", count: 1});
+  await flush();
+  squat(4);
+  advance(1000);
+  played[2].onended();
+  await flush();
+  assert.equal(played.length, 3);
+  assert.deepEqual(corrections, [
+    [1, "detected"], [1, "scheduled"], [2, "detected"], [2, "cooldown"],
+    [3, "detected"], [3, "scheduled"], [4, "detected"], [4, "waiting"], [4, "expired"],
+  ]);
 });
