@@ -4,6 +4,7 @@ FitSense — AI Fitness & Calisthenics Workout Assistant.
 Hệ thống web hỗ trợ tập luyện thể thao cá nhân hóa với AI Pose Tracking và Adaptive Overload.
 """
 
+from datetime import datetime
 import streamlit as st
 import html
 
@@ -13,7 +14,13 @@ from src.auth_view import render_auth_view
 import src.profile_view as profile_view_mod
 importlib.reload(profile_view_mod)
 from src.profile_view import render_profile_view
-from src.planner_view import render_planner_view
+from src.planner_view import (
+    count_day_target_reps,
+    get_next_active_schedule_day,
+    get_today_schedule_day,
+    get_today_weekday_name,
+    render_planner_view,
+)
 from src.library_view import render_library_view
 from src.session_view import render_session_view
 from src.evaluation_view import render_evaluation_view
@@ -35,6 +42,10 @@ def init_app_state(force_reset: bool = False):
     if "is_logged_in" not in st.session_state or force_reset:
         st.session_state["is_logged_in"] = False
         st.session_state["user_profile"] = None
+
+    # Pop-up chào mừng & thông báo lịch tập hôm nay khi vừa vào web
+    if "welcome_modal_dismissed" not in st.session_state or force_reset:
+        st.session_state["welcome_modal_dismissed"] = False
 
     # Trạng thái hoàn thành bài tập hôm nay (Phục vụ biểu cảm của Capybara)
     if "has_worked_out_today" not in st.session_state or force_reset:
@@ -117,69 +128,9 @@ def init_app_state(force_reset: bool = False):
         }
     ]
 
-    # Thư viện Bài tập
-    st.session_state["exercise_library"] = [
-        {
-            "name": "Squat Thể dục (Bodyweight Squat)",
-            "icon": "🦵",
-            "primary_muscle": "Đùi & Mông (Quads/Glutes)",
-            "secondary_muscle": "Bắp chân, Lưng dưới",
-            "equipment": "Bodyweight",
-            "difficulty": "Beginner",
-            "description": "Bài tập vua cho thân dưới, phát triển sức mạnh đùi trước và mông săn chắc.",
-            "steps": ["Đứng thẳng, chân mở rộng bằng vai, mũi chân xoay nhẹ 15 độ.", "Hạ mông về sau như ngồi ghế, giữ ngực mở và lưng thẳng.", "Đạt góc gối 90 - 100 độ thì dừng lại.", "Dùng gót chân đẩy người đứng thẳng hoàn toàn."],
-            "common_mistake": "Đầu gối chụm vào nhau, võng lưng hoặc nhấc gót chân khỏi sàn.",
-            "substitute": "Wall Sit (Ngồi tựa tường) nếu có vấn đề khớp gối."
-        },
-        {
-            "name": "Standard Push-up (Hít đất chuẩn)",
-            "icon": "💪",
-            "primary_muscle": "Ngực (Chest)",
-            "secondary_muscle": "Tay sau (Triceps), Vai (Shoulders)",
-            "equipment": "Bodyweight",
-            "difficulty": "Intermediate",
-            "description": "Bài tập phát triển toàn diện ngực, vai và sức bền tay sau.",
-            "steps": ["Chống hai tay xuống sàn rộng hơn vai một chút.", "Siết chặt cơ bụng và cơ mông để cơ thể tạo thành một đường thẳng.", "Hạ ngực chạm gần sàn trong khi hít vào.", "Thở ra và đẩy mạnh cơ thể trở lại vị trí ban đầu."],
-            "common_mistake": "Võng bụng sà xuống sàn, xòe cùi chỏ quá rộng 90 độ gây mỏi vai.",
-            "substitute": "Knee Push-up (Hít đất quỳ gối) hoặc Incline Push-up (Chống tay lên bàn)."
-        },
-        {
-            "name": "Plank Tĩnh (Core Plank)",
-            "icon": "🧱",
-            "primary_muscle": "Bụng & Core",
-            "secondary_muscle": "Lưng dưới, Vai",
-            "equipment": "Thảm",
-            "difficulty": "Beginner",
-            "description": "Bài tập đẳng trường (isometric) xây dựng cơ bụng và bảo vệ cột sống thắt lưng.",
-            "steps": ["Chống cùi chỏ vuông góc 90 độ dưới vai.", "Mắt nhìn xuống sàn, siết cứng bụng, mông và đùi.", "Hít thở đều đặn và giữ vững tư thế không để hông sà xuống."],
-            "common_mistake": "Nâng mông quá cao hoặc võng lưng dưới làm đau thắt lưng.",
-            "substitute": "Dead Bug hoặc Bird Dog."
-        },
-        {
-            "name": "Glute Bridge (Nâng mông trên thảm)",
-            "icon": "🍑",
-            "primary_muscle": "Đùi & Mông (Quads/Glutes)",
-            "secondary_muscle": "Đùi sau (Hamstrings)",
-            "equipment": "Thảm",
-            "difficulty": "Beginner",
-            "description": "Kích hoạt cơ mông cực tốt mà hoàn toàn không gây áp lực lên khớp gối.",
-            "steps": ["Nằm ngửa trên thảm, co 2 đầu gối lại và đặt bàn chân sát mông.", "Dùng lực từ gót chân đẩy hông lên cao đến khi gối, hông và vai tạo thành đường thẳng.", "Siết chặt cơ mông ở đỉnh trong 1-2 giây rồi từ từ hạ xuống."],
-            "common_mistake": "Đẩy hông quá cao gây uốn cong cột sống lưng quá mức.",
-            "substitute": "Single Leg Glute Bridge."
-        },
-        {
-            "name": "Dips trên ghế (Bench Dips)",
-            "icon": "🪑",
-            "primary_muscle": "Tay sau (Triceps)",
-            "secondary_muscle": "Ngực (Chest)",
-            "equipment": "Ghế / Giường",
-            "difficulty": "Beginner",
-            "description": "Bài tập tác động mạnh mẽ vào bắp tay sau mà không cần tạ.",
-            "steps": ["Ngồi cạnh mép ghế, đặt hai bàn tay cạnh đùi, các ngón tay hướng về phía trước.", "Trượt mông ra khỏi mép ghế, hạ người xuống bằng cách gập cùi chỏ góc 90 độ.", "Dùng lực bắp tay sau đẩy người thẳng lên."],
-            "common_mistake": "Hạ người quá sâu làm xoay khớp vai gây chấn thương.",
-            "substitute": "Dây kháng lực duỗi tay sau (Tricep Pushdown)."
-        }
-    ]
+    # SCRUM-17: Thư viện chuẩn hoá dùng chung, không hardcode trong UI.
+    from src.exercise_library import load_catalog
+    st.session_state["exercise_library"] = load_catalog()
 
     # Bảng nhiệt Phục hồi Cơ bắp
     st.session_state["muscle_recovery"] = {
@@ -240,7 +191,26 @@ def apply_custom_styles(theme: str = "dark"):
             background-color: #FFFFFF !important;
             border-right: 1px solid #E2E8F0 !important;
         }
-        h1, h2, h3, h4, h5, h6, label, p, span {
+        [data-testid="stDialog"] > div,
+        [data-testid="stDialog"] [role="dialog"],
+        [class*="ep9mgll1"] {
+            background-color: #FFFFFF !important;
+            background: #FFFFFF !important;
+            color: #0F172A !important;
+        }
+        [data-testid="stDialog"] > div {
+            border: 1.5px solid #E2E8F0 !important;
+            border-radius: 16px !important;
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18) !important;
+        }
+        [data-testid="stDialog"] button[aria-label="Close"],
+        [data-testid="stDialog"] button[aria-label="Close"] svg {
+            color: #0F172A !important;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        h1, h2, h3, h4, h5, h6, label, p, span, li, strong {
             color: #0F172A !important;
         }
 
@@ -775,7 +745,26 @@ def apply_custom_styles(theme: str = "dark"):
             background-color: #0B111E !important;
             border-right: 1px solid #1E2E48 !important;
         }
-        h1, h2, h3, h4, h5, h6, label, p, span {
+        [data-testid="stDialog"] > div,
+        [data-testid="stDialog"] [role="dialog"],
+        [class*="ep9mgll1"] {
+            background-color: #111C2E !important;
+            background: #111C2E !important;
+            color: #F8FAFC !important;
+        }
+        [data-testid="stDialog"] > div {
+            border: 1.5px solid #1E2E48 !important;
+            border-radius: 16px !important;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65) !important;
+        }
+        [data-testid="stDialog"] button[aria-label="Close"],
+        [data-testid="stDialog"] button[aria-label="Close"] svg {
+            color: #F8FAFC !important;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        h1, h2, h3, h4, h5, h6, label, p, span, li, strong {
             color: #F8FAFC !important;
         }
 
@@ -1581,9 +1570,93 @@ def apply_custom_styles(theme: str = "dark"):
     div[data-testid="stVegaLiteChart"] {
         background: transparent !important;
     }
+
+    /* Chống mờ dần / nhấp nháy do trạng thái stale của Streamlit khi webcam cập nhật liên tục */
+    [data-stale="true"],
+    [data-testid="stAppViewContainer"] [data-stale="true"],
+    .stElementContainer[data-stale="true"],
+    div[data-testid="stVerticalBlock"] [data-stale="true"],
+    div[data-testid="stCustomComponentV1"],
+    iframe[title*="fitsense_webcam"] {
+        opacity: 1 !important;
+        transition: none !important;
+    }
     """
 
     st.markdown(f"<style>{css}\n{common_css}</style>", unsafe_allow_html=True)
+
+
+def _dismiss_welcome_modal() -> None:
+    """Đánh dấu đã xem pop-up chào mừng khi người dùng đóng hộp thoại."""
+    st.session_state["welcome_modal_dismissed"] = True
+
+
+@st.dialog("👋 Chào mừng đến với FitSense!", width="large", dismissible=True, on_dismiss=_dismiss_welcome_modal)
+def render_welcome_daily_dialog(user: dict | None) -> None:
+    """Pop-up chào mừng & thông báo lịch tập hôm nay dựa trên ngày thực tế của máy tính."""
+    now = datetime.now()
+    today_name = get_today_weekday_name(now)
+    date_str = now.strftime("%d/%m/%Y")
+    schedule = st.session_state.get("weekly_schedule", [])
+    today_entry = get_today_schedule_day(schedule, now=now)
+    next_active = get_next_active_schedule_day(schedule)
+
+    raw_name = str((user or {}).get("name", "bạn"))
+    safe_name = html.escape(raw_name)
+    st.markdown(f"### Chào **{safe_name}**! 📅 Hôm nay là **{today_name} ({date_str})**")
+
+    if today_entry and not today_entry.get("is_rest") and today_entry.get("exercises"):
+        total_reps = count_day_target_reps(today_entry)
+        st.info(
+            f"🎯 **Buổi tập hôm nay:** {today_entry.get('focus', 'Lộ trình cá nhân')}"
+            + (f" — Mục tiêu **{total_reps} Reps**" if total_reps > 0 else "")
+        )
+        if today_entry.get("ai_reason"):
+            st.caption(f"💡 {today_entry['ai_reason']}")
+        st.markdown("**📋 Các bài cần tập hôm nay:**")
+        for idx, ex in enumerate(today_entry["exercises"], 1):
+            reps_label = ex.get("reps")
+            unit = "" if isinstance(reps_label, str) and not reps_label.isdigit() else " reps"
+            st.write(f"{idx}. **{ex.get('name')}** — {ex.get('sets')} sets × {reps_label}{unit} (Nghỉ {ex.get('rest_sec', 60)}s)")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🚀 Bắt đầu tập ngay hôm nay", key="welcome_start_today_btn", type="primary", use_container_width=True):
+                st.session_state["welcome_modal_dismissed"] = True
+                st.session_state["active_workout"] = today_entry
+                st.session_state["selected_session_day"] = today_entry.get("day")
+                st.session_state["pending_navigation"] = "⚡ Phòng tập Trực tiếp (HUD)"
+                st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
+                st.rerun()
+        with c2:
+            if st.button("📋 Xem / Chỉnh Kế hoạch tuần", key="welcome_open_planner_btn", use_container_width=True):
+                st.session_state["welcome_modal_dismissed"] = True
+                st.session_state["pending_navigation"] = "📋 Kế hoạch Tập luyện Tuần"
+                st.session_state["nav_selection"] = "📋 Kế hoạch Tập luyện Tuần"
+                st.rerun()
+    else:
+        focus_msg = today_entry.get("focus", "Nghỉ ngơi phục hồi (Rest Day)") if today_entry else "Nghỉ ngơi phục hồi"
+        st.success(f"🌱 **Hôm nay ({today_name}) là Ngày Nghỉ Phục Hồi:** {focus_msg}")
+        st.write("- Gợi ý hôm nay: Đi bộ nhẹ nhàng 20 phút, giãn cơ toàn thân hoặc uống đủ nước để cơ bắp tái tạo năng lượng.")
+        b1, b2, b3 = st.columns(3)
+        with b1:
+            if st.button("📋 Xem Kế hoạch Tuần", key="welcome_rest_planner_btn", type="primary", use_container_width=True):
+                st.session_state["welcome_modal_dismissed"] = True
+                st.session_state["pending_navigation"] = "📋 Kế hoạch Tập luyện Tuần"
+                st.session_state["nav_selection"] = "📋 Kế hoạch Tập luyện Tuần"
+                st.rerun()
+        with b2:
+            if next_active and st.button("💪 Tập bù buổi gần nhất", key="welcome_rest_makeup_btn", use_container_width=True):
+                st.session_state["welcome_modal_dismissed"] = True
+                st.session_state["active_workout"] = next_active
+                st.session_state["selected_session_day"] = next_active.get("day")
+                st.session_state["pending_navigation"] = "⚡ Phòng tập Trực tiếp (HUD)"
+                st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
+                st.rerun()
+        with b3:
+            if st.button("👍 Đóng thông báo", key="welcome_rest_close_btn", use_container_width=True):
+                st.session_state["welcome_modal_dismissed"] = True
+                st.rerun()
 
 
 def on_theme_change():
@@ -1679,13 +1752,25 @@ def main():
                 unsafe_allow_html=True
             )
 
+            if st.button("📅 Xem lịch tập Hôm nay", key="sidebar_open_welcome_btn", use_container_width=True):
+                st.session_state["welcome_modal_dismissed"] = False
+                st.rerun()
+
             if st.button("🚪 Đăng xuất", use_container_width=True):
                 st.session_state["is_logged_in"] = False
                 st.session_state["user_profile"] = None
                 st.session_state["has_worked_out_today"] = False
+                st.session_state["welcome_modal_dismissed"] = False
                 st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 70}
                 st.session_state["session_history"] = []
-                for key in ("workout_session", "workout_results", "review_session_id", "pending_navigation"):
+                for key in (
+                    "workout_session",
+                    "workout_results",
+                    "review_session_id",
+                    "pending_navigation",
+                    "active_workout",
+                    "selected_session_day",
+                ):
                     st.session_state.pop(key, None)
                 st.rerun()
 
@@ -1733,6 +1818,10 @@ def main():
         # Khi chưa đăng nhập: DUY NHẤT chỉ hiển thị form Đăng nhập / Đăng ký!
         render_auth_view()
     else:
+        # Pop-up chào mừng & thông báo lịch tập hôm nay khi vừa vào web
+        if not st.session_state.get("welcome_modal_dismissed", False):
+            render_welcome_daily_dialog(user)
+
         # Khi đã đăng nhập: Hiển thị màn hình theo lựa chọn của menu
         current_screen = st.session_state.get("nav_selection", "⚡ Phòng tập Trực tiếp (HUD)")
 
@@ -1752,11 +1841,13 @@ def main():
             render_progress_view()
 
     # ================= CHÚ CHUỘT TÚI CAPYBARA ĐỒNG HÀNH Ở GÓC MÀN HÌNH =================
+    active_screen = st.session_state.get("nav_selection") if is_logged_in else None
     render_capybara_companion(
         theme=theme,
         has_worked_out_today=st.session_state.get("has_worked_out_today", False),
         user_name=user.get("name", "bạn") if user else "bạn",
-        is_logged_in=is_logged_in
+        is_logged_in=is_logged_in,
+        current_screen=active_screen,
     )
 
 

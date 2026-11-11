@@ -14,18 +14,21 @@ if st.session_state.get("pending_navigation"):
 else:
     render_session_view()
 """
-        for outcome, label in (
-            ("completed", "🏁 Hoàn tất Buổi tập & Sang Đánh giá"),
-            ("abandoned", "Bỏ dở buổi tập"),
-        ):
-            with self.subTest(outcome=outcome):
+        for click_pause in (False, True):
+            with self.subTest(click_pause=click_pause):
                 app = AppTest.from_string(script).run()
                 session = app.session_state["workout_session"]
                 session.ai_reps = 2
-                next(b for b in app.button if b.label == label).click().run()
+                if click_pause:
+                    next(b for b in app.button if "Tạm ngưng" in b.label).click().run()
+                    self.assertTrue(app.session_state["session_user_paused"])
+                    self.assertEqual(app.session_state["paused_progress"]["reps"], 2)
+                    next(b for b in app.button if "Tiếp tục" in b.label).click().run()
+                    self.assertFalse(app.session_state["session_user_paused"])
+                next(b for b in app.button if "Kết thúc" in b.label).click().run()
                 self.assertFalse(app.exception)
                 record = app.session_state["workout_results"][session.session_id]
-                self.assertEqual((record["status"], record["reps"]), (outcome, 2))
+                self.assertEqual((record["status"], record["reps"]), ("completed", 2))
                 app.session_state["pending_navigation"] = None
                 app.run()
                 next(b for b in app.button if b.label == "Bắt đầu buổi mới").click().run()

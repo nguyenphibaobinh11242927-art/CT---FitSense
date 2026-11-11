@@ -122,27 +122,30 @@ render_session_view()
             return json.loads(component.json_args)["voice_feedback"]
 
         slight_bend = send([self.frame(angle) for angle in (145, 165)] * 2)
-        self.assertIsNone(slight_bend["event"])
+        self.assertEqual(slight_bend["events"], [])
         attempt = [self.frame(angle) for angle in (145, 115, 165)]
-        self.assertIsNone(send(attempt)["event"])
+        self.assertEqual(send(attempt[:-1])["events"], [])
         self.assertTrue(send([self.frame(None)])["stopped"])
         self.assertEqual(session.status, "paused")
-        self.assertIsNone(send([self.frame(165), *attempt])["event"])
-        shallow = send([*attempt[:-1], self.frame(165) | {"captured_at": 123}])
-        self.assertEqual(shallow["event"], {"kind": "shallow_squat", "captured_at": 123})
-        self.assertIsNone(send(attempt * 4)["event"])
+        self.assertEqual(send([self.frame(165)])["events"], [])
+        with self.assertLogs("src.session_view", level="DEBUG") as logged:
+            shallow = send([*attempt[:-1], self.frame(165) | {"captured_at": 123}, *attempt])
+        self.assertEqual(shallow["events"], [
+            {"kind": "shallow_squat", "captured_at": 123, "frame_sequence": shallow["sequence"] - 3},
+            {"kind": "shallow_squat", "frame_sequence": shallow["sequence"]},
+        ])
+        self.assertEqual(len(logged.records), 2)
         rep = send([self.frame(angle) for angle in (145, 90, 120, 165)])
-        self.assertEqual(rep["event"], {"kind": "rep", "count": 1})
+        self.assertEqual(rep["events"], [{"kind": "rep", "count": 1}])
         self.assertEqual(rep["session_id"], session.session_id)
         self.assertEqual(rep["stream_id"], "test-camera")
         self.assertEqual(session.ai_reps, 1)
         self.assertEqual(send([self.frame(165)], sequence=rep["sequence"]), rep)
-        self.assertIsNone(send(attempt)["event"])
-        self.assertEqual(send(attempt)["event"], {"kind": "shallow_squat"})
+        self.assertEqual(len(send(attempt)["events"]), 1)
         stopped = send([self.frame(x_detected=True)])
         self.assertTrue(stopped["stopped"])
-        self.assertIsNone(stopped["event"])
-        self.assertIsNone(send([self.frame(angle) for angle in (145, 90, 120, 165)])["event"])
+        self.assertEqual(stopped["events"], [])
+        self.assertEqual(send([self.frame(angle) for angle in (145, 90, 120, 165)])["events"], [])
         self.assertEqual(session.ai_reps, 1)
 
 

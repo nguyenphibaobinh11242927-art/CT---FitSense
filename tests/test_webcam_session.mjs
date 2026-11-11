@@ -7,7 +7,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   const messages = [], heard = [];
   const parent = {postMessage(message) { messages.push(structuredClone(message)); }};
   const origin = "http://localhost:8501";
-  let renderListener, animation, videoFrame, now = 0;
+  let renderListener, animation, videoFrame, updateSpeaker, now = 0;
   const win = {parent, addEventListener(type, listener) {
     if (type === "message") renderListener = listener;
   }};
@@ -17,7 +17,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
       style: {}, disabled: true, value: "",
       getContext: () => ({drawImage() {}, clearRect() {}, beginPath() {}, arc() {}, fill() {}}),
       appendChild: node => node,
-      setAttribute() {}, async play() {},
+      setAttribute(name, value) { this[name] = value; }, async play() {},
     });
     return nodes.get(id);
   };
@@ -48,7 +48,10 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
       return {getTracks: () => [track], getVideoTracks: () => [track]};
     }}},
     document: {getElementById: element, createElement: () => ({}), body: {}},
-    createVoiceCoach: () => ({supported: true, stop() {}, receive(event) { heard.push(event); }}),
+    createVoiceCoach: ({onEnabledChange}) => {
+      updateSpeaker = onEnabledChange;
+      return {supported: true, stop() {}, receive(event) { heard.push(event); }};
+    },
     ResizeObserver: class {observe() {}}, URL, atob, setTimeout, clearTimeout,
     performance: {now: () => now}, cancelAnimationFrame() {},
     requestAnimationFrame(callback) { animation = callback; return 1; },
@@ -65,7 +68,13 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   };
 
   render({model: "dGVzdA==", last_event_id: 8});
-  await element("start").onclick();
+  updateSpeaker(true);
+  assert.equal(element("voice-icon").textContent, "🔊");
+  assert.equal(element("voice")["aria-pressed"], "true");
+  updateSpeaker(false);
+  assert.equal(element("voice-icon").textContent, "🔇");
+  assert.equal(element("voice")["aria-pressed"], "false");
+  await element("camera-toggle").onclick();
   const opened = batches().at(-1);
   assert.equal(opened.session_id, "workout");
   assert.equal(typeof opened.stream_id, "string");
@@ -79,12 +88,12 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(frame.frames.length, 1);
   assert.equal(frame.frames[0].knee_angle, 180);
   assert.equal(frame.frames[0].captured_at, 200);
-  const feedback = {...frame, event: {kind: "rep", count: 1}};
+  const feedback = {...frame, events: [{kind: "rep", count: 1}, {kind: "shallow_squat", frame_sequence: 10}]};
   render({last_event_id: 10, voice_feedback: {...feedback, stream_id: "previous-camera"}});
   assert.equal(heard.length, 0);
   render({last_event_id: 10, voice_feedback: feedback});
   render({last_event_id: 10, voice_feedback: feedback});
-  assert.deepEqual(heard, [{kind: "rep", count: 1}]);
+  assert.deepEqual(heard, feedback.events);
 
   tick(799);
   assert.equal(batches().at(-1).sequence, 10);
@@ -99,7 +108,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(resumed.sequence, 12);
   assert.equal(resumed.stream_id, opened.stream_id);
   assert.deepEqual(resumed.frames.map(sample => sample.knee_angle), [null, 180]);
-  element("stop").onclick();
+  element("camera-toggle").onclick();
   assert.equal(batches().at(-1).sequence, 13);
   assert.equal(batches().at(-1).frames.at(-1).knee_angle, null);
   assert.equal(videoFrame, null);
