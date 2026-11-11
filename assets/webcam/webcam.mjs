@@ -198,7 +198,7 @@ function sendFrameBatch() {
 }
 function sendTrackingLoss() {
   trackingInterrupted = true;
-  queueFrame(getPoseFeatures([]));
+  queueFrame({...getPoseFeatures([]), tracking_interrupted: true});
   lastVoiceSequence = frameSequence;
   voiceCoach.stop();
   get("voice-cue").textContent = "";

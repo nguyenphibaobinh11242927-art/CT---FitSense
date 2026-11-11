@@ -6,7 +6,8 @@ from streamlit.testing.v1 import AppTest
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 from src.fsm_rep_counter import RepCounterFSM
-from src.session_view import process_pose_frames
+from src.session_view import PoseSession, process_pose_frames
+from src.workout_session import start_session
 
 class SessionFsmIntegrationTests(unittest.TestCase):
     """Kiểm tra luồng FSM nhận dữ liệu theo lô từ camera."""
@@ -92,6 +93,25 @@ class SessionFsmIntegrationTests(unittest.TestCase):
         self.assertFalse(self.stop_fsm.is_rep_locked)
         self.assertEqual(self.stop_fsm.active_frames, 0)
 
+    def test_shallow_feedback_cancels_incomplete_attempt_at_camera_interruption(self):
+        for label, stream, sequence, frames in (
+            ("camera pause", "camera", 5, [self.frame() | {"tracking_interrupted": True}, self.frame(165)]),
+            ("new camera", "replacement", 4, [self.frame(165)]),
+            ("missing batch", "camera", 5, [self.frame(165)]),
+        ):
+            with self.subTest(interruption=label):
+                session = start_session()
+                pose = PoseSession(started=True)
+                pose.consume(session, {
+                    "session_id": session.session_id, "stream_id": "camera", "sequence": 3,
+                    "frames": [self.frame(angle) for angle in (170, 145, 115)],
+                })
+                pose.consume(session, {
+                    "session_id": session.session_id, "stream_id": stream,
+                    "sequence": sequence, "frames": frames,
+                })
+                self.assertEqual(pose.voice_feedback["events"], [])
+
     def test_voice_feedback_reaches_webcam_on_the_same_rerun(self):
         app = AppTest.from_string("""
 import streamlit as st
@@ -121,12 +141,22 @@ render_session_view()
             self.assertEqual(component.id, component_id)
             return json.loads(component.json_args)["voice_feedback"]
 
-        slight_bend = send([self.frame(angle) for angle in (145, 165)] * 2)
+        slight_bend = send([self.frame(angle) for angle in (145, 136, 165)])
         self.assertEqual(slight_bend["events"], [])
-        attempt = [self.frame(angle) for angle in (145, 115, 165)]
+        attempt = [self.frame(angle) for angle in (145, 135, 165)]
         self.assertEqual(send(attempt[:-1])["events"], [])
         self.assertTrue(send([self.frame(None)])["stopped"])
         self.assertEqual(session.status, "paused")
+        recovered = send([self.frame(165), self.frame(165)])
+        self.assertEqual(recovered["events"], [
+            {"kind": "shallow_squat", "frame_sequence": recovered["sequence"] - 1},
+        ])
+        recovered = send([self.frame(angle) for angle in (145, None, None, 135, 165)])
+        self.assertEqual(recovered["events"], [
+            {"kind": "shallow_squat", "frame_sequence": recovered["sequence"]},
+        ])
+        self.assertEqual(send([self.frame(angle) for angle in (145, 135, None, None, None, 135, 165)])["events"], [])
+        self.assertEqual(send([self.frame(angle) for angle in (145, 135, None, 90, 120, 165)])["events"], [])
         self.assertEqual(send([self.frame(165)])["events"], [])
         with self.assertLogs("src.session_view", level="DEBUG") as logged:
             shallow = send([*attempt[:-1], self.frame(165) | {"captured_at": 123}, *attempt])

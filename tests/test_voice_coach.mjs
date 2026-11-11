@@ -121,7 +121,7 @@ test("shows a playback error and retries the download when re-enabled", async ()
   assert.equal(calls.filter(call => call === "fetch").length, 2);
 });
 
-test("logs each shallow squat, skips cues inside four seconds, and drops stale cues", async () => {
+test("logs each shallow squat, skips cues inside 3.5 seconds, and drops stale cues", async () => {
   const {coach, played, corrections, advance} = setup();
   coach.toggle();
   await flush();
@@ -131,7 +131,7 @@ test("logs each shallow squat, skips cues inside four seconds, and drops stale c
   squat(1);
   await flush();
   played[0].onended();
-  advance(3999);
+  advance(3499);
   squat(2);
   await flush();
   assert.equal(played.length, 1);
@@ -141,7 +141,7 @@ test("logs each shallow squat, skips cues inside four seconds, and drops stale c
   assert.equal(played.length, 2);
   played[1].onended();
 
-  advance(4000);
+  advance(3500);
   coach.receive({kind: "rep", count: 1});
   await flush();
   squat(4);

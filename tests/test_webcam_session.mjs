@@ -80,6 +80,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(typeof opened.stream_id, "string");
   assert.equal(opened.sequence, 9);
   assert.equal(opened.frames[0].knee_angle, null);
+  assert.equal(opened.frames[0].tracking_interrupted, true);
   render({last_event_id: 9});
 
   tick(200, 1);
@@ -100,6 +101,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   tick(800);
   assert.equal(batches().at(-1).sequence, 11);
   assert.equal(batches().at(-1).frames[0].knee_angle, null);
+  assert.equal(batches().at(-1).frames[0].tracking_interrupted, true);
   tick(900);
   assert.equal(batches().at(-1).sequence, 11);
 

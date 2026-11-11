@@ -4,7 +4,7 @@ const MAX_RECORDED_REP = 100;
 const ENABLE_CUE = MAX_RECORDED_REP + 1;
 const SHALLOW_SQUAT_CUE = ENABLE_CUE + 1;
 const VOICE_URL = new URL("./voice/vi.mp3", import.meta.url);
-const CORRECTION_COOLDOWN_MS = 4000;
+const CORRECTION_COOLDOWN_MS = 3500;
 const CORRECTION_MAX_AGE_MS = 1000;
 
 export function createVoiceCoach({

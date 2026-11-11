@@ -19,7 +19,8 @@ from src.workout_session import WorkoutSession, finish_session, start_session
 
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
-SHALLOW_ATTEMPT_ANGLE = 130
+SHALLOW_ATTEMPT_ANGLE = 135
+SHALLOW_TRACKING_GRACE_FRAMES = 2
 logger = logging.getLogger(__name__)
 
 
@@ -31,17 +32,32 @@ def webcam_model():
 
 @dataclass
 class SquatCorrection:
-    deepest_angle: float = 180
+    deepest_angle: float | None = None
+    missing_frames: int = 0
 
-    def update(self, angle, previous_state, result):
-        if angle is None or result["state"] == RepCounterFSM.STATE_DOWN or result["rep_incremented"]:
-            self.deepest_angle = 180
-        elif result["state"] == RepCounterFSM.STATE_GOING_DOWN:
+    def reset(self) -> None:
+        self.deepest_angle = None
+        self.missing_frames = 0
+
+    def update(self, angle: float | None, rep_fsm: RepCounterFSM) -> bool:
+        if angle is None:
+            self.missing_frames += 1
+            if self.missing_frames > SHALLOW_TRACKING_GRACE_FRAMES:
+                self.reset()
+            return False
+
+        self.missing_frames = 0
+        if angle >= rep_fsm.up_thresh:
+            deepest_angle = self.deepest_angle
+            self.deepest_angle = None
+            return deepest_angle is not None and rep_fsm.down_thresh < deepest_angle <= SHALLOW_ATTEMPT_ANGLE
+
+        # The rep FSM waits for an upright frame after tracking loss. Keep the
+        # depth of an ongoing attempt through brief gaps for form feedback.
+        if self.deepest_angle is not None:
             self.deepest_angle = min(self.deepest_angle, angle)
-        elif previous_state == RepCounterFSM.STATE_GOING_DOWN and result["state"] == RepCounterFSM.STATE_UP:
-            attempted_squat = self.deepest_angle <= SHALLOW_ATTEMPT_ANGLE
-            self.deepest_angle = 180
-            return attempted_squat
+        elif rep_fsm.state == RepCounterFSM.STATE_GOING_DOWN:
+            self.deepest_angle = angle
         return False
 
 
@@ -86,11 +102,12 @@ def process_pose_frames(
 
         stop_result = stop_fsm.update(x_detected, head_detected)
         if not stop_result["is_rep_locked"]:
-            previous_state = rep_fsm.state
             result = rep_fsm.update(knee_angle)
             if voice_events is None:
                 continue
-            needs_cue = correction is not None and correction.update(knee_angle, previous_state, result)
+            if correction is not None and frame.get("tracking_interrupted") is True:
+                correction.reset()
+            needs_cue = correction is not None and correction.update(knee_angle, rep_fsm)
             if result["rep_incremented"]:
                 event = {"kind": "rep", "count": result["rep_count"]}
             elif needs_cue:
@@ -137,8 +154,8 @@ class PoseSession:
         self.stream_id = stream_id
 
         if switched or first > session.last_event_id + 1:
-            previous_state = self.rep.state
-            self.correction.update(None, previous_state, self.rep.update(None))
+            self.rep.update(None)
+            self.correction.reset()
             self.start.update(False)
             self.stop.update(False, False)
             session.status = "paused"
