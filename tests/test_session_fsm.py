@@ -111,6 +111,8 @@ class SessionFsmIntegrationTests(unittest.TestCase):
                     "sequence": sequence, "frames": frames,
                 })
                 self.assertEqual(pose.voice_feedback["events"], [])
+                self.assertTrue(pose.voice_feedback["interrupted"])
+                self.assertFalse(pose.voice_feedback["stopped"])
 
     def test_voice_feedback_reaches_webcam_on_the_same_rerun(self):
         app = AppTest.from_string("""
@@ -145,7 +147,7 @@ render_session_view()
         self.assertEqual(slight_bend["events"], [])
         attempt = [self.frame(angle) for angle in (145, 135, 165)]
         self.assertEqual(send(attempt[:-1])["events"], [])
-        self.assertTrue(send([self.frame(None)])["stopped"])
+        self.assertFalse(send([self.frame(None)])["stopped"])
         self.assertEqual(session.status, "paused")
         recovered = send([self.frame(165), self.frame(165)])
         self.assertEqual(recovered["events"], [
@@ -155,7 +157,10 @@ render_session_view()
         self.assertEqual(recovered["events"], [
             {"kind": "shallow_squat", "frame_sequence": recovered["sequence"]},
         ])
-        self.assertEqual(send([self.frame(angle) for angle in (145, 135, None, None, None, 135, 165)])["events"], [])
+        lost = send([self.frame(angle) for angle in (145, 135, None, None, None)])
+        self.assertTrue(lost["stopped"])
+        self.assertTrue(lost["interrupted"])
+        self.assertEqual(send([self.frame(135), self.frame(165)])["events"], [])
         self.assertEqual(send([self.frame(angle) for angle in (145, 135, None, 90, 120, 165)])["events"], [])
         self.assertEqual(send([self.frame(165)])["events"], [])
         with self.assertLogs("src.session_view", level="DEBUG") as logged:
@@ -165,6 +170,13 @@ render_session_view()
             {"kind": "shallow_squat", "frame_sequence": shallow["sequence"]},
         ])
         self.assertEqual(len(logged.records), 2)
+        noisy_batch = send([*attempt, self.frame(None), self.frame(None)])
+        self.assertFalse(noisy_batch["stopped"])
+        self.assertFalse(noisy_batch["interrupted"])
+        self.assertEqual(noisy_batch["events"], [
+            {"kind": "shallow_squat", "frame_sequence": noisy_batch["sequence"] - 2},
+        ])
+        send([self.frame(165)])
         rep = send([self.frame(angle) for angle in (145, 90, 120, 165)])
         self.assertEqual(rep["events"], [{"kind": "rep", "count": 1}])
         self.assertEqual(rep["session_id"], session.session_id)

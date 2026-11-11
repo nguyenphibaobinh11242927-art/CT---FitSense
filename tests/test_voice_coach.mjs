@@ -121,6 +121,43 @@ test("shows a playback error and retries the download when re-enabled", async ()
   assert.equal(calls.filter(call => call === "fetch").length, 2);
 });
 
+test("reads the latest completed rep before coaching on a newer attempt in the same batch", async () => {
+  const {coach, played, corrections} = setup();
+  coach.toggle();
+  await flush();
+  played.shift().onended();
+
+  coach.receiveBatch([
+    {kind: "rep", count: 1},
+    {kind: "shallow_squat", frame_sequence: 2},
+    {kind: "rep", count: 2},
+    {kind: "shallow_squat", frame_sequence: 4},
+  ]);
+  await flush();
+  assert.deepEqual(played.map(source => source.args.slice(1)), [VI_CUES[2]]);
+  played[0].onended();
+  await flush();
+  assert.deepEqual(played.map(source => source.args.slice(1)), [VI_CUES[2], VI_CUES[102]]);
+  assert.deepEqual(corrections, [
+    [2, "detected"], [2, "rep-completed"], [4, "detected"], [4, "waiting"], [4, "scheduled"],
+  ]);
+});
+
+test("ignores a canceled load and plays one confirmation after rapid toggles", async () => {
+  let finishFetch;
+  const {coach, played, calls, enabledStates} = setup(() => new Promise(resolve => { finishFetch = resolve; }));
+  coach.toggle();
+  coach.receive({kind: "rep", count: 1});
+  coach.toggle();
+  coach.toggle();
+  finishFetch({ok: true, arrayBuffer: () => new ArrayBuffer(1)});
+  await flush();
+
+  assert.deepEqual(enabledStates, [true, false, true]);
+  assert.deepEqual(played.map(source => source.args.slice(1)), [VI_CUES[101]]);
+  assert.equal(calls.filter(call => call === "fetch").length, 1);
+});
+
 test("logs each shallow squat, skips cues inside 3.5 seconds, and drops stale cues", async () => {
   const {coach, played, corrections, advance} = setup();
   coach.toggle();

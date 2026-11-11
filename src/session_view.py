@@ -35,15 +35,20 @@ class SquatCorrection:
     deepest_angle: float | None = None
     missing_frames: int = 0
 
-    def reset(self) -> None:
+    @property
+    def tracking_lost(self) -> bool:
+        return self.missing_frames > SHALLOW_TRACKING_GRACE_FRAMES
+
+    def interrupt_tracking(self) -> None:
         self.deepest_angle = None
-        self.missing_frames = 0
+        self.missing_frames = SHALLOW_TRACKING_GRACE_FRAMES + 1
 
     def update(self, angle: float | None, rep_fsm: RepCounterFSM) -> bool:
         if angle is None:
-            self.missing_frames += 1
-            if self.missing_frames > SHALLOW_TRACKING_GRACE_FRAMES:
-                self.reset()
+            if not self.tracking_lost:
+                self.missing_frames += 1
+                if self.tracking_lost:
+                    self.interrupt_tracking()
             return False
 
         self.missing_frames = 0
@@ -105,8 +110,6 @@ def process_pose_frames(
             result = rep_fsm.update(knee_angle)
             if voice_events is None:
                 continue
-            if correction is not None and frame.get("tracking_interrupted") is True:
-                correction.reset()
             needs_cue = correction is not None and correction.update(knee_angle, rep_fsm)
             if result["rep_incremented"]:
                 event = {"kind": "rep", "count": result["rep_count"]}
@@ -153,9 +156,10 @@ class PoseSession:
             self.retired_streams.add(self.stream_id)
         self.stream_id = stream_id
 
-        if switched or first > session.last_event_id + 1:
+        interrupted = switched or first > session.last_event_id + 1
+        if interrupted:
             self.rep.update(None)
-            self.correction.reset()
+            self.correction.interrupt_tracking()
             self.start.update(False)
             self.stop.update(False, False)
             session.status = "paused"
@@ -164,6 +168,9 @@ class PoseSession:
         for seq, frame in enumerate(frames, first):
             if seq <= session.last_event_id:
                 continue
+            if isinstance(frame, dict) and frame.get("tracking_interrupted") is True:
+                self.correction.interrupt_tracking()
+                interrupted = True
             previous_event_count = len(voice_events)
             self.started = process_pose_frames(
                 [frame], self.rep, self.start, self.stop, self.started,
@@ -175,7 +182,9 @@ class PoseSession:
                 logger.debug("Detected shallow squat at frame %s (%s ms)", seq, event.get("captured_at"))
             session.ai_reps = self.rep.rep_count
             tracking = frame.get("knee_angle") is not None
-            if not tracking:
+            audio_paused = not tracking and self.started and self.correction.tracking_lost
+            if audio_paused:
+                interrupted = True
                 voice_events.clear()
             session.status = "active" if tracking and self.started and not self.stop.is_rep_locked else "paused"
             session.last_event_id = seq
@@ -185,7 +194,8 @@ class PoseSession:
             "stream_id": stream_id,
             "sequence": end,
             "events": voice_events,
-            "stopped": self.stop.is_rep_locked or (self.started and not tracking),
+            "stopped": self.stop.is_rep_locked or audio_paused,
+            "interrupted": interrupted,
         }
 
 

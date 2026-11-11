@@ -7,6 +7,10 @@ const VOICE_URL = new URL("./voice/vi.mp3", import.meta.url);
 const CORRECTION_COOLDOWN_MS = 3500;
 const CORRECTION_MAX_AGE_MS = 1000;
 
+function isRep(event) {
+  return event?.kind === "rep" && Number.isSafeInteger(event.count) && event.count > 0;
+}
+
 export function createVoiceCoach({
   AudioContext, fetchAudio = globalThis.fetch, showCue, showStatus, now = () => performance.now(),
   onEnabledChange = () => {}, onCorrection = () => {},
@@ -118,6 +122,27 @@ export function createVoiceCoach({
     }
   }
 
+  function receive(event, superseded = false) {
+    if (event?.kind === "shallow_squat") {
+      onCorrection(event, "detected");
+      if (superseded) {
+        onCorrection(event, "rep-completed");
+        return;
+      }
+      const capturedAt = Number.isFinite(event.captured_at) ? event.captured_at : now();
+      scheduleCorrection({event, expiresAt: capturedAt + CORRECTION_MAX_AGE_MS});
+      return;
+    }
+    if (enabled && isRep(event)) {
+      if (pendingCorrection) onCorrection(pendingCorrection.event, "rep-completed");
+      pendingCorrection = null;
+      showCue("");
+      // Keep the latest rep while a clip finishes, without building up a queue.
+      if (current) pendingRep = event;
+      else void playRep(event);
+    }
+  }
+
   return {
     supported,
     get enabled() { return enabled; },
@@ -133,22 +158,12 @@ export function createVoiceCoach({
         showStatus("Đã tắt giọng nói.");
       }
     },
-    receive(event) {
-      if (event?.kind === "shallow_squat") {
-        onCorrection(event, "detected");
-        const capturedAt = Number.isFinite(event.captured_at) ? event.captured_at : now();
-        scheduleCorrection({event, expiresAt: capturedAt + CORRECTION_MAX_AGE_MS});
-        return;
-      }
-      if (!enabled) return;
-      if (event?.kind === "rep" && Number.isSafeInteger(event.count) && event.count > 0) {
-        if (pendingCorrection) onCorrection(pendingCorrection.event, "rep-completed");
-        pendingCorrection = null;
-        showCue("");
-        // Keep the latest rep while a clip finishes, without building up a queue.
-        if (current) pendingRep = event;
-        else void playRep(event);
-      }
+    receive,
+    receiveBatch(events) {
+      const latestRep = events.findLastIndex(isRep);
+      events.forEach((event, index) => {
+        if (!isRep(event) || index === latestRep) receive(event, index < latestRep);
+      });
     },
     stop,
   };
