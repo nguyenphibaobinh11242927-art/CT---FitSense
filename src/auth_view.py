@@ -3,7 +3,60 @@
 Quản lý xác thực người dùng, đăng ký tài khoản mới và khởi tạo hồ sơ thể chất cá nhân hóa.
 """
 
+import re
 import streamlit as st
+
+
+EMAIL_REGEX = re.compile(
+    r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+"
+)
+MOCK_DEMO_EMAILS = {"khanh@fitsense.vn", "yu@fitsense.vn", "admin@fitsense.vn", "test@gmail.com"}
+
+
+def is_valid_email(email: str) -> bool:
+    """Kiểm tra định dạng Email hợp lệ nhất quán với chuẩn lưu hồ sơ."""
+    return isinstance(email, str) and bool(EMAIL_REGEX.fullmatch(email.strip()))
+
+
+def validate_login_inputs(email: str, password: str) -> list[str]:
+    """Xác thực dữ liệu đầu vào ở màn hình Đăng nhập."""
+    errors: list[str] = []
+    clean_email = (email or "").strip()
+    if not clean_email or not password:
+        errors.append("Vui lòng nhập đầy đủ Email và Mật khẩu!")
+        return errors
+    if not is_valid_email(clean_email):
+        errors.append("Email không đúng định dạng (ví dụ: ten@domain.com)!")
+    if len(password) < 6 or not password.strip():
+        errors.append("Mật khẩu phải có tối thiểu 6 ký tự hợp lệ!")
+    return errors
+
+
+def validate_registration_inputs(
+    name: str,
+    email: str,
+    password: str,
+    existing_users: dict | None = None,
+) -> list[str]:
+    """Xác thực dữ liệu đầu vào khi Đăng ký tài khoản mới."""
+    errors: list[str] = []
+    clean_name = (name or "").strip()
+    clean_email = (email or "").strip().lower()
+    if not clean_name or not clean_email or not password:
+        errors.append("Vui lòng điền đủ Họ tên, Email và Mật khẩu!")
+        return errors
+    if len(clean_name) < 2:
+        errors.append("Họ và tên phải có tối thiểu 2 ký tự (không chỉ khoảng trắng)!")
+    if not is_valid_email(clean_email):
+        errors.append("Địa chỉ Email không hợp lệ (ví dụ: name@example.com)!")
+    if len(password) < 6 or password != password.strip():
+        errors.append("Mật khẩu cần tối thiểu 6 ký tự và không có khoảng trắng ở hai đầu!")
+    if isinstance(existing_users, dict):
+        lower_keys = {k.strip().lower() for k in existing_users.keys() if isinstance(k, str)}
+        if clean_email in lower_keys:
+            errors.append("Email này đã được đăng ký! Vui lòng chuyển sang tab Đăng nhập.")
+    return errors
 
 
 def render_auth_view():
@@ -26,30 +79,36 @@ def render_auth_view():
         # TAB 1: ĐĂNG NHẬP
         with tab_login:
             with st.form("login_form"):
-                email = st.text_input("Email hoặc Tên đăng nhập:", placeholder="vidu@gmail.com")
-                password = st.text_input("Mật khẩu:", type="password", placeholder="Nhập mật khẩu...")
+                email = st.text_input("Email đăng nhập:", placeholder="vidu@gmail.com")
+                password = st.text_input("Mật khẩu:", type="password", placeholder="Tối thiểu 6 ký tự...")
 
                 remember = st.checkbox("Ghi nhớ đăng nhập", value=True)
                 btn_login = st.form_submit_button("Đăng Nhập Ngay", type="primary", use_container_width=True)
 
                 if btn_login:
-                    if not email or not password:
-                        st.error("Vui lòng nhập đầy đủ Email và Mật khẩu!")
+                    login_errors = validate_login_inputs(email, password)
+                    if login_errors:
+                        for err in login_errors:
+                            st.error(err)
                     else:
+                        clean_email = email.strip().lower()
                         # Kiểm tra xem tài khoản có trong db tạm thời không
                         users_db = st.session_state.get("registered_users", {})
-                        if email in users_db and users_db[email].get("password") == password:
+                        matched_record = users_db.get(clean_email) or users_db.get(email.strip())
+                        if matched_record and matched_record.get("password") == password:
                             st.session_state["is_logged_in"] = True
-                            st.session_state["user_profile"] = users_db[email]["profile"]
+                            st.session_state["user_profile"] = matched_record["profile"]
                             st.success(f"Chào mừng trở lại, {st.session_state['user_profile']['name']}! 🎉")
                             st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
                             st.rerun()
-                        elif email in ["khanh@fitsense.vn", "yu@fitsense.vn", "admin@fitsense.vn", "test@gmail.com"]:
-                            # Mock login account
+                        elif matched_record:
+                            st.error("Mật khẩu không chính xác! Vui lòng kiểm tra lại.")
+                        elif clean_email in MOCK_DEMO_EMAILS:
+                            # Mock login account (đã qua kiểm tra email & mật khẩu >= 6 ký tự)
                             st.session_state["is_logged_in"] = True
                             st.session_state["user_profile"] = {
-                                "name": email.split("@")[0].capitalize(),
-                                "email": email,
+                                "name": clean_email.split("@")[0].capitalize(),
+                                "email": clean_email,
                                 "weight_kg": 54.0,
                                 "height_cm": 162.0,
                                 "age": 21,
@@ -133,17 +192,22 @@ def render_auth_view():
                 btn_register = st.form_submit_button("Tạo Tài Khoản & Bắt Đầu Tập", type="primary", use_container_width=True)
 
                 if btn_register:
-                    if not reg_name or not reg_email or not reg_pass:
-                        st.error("Vui lòng điền đủ Họ tên, Email và Mật khẩu!")
-                    elif len(reg_pass) < 4:
-                        st.error("Mật khẩu cần tối thiểu 4 ký tự!")
+                    users_db = st.session_state.get("registered_users", {})
+                    reg_errors = validate_registration_inputs(
+                        reg_name, reg_email, reg_pass, existing_users=users_db
+                    )
+                    if reg_errors:
+                        for err in reg_errors:
+                            st.error(err)
                     else:
+                        clean_name = reg_name.strip()
+                        clean_email = reg_email.strip().lower()
                         h_m = reg_height / 100.0
                         calc_bmi = round(reg_weight / (h_m * h_m), 1)
 
                         new_profile = {
-                            "name": reg_name,
-                            "email": reg_email,
+                            "name": clean_name,
+                            "email": clean_email,
                             "weight_kg": reg_weight,
                             "height_cm": reg_height,
                             "age": reg_age,
@@ -157,10 +221,10 @@ def render_auth_view():
                             "session_duration_minutes": 40,
                         }
 
-                        # Lưu vào registered_users
+                        # Lưu vào registered_users theo email chuẩn hóa
                         if "registered_users" not in st.session_state:
                             st.session_state["registered_users"] = {}
-                        st.session_state["registered_users"][reg_email] = {
+                        st.session_state["registered_users"][clean_email] = {
                             "password": reg_pass,
                             "profile": new_profile
                         }
@@ -168,7 +232,7 @@ def render_auth_view():
                         # Lưu an toàn vào JSON cục bộ ngay khi đăng ký tài khoản mới (DoD SCRUM-13)
                         try:
                             from src.profile import save_profile
-                            save_profile(reg_email, new_profile)
+                            save_profile(clean_email, new_profile)
                         except Exception:
                             pass
 

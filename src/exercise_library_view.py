@@ -19,7 +19,7 @@ POSITIONS = {
 }
 
 
-def muscle_svg(primary: list[str], secondary: list[str]) -> bytes:
+def muscle_svg(primary: list[str], secondary: list[str]) -> str:
     """Original front/back stick-body overview. Emphasis is indicative only."""
     dots = []
     for muscle in secondary:
@@ -40,7 +40,7 @@ def muscle_svg(primary: list[str], secondary: list[str]) -> bytes:
            f'{figures}{"".join(dots)}'
            f'<text x="75" y="263" text-anchor="middle" font-size="12" fill="#263749">Mặt trước</text>'
            f'<text x="172" y="263" text-anchor="middle" font-size="12" fill="#263749">Mặt sau</text></svg>')
-    return svg.encode('utf-8')
+    return svg
 
 
 def _profile_filters() -> tuple[set[str] | None, set[str]]:

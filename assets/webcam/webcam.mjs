@@ -9,7 +9,7 @@ const joints = [
   ["Gối trái", 23, 25, 27], ["Gối phải", 24, 26, 28]
 ];
 const labels = joints.map(() => get("angles").appendChild(document.createElement("span")));
-let encodedModel, detector, connections, stream, animation, mirrored = true;
+let encodedModel, detector, connections, stream, animation, isStarting = false, showMetrics = true;
 const observesVideoFrames = typeof video.requestVideoFrameCallback === "function";
 let sessionId, frameCount, windowStart, lastFrameAt;
 let videoFrameCallback, presentedFrame, lastDrawnFrame;
@@ -21,6 +21,19 @@ let lastVoiceSequence = 0;
 const voiceButton = get("voice");
 const cameraDevice = get("camera-device");
 const mediaDevices = navigator.mediaDevices;
+
+function applyMetricsVisibility(visible) {
+  showMetrics = visible !== false;
+  get("fps").hidden = !showMetrics;
+  get("angles").hidden = !showMetrics;
+}
+
+function updateToggleButton(isRunning) {
+  const btn = get("camera-toggle");
+  btn.textContent = isRunning ? "⏹ Tắt camera" : "📷 Bật camera";
+  btn.setAttribute("aria-pressed", String(Boolean(isRunning)));
+  btn.disabled = isStarting || (!isRunning && (!encodedModel || !mediaDevices?.getUserMedia));
+}
 const cameraErrors = {
   NotAllowedError: "Trình duyệt hoặc hệ điều hành đang chặn camera. Hãy kiểm tra quyền camera cho trang này rồi thử lại.",
   NotFoundError: "Không tìm thấy camera. Hãy kết nối camera hoặc chọn Chế độ Tự do trong phòng tập.",
@@ -74,7 +87,8 @@ if (window.parent === window) {
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  const {model, session_id: renderSessionId, last_event_id: acknowledged, voice_feedback: feedback} = event.data.args;
+  const {model, session_id: renderSessionId, last_event_id: acknowledged, voice_feedback: feedback, show_metrics: visibleMetrics} = event.data.args;
+  applyMetricsVisibility(visibleMetrics);
   if (!encodedModel && model && renderSessionId) {
     encodedModel = model;
     sessionId = renderSessionId;
@@ -86,7 +100,7 @@ window.addEventListener("message", event => {
         : "Camera cần HTTPS hoặc localhost. Hãy mở FitSense qua một trong hai địa chỉ này.";
       return;
     }
-    get("start").disabled = false;
+    updateToggleButton(Boolean(stream));
     cameraDevice.disabled = false;
     get("status").textContent = "Sẵn sàng bật camera.";
     void refreshCameraDevices();
@@ -206,6 +220,7 @@ function sendTrackingLoss() {
 }
 function stopCamera(message = "Đã tắt camera.") {
   cameraRun++;
+  isStarting = false;
   if (stream) sendTrackingLoss();
   else voiceCoach.stop();
   cancelAnimationFrame(animation);
@@ -217,9 +232,8 @@ function stopCamera(message = "Đã tắt camera.") {
   detector?.close();
   detector = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  get("start").disabled = !encodedModel || !mediaDevices?.getUserMedia;
-  cameraDevice.disabled = get("start").disabled;
-  get("stop").disabled = true;
+  updateToggleButton(false);
+  cameraDevice.disabled = !encodedModel || !mediaDevices?.getUserMedia;
   get("status").textContent = message;
   get("fps").textContent = "FPS: —";
   updateAngles([]);
@@ -256,7 +270,7 @@ function draw(now) {
       for (const p of points.filter(Boolean)) {
         ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill();
       }
-      updateAngles(points);
+      if (showMetrics) updateAngles(points);
       const features = getPoseFeatures(points);
       const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
       const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
@@ -268,22 +282,27 @@ function draw(now) {
       }
       frameCount++;
       if (now - windowStart >= 1000) {
-        get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
+        if (showMetrics) {
+          get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
+        }
         frameCount = 0; windowStart = now;
       }
     }
     animation = requestAnimationFrame(draw);
   } catch (err) { stopCamera("Lỗi xử lý hình: " + err.message); }
 }
+// Luôn lật gương mặc định 1 lần (đã bỏ nút chuyển chế độ gương thủ công)
 canvas.style.transform = "scaleX(-1)";
-get("mirror").onclick = () => {
-  mirrored = !mirrored;
-  canvas.style.transform = mirrored ? "scaleX(-1)" : "";
-  get("mirror").setAttribute("aria-pressed", String(mirrored));
-};
-get("start").onclick = async () => {
+get("camera-toggle").onclick = async () => {
+  if (stream || isStarting) {
+    stopCamera();
+    return;
+  }
   const run = ++cameraRun;
-  get("start").disabled = true;
+  isStarting = true;
+  const btn = get("camera-toggle");
+  btn.disabled = true;
+  btn.textContent = "⏳ Đang bật camera…";
   cameraDevice.disabled = true;
   get("status").textContent = "Đang mở camera và nạp model…";
   try {
@@ -318,7 +337,8 @@ get("start").onclick = async () => {
     windowStart = performance.now();
     lastFrameAt = lastBatchAt = windowStart;
     sendTrackingLoss();
-    get("stop").disabled = false;
+    isStarting = false;
+    updateToggleButton(true);
     if (observesVideoFrames) videoFrameCallback = video.requestVideoFrameCallback(observeVideoFrame);
     animation = requestAnimationFrame(draw);
   } catch (err) {
@@ -327,6 +347,5 @@ get("start").onclick = async () => {
     void refreshCameraDevices();
   }
 };
-get("stop").onclick = () => stopCamera();
 window.addEventListener("pagehide", () => stopCamera());
 updateAngles([]);
