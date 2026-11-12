@@ -1,0 +1,959 @@
+{
+  "schema_version": 1,
+  "exercises": [
+    {
+      "id": "squat",
+      "name": "Squat thể dục",
+      "name_en": "Bodyweight Squat",
+      "category": "Thân dưới",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "calves"
+      ],
+      "equipment": [],
+      "avoid_if": [
+        "knee"
+      ],
+      "description": "Bài tập thân dưới tập trung vào nhóm cơ quads, glutes.",
+      "steps": [
+        "Đứng hai chân rộng bằng vai",
+        "Đẩy hông ra sau, gập gối trong biên độ thoải mái",
+        "Đứng lên bằng lực từ bàn chân"
+      ],
+      "common_mistakes": [
+        "Đầu gối chụm vào trong hoặc gót chân nhấc khỏi sàn"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "glute_bridge",
+        "calf_raise"
+      ],
+      "media_gif": "assets/exercises/squat.gif"
+    },
+    {
+      "id": "push_up",
+      "name": "Hít đất chuẩn",
+      "name_en": "Standard Push-up",
+      "category": "Bodyweight",
+      "difficulty": "Intermediate",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "triceps",
+        "shoulders",
+        "core"
+      ],
+      "equipment": [],
+      "avoid_if": [
+        "wrist"
+      ],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ chest.",
+      "steps": [
+        "Đặt tay dưới vai hơi rộng hơn vai",
+        "Giữ thân thẳng, từ từ hạ ngực",
+        "Đẩy người lên, không võng lưng"
+      ],
+      "common_mistakes": [
+        "Xòe khuỷu tay quá rộng, võng lưng"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "incline_push_up",
+        "wall_push_up"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "knee_push_up",
+      "name": "Hít đất quỳ gối",
+      "name_en": "Knee Push-up",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "triceps",
+        "shoulders"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [
+        "wrist",
+        "knee"
+      ],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ chest.",
+      "steps": [
+        "Quỳ trên thảm, chống hai tay",
+        "Hạ ngực trong tầm kiểm soát",
+        "Đẩy trở lại vị trí ban đầu"
+      ],
+      "common_mistakes": [
+        "Gập hông quá mức"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "wall_push_up",
+        "incline_push_up"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "wall_push_up",
+      "name": "Hít đất vào tường",
+      "name_en": "Wall Push-up",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "triceps",
+        "shoulders"
+      ],
+      "equipment": [],
+      "avoid_if": [
+        "wrist"
+      ],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ chest.",
+      "steps": [
+        "Đứng cách tường một khoảng thoải mái",
+        "Chống tay vào tường ngang vai, hạ thân",
+        "Đẩy người về vị trí ban đầu"
+      ],
+      "common_mistakes": [
+        "Đổ người quá nhanh"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "incline_push_up"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "incline_push_up",
+      "name": "Hít đất trên điểm tựa cao",
+      "name_en": "Incline Push-up",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "triceps",
+        "shoulders"
+      ],
+      "equipment": [
+        "chair"
+      ],
+      "avoid_if": [
+        "wrist"
+      ],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ chest.",
+      "steps": [
+        "Chọn điểm tựa vững chắc, không trượt",
+        "Đặt tay lên điểm tựa, thân thẳng",
+        "Hạ thân chậm và đẩy lên"
+      ],
+      "common_mistakes": [
+        "Dùng bàn ghế không ổn định"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "wall_push_up"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "plank",
+      "name": "Plank khuỷu tay",
+      "name_en": "Forearm Plank",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "core"
+      ],
+      "secondary_muscles": [
+        "shoulders",
+        "glutes"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ core.",
+      "steps": [
+        "Chống khuỷu tay dưới vai",
+        "Siết bụng và mông, giữ thân thẳng",
+        "Thở đều, dừng khi không giữ được tư thế"
+      ],
+      "common_mistakes": [
+        "Võng lưng hoặc nín thở"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "dead_bug",
+        "bird_dog"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "dead_bug",
+      "name": "Dead Bug",
+      "name_en": "Dead Bug",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "core"
+      ],
+      "secondary_muscles": [
+        "hip_flexors"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ core.",
+      "steps": [
+        "Nằm ngửa, tay và đầu gối hướng lên",
+        "Duỗi chéo một tay và chân trong tầm kiểm soát",
+        "Trở về và đổi bên"
+      ],
+      "common_mistakes": [
+        "Lưng dưới cong nhấc khỏi thảm"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "bird_dog",
+        "plank"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "bird_dog",
+      "name": "Bird Dog",
+      "name_en": "Bird Dog",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "core",
+        "back"
+      ],
+      "secondary_muscles": [
+        "glutes",
+        "shoulders"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [
+        "wrist",
+        "knee"
+      ],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ core, back.",
+      "steps": [
+        "Chống tay và gối trên thảm",
+        "Duỗi tay và chân đối diện, giữ thăng bằng",
+        "Thu về và đổi bên"
+      ],
+      "common_mistakes": [
+        "Xoay hông hoặc ngửa cổ"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "dead_bug"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "glute_bridge",
+      "name": "Nâng hông",
+      "name_en": "Glute Bridge",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "core"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ glutes.",
+      "steps": [
+        "Nằm ngửa, co gối, bàn chân đặt trên sàn",
+        "Siết mông và nâng hông vừa phải",
+        "Hạ hông chậm, không ưỡn lưng"
+      ],
+      "common_mistakes": [
+        "Ưỡn lưng quá mức"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "calf_raise",
+        "squat"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "calf_raise",
+      "name": "Nhón bắp chân",
+      "name_en": "Calf Raise",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "calves"
+      ],
+      "secondary_muscles": [
+        "quads"
+      ],
+      "equipment": [],
+      "avoid_if": [],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ calves.",
+      "steps": [
+        "Đứng thẳng, có thể vịn điểm tựa chắc chắn",
+        "Nâng gót chậm đến khi đứng trên mũi chân",
+        "Hạ xuống có kiểm soát"
+      ],
+      "common_mistakes": [
+        "Bật nhún nhanh làm mất thăng bằng"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "glute_bridge"
+      ],
+      "media_gif": "assets/exercises/calf_raise.gif"
+    },
+    {
+      "id": "bench_dip",
+      "name": "Dips trên ghế",
+      "name_en": "Bench Dips",
+      "category": "Calisthenics",
+      "difficulty": "Intermediate",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [
+        "chest",
+        "shoulders"
+      ],
+      "equipment": [
+        "chair"
+      ],
+      "avoid_if": [
+        "wrist"
+      ],
+      "description": "Bài tập calisthenics tập trung vào nhóm cơ triceps.",
+      "steps": [
+        "Chỉ sử dụng điểm tựa cố định và chắc chắn",
+        "Giữ vai ổn định, gập khuỷu trong biên độ thoải mái",
+        "Đẩy lên chậm và dừng nếu đau vai"
+      ],
+      "common_mistakes": [
+        "Hạ quá sâu làm căng khớp vai"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "band_triceps",
+        "wall_push_up"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "band_triceps",
+      "name": "Duỗi tay sau với dây",
+      "name_en": "Band Triceps Extension",
+      "category": "Calisthenics",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [
+        "shoulders"
+      ],
+      "equipment": [
+        "band"
+      ],
+      "avoid_if": [],
+      "description": "Bài tập calisthenics tập trung vào nhóm cơ triceps.",
+      "steps": [
+        "Cố định dây kháng lực an toàn",
+        "Giữ khuỷu tay gần thân, duỗi tay",
+        "Trở về từ từ"
+      ],
+      "common_mistakes": [
+        "Đung đưa toàn thân"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "wall_push_up"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "band_row",
+      "name": "Kéo dây kháng lực",
+      "name_en": "Resistance Band Row",
+      "category": "Calisthenics",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "back"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "shoulders"
+      ],
+      "equipment": [
+        "band"
+      ],
+      "avoid_if": [],
+      "description": "Bài tập calisthenics tập trung vào nhóm cơ back.",
+      "steps": [
+        "Kiểm tra dây và điểm neo chắc chắn",
+        "Kéo khuỷu về phía sau, siết bả vai",
+        "Trả về chậm"
+      ],
+      "common_mistakes": [
+        "Nhún vai hoặc giật mạnh"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "superman"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "superman",
+      "name": "Superman giữ tĩnh",
+      "name_en": "Superman Hold",
+      "category": "Bodyweight",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "back"
+      ],
+      "secondary_muscles": [
+        "glutes",
+        "shoulders"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [],
+      "description": "Bài tập bodyweight tập trung vào nhóm cơ back.",
+      "steps": [
+        "Nằm sấp, cổ thẳng với lưng",
+        "Nâng tay và chân rất nhẹ trong biên độ thoải mái",
+        "Hạ chậm, không nín thở"
+      ],
+      "common_mistakes": [
+        "Ưỡn lưng quá sâu"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "bird_dog"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "jumping_jack",
+      "name": "Bật nhảy dang tay chân",
+      "name_en": "Jumping Jack",
+      "category": "Cardio",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "calves",
+        "quads"
+      ],
+      "secondary_muscles": [
+        "shoulders",
+        "core"
+      ],
+      "equipment": [],
+      "avoid_if": [
+        "knee"
+      ],
+      "description": "Bài tập cardio tập trung vào nhóm cơ calves, quads.",
+      "steps": [
+        "Đứng thẳng, hai tay dọc thân",
+        "Bước hoặc bật chân sang hai bên và đưa tay lên",
+        "Trở về tư thế ban đầu nhẹ nhàng"
+      ],
+      "common_mistakes": [
+        "Tiếp đất cứng hoặc gối chụm"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "march_in_place"
+      ],
+      "media_gif": "assets/exercises/jumping_jack.gif"
+    },
+    {
+      "id": "march_in_place",
+      "name": "Đi bộ tại chỗ",
+      "name_en": "March in Place",
+      "category": "Cardio",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "quads",
+        "hip_flexors"
+      ],
+      "secondary_muscles": [
+        "calves",
+        "core"
+      ],
+      "equipment": [],
+      "avoid_if": [],
+      "description": "Bài tập cardio tập trung vào nhóm cơ quads, hip_flexors.",
+      "steps": [
+        "Đứng vững, mắt nhìn thẳng",
+        "Lần lượt nâng gối trong tầm thoải mái",
+        "Đánh tay tự nhiên, duy trì hơi thở"
+      ],
+      "common_mistakes": [
+        "Gồng cứng và nâng gối quá cao"
+      ],
+      "safety_notes": "Dừng tập nếu đau, chóng mặt hoặc mất kiểm soát chuyển động. Chọn mức phù hợp với thể trạng.",
+      "alternatives": [
+        "calf_raise"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "reverse_lunge",
+      "name": "Chùng chân lùi",
+      "name_en": "Reverse Lunge",
+      "category": "Thân dưới",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "core"
+      ],
+      "equipment": [],
+      "avoid_if": [
+        "knee"
+      ],
+      "description": "Chùng chân lùi (Reverse Lunge) tác động chính lên quads, glutes.",
+      "steps": [
+        "Đứng thẳng, hai bàn chân rộng bằng hông.",
+        "Bước một chân về sau rồi hạ thấp trong biên độ thoải mái.",
+        "Đẩy chân trước để trở lại vị trí ban đầu; đổi bên."
+      ],
+      "common_mistakes": [
+        "Gối trước đổ vào trong hoặc thân đổ quá mạnh."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "split_squat",
+        "squat",
+        "chair_squat"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "split_squat",
+      "name": "Squat tách chân",
+      "name_en": "Split Squat",
+      "category": "Thân dưới",
+      "difficulty": "Intermediate",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "calves"
+      ],
+      "equipment": [],
+      "avoid_if": [
+        "knee"
+      ],
+      "description": "Squat tách chân (Split Squat) tác động chính lên quads, glutes.",
+      "steps": [
+        "Đứng tư thế trước sau với khoảng cách đủ rộng.",
+        "Hạ thân thẳng xuống, hai gối gập có kiểm soát.",
+        "Đẩy bàn chân trước trở về vị trí cao."
+      ],
+      "common_mistakes": [
+        "Bước quá hẹp làm mất thăng bằng."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "reverse_lunge",
+        "squat",
+        "chair_squat",
+        "jumping_jack"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "chair_squat",
+      "name": "Squat chạm ghế",
+      "name_en": "Chair Squat",
+      "category": "Thân dưới",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "core"
+      ],
+      "equipment": [
+        "chair"
+      ],
+      "avoid_if": [
+        "knee"
+      ],
+      "description": "Squat chạm ghế (Chair Squat) tác động chính lên quads, glutes.",
+      "steps": [
+        "Đặt ghế chắc chắn phía sau, đứng hai chân rộng bằng vai.",
+        "Đưa hông về sau đến khi chạm nhẹ ghế.",
+        "Đẩy người đứng lên, không thả rơi cơ thể xuống ghế."
+      ],
+      "common_mistakes": [
+        "Ngồi phịch xuống ghế hoặc để gối chụm."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "reverse_lunge",
+        "split_squat",
+        "squat"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "standing_w_raise",
+      "name": "Đưa tay chữ W đứng",
+      "name_en": "Standing W Raise",
+      "category": "Thân trên",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "back",
+        "shoulders"
+      ],
+      "secondary_muscles": [
+        "triceps"
+      ],
+      "equipment": [],
+      "avoid_if": [],
+      "description": "Chùng chân ngang (Lateral Lunge) tác động chính lên glutes, quads.",
+      "steps": [
+        "Đứng thẳng, khuỷu tay gập ngang thân tạo hình chữ W.",
+        "Kéo bả vai ra sau và hơi nâng cánh tay trong biên độ thoải mái.",
+        "Giữ ngắn rồi thả về có kiểm soát."
+      ],
+      "common_mistakes": [
+        "Ưỡn thắt lưng hoặc nhún vai."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "reverse_lunge",
+        "split_squat",
+        "squat",
+        "chair_squat"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "hamstring_walkout",
+      "name": "Bước gót từ tư thế cầu mông",
+      "name_en": "Hamstring Walkout",
+      "category": "Thân dưới",
+      "difficulty": "Intermediate",
+      "primary_muscles": [
+        "hamstrings",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "core",
+        "calves"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [
+        "knee"
+      ],
+      "description": "Bước gót từ tư thế cầu mông (Hamstring Walkout) tác động chính lên hamstrings, glutes.",
+      "steps": [
+        "Nằm ngửa, co gối và nâng hông như cầu mông.",
+        "Lần lượt bước gót chân ra xa bằng từng bước ngắn.",
+        "Giữ hông kiểm soát rồi bước gót trở vào."
+      ],
+      "common_mistakes": [
+        "Võng lưng hoặc hạ hông quá nhanh."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "reverse_lunge",
+        "split_squat",
+        "squat",
+        "chair_squat"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "single_leg_bridge",
+      "name": "Cầu mông một chân",
+      "name_en": "Single-leg Glute Bridge",
+      "category": "Thân dưới",
+      "difficulty": "Intermediate",
+      "primary_muscles": [
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "core"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [],
+      "description": "Cầu mông một chân (Single-leg Glute Bridge) tác động chính lên glutes.",
+      "steps": [
+        "Nằm ngửa co một gối, chân còn lại nâng khỏi sàn.",
+        "Siết mông nâng hông và giữ xương chậu cân bằng.",
+        "Hạ xuống chậm rồi đổi bên."
+      ],
+      "common_mistakes": [
+        "Xoay lệch hông hoặc ưỡn thắt lưng."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "hamstring_walkout",
+        "reverse_lunge",
+        "split_squat",
+        "squat"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "self_resisted_curl",
+      "name": "Gập tay trước tự kháng lực",
+      "name_en": "Self-resisted Biceps Curl",
+      "category": "Thân trên",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "biceps"
+      ],
+      "secondary_muscles": [
+        "shoulders"
+      ],
+      "equipment": [],
+      "avoid_if": [],
+      "description": "Ngồi dựa tường (Wall Sit) tác động chính lên quads.",
+      "steps": [
+        "Đứng thẳng, một bàn tay đỡ nhẹ cổ tay đối diện.",
+        "Gập tay đang tập lên trong khi tay kia tạo lực cản vừa phải.",
+        "Hạ xuống có kiểm soát; đổi tay."
+      ],
+      "common_mistakes": [
+        "Ép cổ tay quá mạnh hoặc giật nhanh."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "jumping_jack",
+        "reverse_lunge",
+        "split_squat",
+        "squat"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "side_plank",
+      "name": "Plank nghiêng khuỷu tay",
+      "name_en": "Side Plank",
+      "category": "Core",
+      "difficulty": "Intermediate",
+      "primary_muscles": [
+        "core"
+      ],
+      "secondary_muscles": [
+        "shoulders",
+        "glutes"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [],
+      "description": "Plank nghiêng khuỷu tay (Side Plank) tác động chính lên core.",
+      "steps": [
+        "Chống một khuỷu tay ngay dưới vai, chân xếp chồng hoặc gập gối.",
+        "Nâng hông để đầu–vai–hông tạo đường thẳng.",
+        "Giữ đều nhịp thở rồi đổi bên."
+      ],
+      "common_mistakes": [
+        "Để hông võng xuống hoặc nén vai quá mạnh."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "bird_dog",
+        "dead_bug",
+        "plank",
+        "plank_shoulder_tap",
+        "reverse_lunge"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "plank_shoulder_tap",
+      "name": "Plank chạm vai",
+      "name_en": "Plank Shoulder Tap",
+      "category": "Core",
+      "difficulty": "Intermediate",
+      "primary_muscles": [
+        "core"
+      ],
+      "secondary_muscles": [
+        "shoulders",
+        "chest"
+      ],
+      "equipment": [
+        "mat"
+      ],
+      "avoid_if": [
+        "wrist"
+      ],
+      "description": "Plank chạm vai (Plank Shoulder Tap) tác động chính lên core.",
+      "steps": [
+        "Vào tư thế plank cao, chân rộng vừa đủ.",
+        "Nhấc một tay chạm vai đối diện, giữ hông ít xoay.",
+        "Đặt tay xuống và đổi bên."
+      ],
+      "common_mistakes": [
+        "Lắc hông quá nhiều hoặc khóa cứng khuỷu tay."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "bird_dog",
+        "dead_bug",
+        "plank",
+        "side_plank",
+        "push_up"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "band_pull_apart",
+      "name": "Kéo giãn dây trước ngực",
+      "name_en": "Band Pull-apart",
+      "category": "Thân trên",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "back",
+        "shoulders"
+      ],
+      "secondary_muscles": [
+        "biceps"
+      ],
+      "equipment": [
+        "band"
+      ],
+      "avoid_if": [],
+      "description": "Kéo giãn dây trước ngực (Band Pull-apart) tác động chính lên back, shoulders.",
+      "steps": [
+        "Hai tay cầm dây ngang vai, khuỷu tay hơi mềm.",
+        "Kéo hai tay ra ngoài, ép nhẹ bả vai.",
+        "Đưa về chậm để dây không bật ngược."
+      ],
+      "common_mistakes": [
+        "Nhún vai hoặc ưỡn lưng."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "band_face_pull",
+        "band_row",
+        "bird_dog",
+        "superman",
+        "band_biceps_curl"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "band_face_pull",
+      "name": "Kéo dây về phía mặt",
+      "name_en": "Band Face Pull",
+      "category": "Thân trên",
+      "difficulty": "Intermediate",
+      "primary_muscles": [
+        "shoulders",
+        "back"
+      ],
+      "secondary_muscles": [
+        "biceps"
+      ],
+      "equipment": [
+        "band"
+      ],
+      "avoid_if": [],
+      "description": "Kéo dây về phía mặt (Band Face Pull) tác động chính lên shoulders, back.",
+      "steps": [
+        "Cố định dây chắc ở khoảng ngang mặt.",
+        "Kéo dây về phía mũi/trán với khuỷu mở vừa phải.",
+        "Siết vai sau và thả về chậm."
+      ],
+      "common_mistakes": [
+        "Giật dây, ngửa cổ hoặc neo dây không chắc."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "band_pull_apart",
+        "band_row",
+        "bird_dog",
+        "superman",
+        "band_biceps_curl"
+      ],
+      "media_gif": null
+    },
+    {
+      "id": "band_biceps_curl",
+      "name": "Gập tay trước bằng dây",
+      "name_en": "Resistance Band Biceps Curl",
+      "category": "Thân trên",
+      "difficulty": "Beginner",
+      "primary_muscles": [
+        "biceps"
+      ],
+      "secondary_muscles": [
+        "back"
+      ],
+      "equipment": [
+        "band"
+      ],
+      "avoid_if": [],
+      "description": "Gập tay trước bằng dây (Resistance Band Biceps Curl) tác động chính lên biceps.",
+      "steps": [
+        "Đạp cố định dây dưới bàn chân, giữ khuỷu gần thân.",
+        "Gập khuỷu kéo hai tay lên không nhún vai.",
+        "Hạ tay xuống chậm, giữ cổ tay trung tính."
+      ],
+      "common_mistakes": [
+        "Đung đưa thân người hoặc khóa khuỷu mạnh."
+      ],
+      "safety_notes": "Thực hiện chậm, chỉ tập trong biên độ không đau; dừng lại nếu đau, chóng mặt hoặc mất kiểm soát. Nếu có chấn thương, cần hỏi chuyên gia trước khi tập.",
+      "alternatives": [
+        "band_face_pull",
+        "band_pull_apart",
+        "band_row",
+        "bird_dog",
+        "superman"
+      ],
+      "media_gif": null
+    }
+  ]
+}

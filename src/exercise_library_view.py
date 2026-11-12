@@ -1,209 +1,151 @@
-"""FitSense Exercise Library — replacement view with reliable rendering.
-
-Install optional live-search dependency: pip install streamlit-keyup
-The module reads the existing st.session_state['exercise_library'] catalog.
-"""
+"""SCRUM-17 Streamlit catalogue UI with visual, schematic muscle highlighting."""
 from __future__ import annotations
 
-import html
-import re
-from urllib.parse import urlparse
+from pathlib import Path
+from xml.sax.saxutils import escape
 
 import streamlit as st
 
-try:
-    from st_keyup import st_keyup  # pip install streamlit-keyup
-except ImportError:
-    st_keyup = None
+from src.exercise_library import (EQUIPMENT, INJURIES, LEVELS, MUSCLES,
+                                  load_catalog, search_exercises, suggest_alternatives)
+
+ROOT = Path(__file__).resolve().parents[1]
+# Anatomical silhouette with continuous human contours, not stick figures.
+# Illustration is indicative, not a medical anatomy reference.
+# Each front/back figure has recognizable torso, shoulders, hands, pelvis, legs and feet.
+# Regions are highlighted by colour according to the active exercise.
+ANATOMICAL_REGIONS = {
+    'chest': [(126,164,32,19)], 'shoulders': [(88,143,19,23),(165,143,19,23)],
+    'triceps': [(180,200,12,33)], 'biceps': [(77,195,12,31)],
+    'core': [(127,214,24,47)], 'back': [(377,182,38,42)],
+    'glutes': [(377,274,34,19)], 'quads': [(111,337,20,48),(146,337,20,48)],
+    'hamstrings': [(361,345,19,48),(392,345,19,48)],
+    'calves': [(108,433,13,36),(397,431,13,37)],
+    'hip_flexors': [(125,293,22,18)],
+}
 
 
-def _field(exercise: dict, *names: str, default=""):
-    for name in names:
-        result = exercise.get(name)
-        if result is not None and result != "":
-            return result
-    return default
+def muscle_svg(primary: list[str], secondary: list[str]) -> str:
+    """Front/back detailed body-shape illustration without stick-figure limbs."""
+    def body(cx: int) -> str:
+        # Symmetric human silhouette, with physically joined torso and limbs.
+        torso = (f'<path d="M{cx-30} 128 Q{cx-11} 115 {cx} 122 Q{cx+11} 115 {cx+30} 128 '
+                 f'L{cx+38} 158 Q{cx+33} 191 {cx+27} 215 L{cx+33} 270 '
+                 f'Q{cx} 292 {cx-33} 270 L{cx-27} 215 Q{cx-33} 191 {cx-38} 158 Z"/>')
+        head = f'<ellipse cx="{cx}" cy="91" rx="23" ry="30"/>'
+        neck = f'<path d="M{cx-13} 112 L{cx-13} 136 L{cx+13} 136 L{cx+13} 112 Z"/>'
+        limbs = (f'<path d="M{cx-29} 129 Q{cx-57} 128 {cx-64} 168 '
+                 f'L{cx-87} 251 Q{cx-89} 267 {cx-77} 272 Q{cx-68} 272 {cx-63} 258 '
+                 f'L{cx-35} 188 L{cx-20} 157 Z"/>'
+                 f'<path d="M{cx+29} 129 Q{cx+57} 128 {cx+64} 168 '
+                 f'L{cx+87} 251 Q{cx+89} 267 {cx+77} 272 Q{cx+68} 272 {cx+63} 258 '
+                 f'L{cx+35} 188 L{cx+20} 157 Z"/>'
+                 f'<path d="M{cx-33} 269 Q{cx-43} 290 {cx-40} 335 '
+                 f'L{cx-26} 452 Q{cx-22} 476 {cx-10} 474 L{cx-4} 460 '
+                 f'L{cx-4} 354 Q{cx-2} 317 {cx} 303 L{cx} 278 Z"/>'
+                 f'<path d="M{cx+33} 269 Q{cx+43} 290 {cx+40} 335 '
+                 f'L{cx+26} 452 Q{cx+22} 476 {cx+10} 474 L{cx+4} 460 '
+                 f'L{cx+4} 354 Q{cx+2} 317 {cx} 303 L{cx} 278 Z"/>')
+        detail = (f'<path d="M{cx} 145 V267 M{cx-30} 165 Q{cx} 185 {cx+30} 165 '
+                  f'M{cx-24} 215 Q{cx} 228 {cx+24} 215 M{cx-22} 238 Q{cx} 247 {cx+22} 238 '
+                  f'M{cx-32} 304 L{cx-15} 385 M{cx+32} 304 L{cx+15} 385" '
+                  f'fill="none" stroke="#9a5c50" stroke-width="2.2" opacity=".65"/>')
+        return '<g fill="#dfaa90" stroke="#855b51" stroke-width="2.8">'+head+neck+limbs+torso+'</g>'+detail
+    def ovals(muscles, color, opacity):
+        out=[]
+        for muscle in muscles:
+            for x,y,rx,ry in ANATOMICAL_REGIONS.get(muscle, []):
+                out.append(f'<ellipse cx="{x}" cy="{y}" rx="{rx}" ry="{ry}" fill="{color}" opacity="{opacity}"/>')
+        return ''.join(out)
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 505 520">'
+            f'<rect width="505" height="520" rx="18" fill="#edf1f6"/>'
+            f'<g>{body(127)}{body(377)}</g>'
+            f'{ovals(secondary,"#e4a148", ".60")}{ovals(primary,"#2077cc", ".76")}'
+            f'<text x="127" y="505" font-size="16" text-anchor="middle" fill="#223849">Mặt trước</text>'
+            f'<text x="377" y="505" font-size="16" text-anchor="middle" fill="#223849">Mặt sau</text>'
+            f'</svg>')
 
 
-def _text(value) -> str:
-    if isinstance(value, (list, tuple, set)):
-        return ", ".join(str(v) for v in value)
-    return str(value or "")
+def _profile_filters() -> tuple[set[str] | None, set[str]]:
+    """Best-effort mapping of existing user-profile labels, with no false clearance."""
+    profile = st.session_state.get('user_profile') or {}
+    raw_equip = profile.get('equipment')
+    available = None
+    if isinstance(raw_equip, list):
+        available = set()
+        for name in raw_equip:
+            label = str(name).lower()
+            if 'thảm' in label: available.add('mat')
+            if 'ghế' in label or 'điểm tựa' in label: available.add('chair')
+            if 'dây kháng lực' in label: available.add('band')
+    restrictions = set()
+    for tag in profile.get('restrictions', []) or []:
+        label = str(tag).lower()
+        if 'cổ tay' in label: restrictions.add('wrist')
+        if 'gối' in label: restrictions.add('knee')
+    return available, restrictions
 
 
-def _normalize(value: str) -> str:
-    import unicodedata
-    value = unicodedata.normalize("NFD", _text(value).casefold())
-    return re.sub(r"\s+", " ", "".join(c for c in value if unicodedata.category(c) != "Mn")).strip()
-
-
-def _svg_muscles(primary, secondary) -> str:
-    """Render a trusted inline SVG; never pass this XML to st.image()."""
-    primary_names = _normalize(primary)
-    secondary_names = _normalize(secondary)
-    def paint(*words):
-        joined = " ".join(words)
-        if any(w in primary_names for w in words):
-            return "#22c55e"
-        if any(w in secondary_names for w in words):
-            return "#fb923c"
-        return "#25354b"
-    chest = paint("nguc", "chest", "pectoral")
-    arms = paint("tay", "arm", "bicep", "tricep", "vai", "shoulder")
-    core = paint("bung", "core", "abs", "abdom")
-    legs = paint("dui", "chan", "leg", "quad", "glute", "hamstring", "calf", "bap chan", "mong")
-    back = paint("lung", "back", "lat")
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 280" role="img" aria-label="Sơ đồ nhóm cơ minh họa" style="max-height:250px;max-width:100%;">
-      <circle cx="110" cy="30" r="21" fill="#6b7d95"/>
-      <rect x="82" y="57" width="56" height="90" rx="20" fill="{back}"/>
-      <path d="M82 71 Q109 59 138 71 L134 100 L86 100Z" fill="{chest}"/>
-      <rect x="94" y="104" width="32" height="39" rx="8" fill="{core}"/>
-      <rect x="54" y="63" width="25" height="97" rx="12" fill="{arms}" transform="rotate(9 66 110)"/>
-      <rect x="141" y="63" width="25" height="97" rx="12" fill="{arms}" transform="rotate(-9 154 110)"/>
-      <rect x="83" y="143" width="25" height="107" rx="12" fill="{legs}"/>
-      <rect x="112" y="143" width="25" height="107" rx="12" fill="{legs}"/>
-      <rect x="79" y="246" width="30" height="11" rx="5" fill="#738399"/>
-      <rect x="111" y="246" width="30" height="11" rx="5" fill="#738399"/>
-      <text x="110" y="273" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#aab8ca">Minh họa nhóm cơ</text>
-    </svg>'''
-
-
-def _draw_muscle_svg(ex: dict):
-    svg = _svg_muscles(_field(ex, "primary_muscles", "primary_muscle"),
-                       _field(ex, "secondary_muscles", "secondary_muscle"))
-    # st.html supports raw HTML/SVG; the SVG above is internally generated,
-    # not user-provided markup. Fallback for earlier versions of Streamlit.
-    if hasattr(st, "html"):
-        st.html(svg)
-    else:
-        st.markdown(svg, unsafe_allow_html=True)
-
-
-def _safe_media(value) -> bool:
-    if not isinstance(value, str) or not value.strip():
-        return False
-    if value.startswith("data:"):
-        return value.startswith("data:image/gif;base64,")
-    parts = urlparse(value)
-    return (parts.scheme in ("http", "https") and bool(parts.netloc)) or (
-        not parts.scheme and not value.startswith(("/", "\\")) and ".." not in value.replace("\\", "/").split("/")
-    )
-
-
-def _details(ex: dict):
-    st.markdown(f"### {_text(_field(ex, 'name', 'name_vi', 'title', default='Bài tập'))}")
-    st.write(_text(_field(ex, "description", "instruction", "overview", default="Chưa có mô tả.")))
-    a, b = st.columns([1, 2])
-    with a:
-        st.caption("Sơ đồ nhóm cơ (mang tính minh họa)")
-        _draw_muscle_svg(ex)
-    with b:
-        st.write("**Cơ chính:**", _text(_field(ex, "primary_muscles", "primary_muscle", default="Chưa cập nhật")))
-        st.write("**Cơ phụ:**", _text(_field(ex, "secondary_muscles", "secondary_muscle", default="Chưa cập nhật")))
-        st.write("**Dụng cụ:**", _text(_field(ex, "equipment", default="Không cần")))
-        st.write("**Độ khó:**", _text(_field(ex, "difficulty", default="Chưa cập nhật")))
-    steps = _field(ex, "steps", "instructions", "how_to", default=[])
-    if isinstance(steps, str):
-        steps = [x.strip() for x in steps.split("\n") if x.strip()]
-    if steps:
-        st.markdown("**Các bước thực hiện:**")
-        for i, step in enumerate(steps, 1):
-            st.write(f"{i}. {step}")
-    mistake = _field(ex, "common_mistake", "common_mistakes")
-    if mistake:
-        st.warning(f"Lỗi thường gặp: {_text(mistake)}")
-    substitute = _field(ex, "substitute", "alternative")
-    if substitute:
-        st.info(f"Bài tập thay thế: {_text(substitute)}")
-    media = _field(ex, "gif_url", "gif", "animation_url", "video_gif", "image_url", "image")
-    if _safe_media(media):
-        try:
-            st.image(media, caption="Hướng dẫn động tác", use_container_width=True)
-        except Exception:
-            st.caption("Không tải được ảnh/GIF hướng dẫn. Vui lòng kiểm tra đường dẫn media.")
-    else:
-        st.caption("Bài tập này chưa được gắn GIF hướng dẫn hợp lệ.")
-
-
-def _live_query() -> str:
-    if st_keyup is not None:
-        # Unlike st.text_input, streamlit-keyup sends changes as the user types.
-        return st_keyup("🔍 Tìm kiếm bài tập", key="fitsense_library_live_search", debounce=250) or ""
-    st.caption("Để tìm kiếm ngay khi gõ, cài: pip install streamlit-keyup")
-    return st.text_input("🔍 Tìm kiếm bài tập", key="fitsense_library_fallback_search")
-
-
-def render_exercise_library_view():
-    st.header("📚 Thư viện Động tác Calisthenics & Thể thao")
-    st.caption("Tìm kiếm, lọc và chọn bài tập để xem GIF, nhóm cơ, kỹ thuật thực hiện.")
-    library = st.session_state.get("exercise_library") or []
-    if not library:
-        st.info("Thư viện chưa có dữ liệu. Hãy kiểm tra bước load_catalog() trong app.py.")
+def render_exercise_library_view() -> None:
+    st.header('📚 Thư viện bài tập Calisthenics & Thể thao')
+    st.caption('28 bài tập • 8 nhóm cơ • Tìm kiếm và thay thế có xét cơ chính + cơ phụ.')
+    try:
+        library = st.session_state.get('exercise_library') or load_catalog()
+    except (OSError, ValueError) as exc:
+        st.error(f'Không đọc được cơ sở dữ liệu bài tập: {exc}')
         return
 
-    query = _normalize(_live_query())
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        equipment = st.selectbox("Dụng cụ", ["Mọi dụng cụ"] + sorted({
-            _text(_field(ex, "equipment", default="Không cần")) for ex in library
-        }), key="fitsense_lib_equipment")
-    with c2:
-        difficulty = st.selectbox("Độ khó", ["Tất cả"] + sorted({
-            _text(_field(ex, "difficulty", default="Chưa phân loại")) for ex in library
-        }), key="fitsense_lib_difficulty")
-    with c3:
-        kind = st.selectbox("Loại bài tập", ["Tất cả"] + sorted({
-            _text(_field(ex, "category", "type", "exercise_type", default="Chưa phân loại"))
-            for ex in library
-        }), key="fitsense_lib_category")
-
-    result = []
-    for idx, ex in enumerate(library):
-        haystack = _normalize(" ".join(_text(_field(ex, k)) for k in (
-            "name", "name_vi", "name_en", "title", "description", "primary_muscle", "primary_muscles",
-            "secondary_muscle", "secondary_muscles", "category", "type", "equipment")))
-        if query and query not in haystack:
-            continue
-        if equipment != "Mọi dụng cụ" and _text(_field(ex, "equipment", default="Không cần")) != equipment:
-            continue
-        if difficulty != "Tất cả" and _text(_field(ex, "difficulty", default="Chưa phân loại")) != difficulty:
-            continue
-        if kind != "Tất cả" and _text(_field(ex, "category", "type", "exercise_type", default="Chưa phân loại")) != kind:
-            continue
-        result.append((idx, ex))
-
-    st.markdown(f"**{len(result)} / {len(library)} bài tập phù hợp**")
-    if not result:
-        st.info("Không tìm thấy bài tập phù hợp. Hãy thay đổi từ khóa hoặc bộ lọc.")
+    muscle_opts = {'Tất cả nhóm cơ': ''} | {v: k for k,v in MUSCLES.items()}
+    equip_opts = {'Mọi dụng cụ': '', 'Không cần dụng cụ': '__none__'} | {v: k for k,v in EQUIPMENT.items()}
+    groups = ['Tất cả loại'] + sorted(set(ex['category'] for ex in library))
+    c1,c2,c3 = st.columns([2,1,1])
+    with c1: query = st.text_input('🔍 Tìm theo tên hoặc nhóm cơ', placeholder='Push-up, hit dat, nguc, back...')
+    with c2: muscle_label = st.selectbox('Nhóm cơ', list(muscle_opts))
+    with c3: role_label = st.selectbox('Vai trò cơ', ['Chính hoặc phụ','Chính','Phụ'])
+    c4,c5,c6 = st.columns(3)
+    with c4: equip_label = st.selectbox('Dụng cụ', list(equip_opts))
+    with c5: difficulty = st.selectbox('Độ khó', ['Tất cả']+list(LEVELS))
+    with c6: category = st.selectbox('Loại bài tập', groups)
+    role = {'Chính hoặc phụ': 'all', 'Chính':'primary', 'Phụ':'secondary'}[role_label]
+    found = search_exercises(library, query=query, muscle=muscle_opts[muscle_label], role=role,
+                             difficulty='' if difficulty == 'Tất cả' else difficulty,
+                             category='' if category == 'Tất cả loại' else category)
+    equipment_key = equip_opts[equip_label]
+    found = [ex for ex in found if not equipment_key or
+             (not ex['equipment'] if equipment_key == '__none__' else equipment_key in ex['equipment'])]
+    st.write(f'**{len(found)} / {len(library)}** bài tập phù hợp · 8 nhóm cơ: Ngực, Lưng, Vai, Tay, Core, Mông, Đùi, Bắp chân')
+    if not found:
+        st.info('Không tìm thấy bài tập. Hãy thử bỏ bớt điều kiện lọc.')
         return
-
-    # Show ALL matching summaries first; expensive GIF/media loads only after selection.
-    for offset in range(0, len(result), 2):
-        columns = st.columns(2)
-        for column, (idx, ex) in zip(columns, result[offset:offset + 2]):
-            with column:
+    available, limitations = _profile_filters()
+    for pos in range(0,len(found),2):
+        cols = st.columns(2)
+        for col, ex in zip(cols, found[pos:pos+2]):
+            with col:
                 with st.container(border=True):
-                    name = _text(_field(ex, "name", "name_vi", "title", default=f"Bài tập {idx+1}"))
-                    st.subheader(name)
-                    st.caption(" · ".join(filter(None, [
-                        _text(_field(ex, "category", "type", "exercise_type")),
-                        _text(_field(ex, "difficulty")),
-                    ])))
-                    st.write("**Cơ chính:**", _text(_field(ex, "primary_muscles", "primary_muscle", default="Chưa cập nhật")))
-                    st.write("**Dụng cụ:**", _text(_field(ex, "equipment", default="Không cần")))
-                    if st.button("Xem hướng dẫn & GIF", key=f"fitsense_library_open_{idx}", use_container_width=True):
-                        st.session_state["fitsense_library_selected"] = idx
-                        st.rerun()
-
-    selected = st.session_state.get("fitsense_library_selected")
-    if selected is not None and isinstance(selected, int) and 0 <= selected < len(library):
-        st.divider()
-        if st.button("Đóng hướng dẫn", key="fitsense_library_close"):
-            st.session_state["fitsense_library_selected"] = None
-            st.rerun()
-        _details(library[selected])
-
-
-# Compatibility with the original import entrypoint if needed.
-def render_library_view():
-    return render_exercise_library_view()
+                    st.subheader(f"{ex['name']}")
+                    st.caption(f"{ex['name_en']} · {ex['category']} · {ex['difficulty']}")
+                    st.write('**Cơ chính:** '+', '.join(MUSCLES[k] for k in ex['primary_muscles']))
+                    st.write('**Cơ phụ:** '+(', '.join(MUSCLES[k] for k in ex['secondary_muscles']) or 'Không khai báo'))
+                    st.write('**Dụng cụ:** '+(', '.join(EQUIPMENT[k] for k in ex['equipment']) or 'Không cần'))
+                    if limitations.intersection(ex['avoid_if']):
+                        st.warning('Hồ sơ của bạn có hạn chế liên quan. Không nên tự thực hiện bài này khi chưa được chuyên gia đánh giá.')
+                    with st.expander('🧍 Xem mô hình cơ thể người và hướng dẫn', expanded=False):
+                        st.image(muscle_svg(ex['primary_muscles'], ex['secondary_muscles']),
+                                 caption='Hình cơ thể người mặt trước/sau: xanh = cơ chính, cam = cơ phụ (mô phỏng, không phải ảnh người que)',
+                                 use_container_width=True)
+                        st.write('**Cách thực hiện:**')
+                        for i, step in enumerate(ex['steps'], 1):
+                            st.write(f'{i}. {step}')
+                        st.write('**Lỗi thường gặp:**')
+                        for mistake in ex['common_mistakes']:
+                            st.warning(mistake)
+                        st.info(ex['safety_notes'])
+                        st.markdown('📷 [Thư viện hình ảnh hướng dẫn bài tập của ACE Fitness](https://www.acefitness.org/resources/everyone/exercise-library/) · [Hình giải phẫu cơ thể người (CC BY-SA 4.0)](https://commons.wikimedia.org/wiki/File:Muscles_front_and_back.svg)')
+                        st.caption('Không dùng các GIF người que cũ. GIF/video người thật cho từng bài chưa có bản quyền để đóng gói offline; hãy xem ảnh hướng dẫn tại nguồn ACE.')
+                    alts = suggest_alternatives(ex, library, available_equipment=available, limitations=limitations)
+                    if alts:
+                        st.write('**Gợi ý thay thế phù hợp với thông tin đã khai báo:** '+', '.join(x['name'] for x in alts))
+                    else:
+                        st.caption('Chưa có bài thay thế phù hợp trong danh sách đã kiểm duyệt.')
+    st.caption('Sơ đồ chỉ minh họa khu vực nhóm cơ, không phải sơ đồ giải phẫu y khoa. Lưu ý an toàn không thay thế tư vấn chuyên môn.')
