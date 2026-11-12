@@ -1450,6 +1450,52 @@ def apply_custom_styles(theme: str = "dark"):
         visibility: hidden !important;
     }
 
+    /* FIX: Weekly-day segmented selector (the planner defaults to today's day). */
+    /* Use FitSense theme variables so both Dark and Light remain legible. */
+    div[data-testid="stSegmentedControl"] [role="group"],
+    div[data-testid="stSegmentedControl"] [role="radiogroup"] {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border-card) !important;
+        border-radius: 10px !important;
+    }
+    div[data-testid="stSegmentedControl"] button,
+    div[data-testid="stSegmentedControl"] [role="radio"] {
+        background: var(--bg-card) !important;
+        color: var(--text-main) !important;
+        -webkit-text-fill-color: var(--text-main) !important;
+        border-color: var(--border-card) !important;
+        box-shadow: none !important;
+        font-weight: 600 !important;
+        min-width: 0 !important;
+    }
+    div[data-testid="stSegmentedControl"] button *,
+    div[data-testid="stSegmentedControl"] [role="radio"] * {
+        color: var(--text-main) !important;
+        -webkit-text-fill-color: var(--text-main) !important;
+        opacity: 1 !important;
+    }
+    div[data-testid="stSegmentedControl"] button[aria-pressed="true"],
+    div[data-testid="stSegmentedControl"] button[aria-checked="true"],
+    div[data-testid="stSegmentedControl"] button[data-state="checked"],
+    div[data-testid="stSegmentedControl"] [role="radio"][aria-checked="true"] {
+        background: var(--accent-primary) !important;
+        color: var(--active-text) !important;
+        -webkit-text-fill-color: var(--active-text) !important;
+        border-color: var(--accent-primary) !important;
+        font-weight: 750 !important;
+    }
+    div[data-testid="stSegmentedControl"] button[aria-pressed="true"] *,
+    div[data-testid="stSegmentedControl"] button[aria-checked="true"] *,
+    div[data-testid="stSegmentedControl"] button[data-state="checked"] *,
+    div[data-testid="stSegmentedControl"] [role="radio"][aria-checked="true"] * {
+        color: var(--active-text) !important;
+        -webkit-text-fill-color: var(--active-text) !important;
+    }
+    div[data-testid="stSegmentedControl"] button:hover:not([aria-pressed="true"]):not([aria-checked="true"]),
+    div[data-testid="stSegmentedControl"] [role="radio"]:hover:not([aria-checked="true"]) {
+        background: var(--card-hover) !important;
+    }
+
     /* ================= 2. XÓA BỎ TRIỆT ĐỂ Ô TRÒN RADIO TRÊN TOÀN BỘ WEB ================= */
     div[data-testid="stRadio"] div[data-testid="stRadioOption"] > div > div:first-child,
     div[data-testid="stRadio"] label[data-baseweb="radio"] > div > div:first-child,
