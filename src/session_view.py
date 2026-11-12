@@ -140,6 +140,8 @@ class PoseSession:
     stream_id: str | None = None
     retired_streams: set[str] = field(default_factory=set)
     voice_feedback: dict | None = None
+    voice_command_feedback: dict | None = None
+    voice_command_ids: dict[str, int] = field(default_factory=dict)
 
     def interrupt_tracking(self) -> None:
         self.rep.update(None)
@@ -258,17 +260,75 @@ def _format_hold_time(active_frames: int, required_frames: int, fps: float = 30.
     return f"{elapsed_sec:.1f}s / {total_sec:.1f}s"
 
 
+def _apply_hud_command(session: WorkoutSession, pose: PoseSession, action: str) -> str:
+    if action == "rest":
+        return "Đã nhận lệnh Nghỉ hiệp. Đồng hồ nghỉ chưa sẵn sàng."
+    if action == "next":
+        return "Đã nhận lệnh Bài tiếp theo. Tính năng chuyển bài chưa sẵn sàng."
+    if pose.stop.is_rep_locked:
+        return "Buổi tập đã dừng và khóa rep. Bạn có thể bấm Kết thúc để lưu."
+
+    paused = st.session_state.get("session_user_paused", False)
+    if action == "pause":
+        if paused:
+            return "Buổi tập đang tạm ngưng."
+        pose.interrupt_tracking()
+        session.status = "paused"
+        session_name, _ = _compute_target_reps_from_active()
+        st.session_state["session_user_paused"] = True
+        st.session_state["paused_progress"] = {
+            "reps": session.ai_reps,
+            "paused_at": datetime.now().strftime("%H:%M:%S"),
+            "session_name": session_name,
+        }
+        return "Đã tạm ngưng buổi tập và giữ số rep."
+
+    if pose.started and not paused:
+        return "Buổi tập đã bắt đầu."
+    if paused:
+        st.session_state["session_user_paused"] = False
+        st.session_state.pop("paused_progress", None)
+    if pose.started:
+        session.status = "active"
+        return "Đã tiếp tục ghi nhận buổi tập."
+    pose.started = True
+    pose.interrupt_tracking()
+    return "Đã bắt đầu buổi tập."
+
+
+def _consume_voice_command(session: WorkoutSession, pose: PoseSession, batch) -> None:
+    if not isinstance(batch, dict) or batch.get("session_id") != session.session_id:
+        return
+    if session.mode != "ai" or session.status in ("completed", "abandoned"):
+        return
+    stream_id, command = batch.get("stream_id"), batch.get("voice_command")
+    if not isinstance(stream_id, str) or not stream_id or stream_id in pose.retired_streams:
+        return
+    if not isinstance(command, dict):
+        return
+    command_id, action = command.get("id"), command.get("action")
+    if type(command_id) is not int or command_id <= pose.voice_command_ids.get(stream_id, 0):
+        return
+    if action not in ("start", "pause", "rest", "next"):
+        return
+
+    message = _apply_hud_command(session, pose, action)
+    pose.voice_command_ids[stream_id] = command_id
+    pose.voice_command_feedback = {"stream_id": stream_id, "id": command_id, "message": message}
+
+
 def _on_webcam_change(key: str) -> None:
     session = st.session_state.get("workout_session")
     pose = st.session_state.get("pose_session")
     if session is None or pose is None:
         return
     try:
+        batch = st.session_state.get(key)
         pose.consume(
-            session,
-            st.session_state.get(key),
+            session, batch,
             user_paused=bool(st.session_state.get("session_user_paused", False)),
         )
+        _consume_voice_command(session, pose, batch)
         # Widget đã mount và có sẵn model trong iframe; tránh gửi lại 7.5MB base64 mỗi 200ms.
         st.session_state["_webcam_batch_rerun_key"] = key
     except ValueError as error:
@@ -338,6 +398,8 @@ def _render_ai_vision_hud_fragment() -> None:
             session_id=session.session_id,
             last_event_id=session.last_event_id,
             voice_feedback=pose.voice_feedback,
+            voice_command_feedback=pose.voice_command_feedback,
+            user_paused=user_paused,
             show_metrics=show_metrics,
             key=widget_key,
             on_change=lambda: _on_webcam_change(widget_key),
@@ -377,12 +439,15 @@ def _render_ai_vision_hud_fragment() -> None:
                 st.metric(label="Số Reps AI đếm", value=f"{session.ai_reps} Reps")
 
             if pose.started:
-                st.success("Đã bắt đầu buổi tập bằng cử chỉ giơ tay.")
+                st.success("Đã bắt đầu buổi tập.")
             else:
                 st.info(
                     "Giơ một tay cao hơn đầu để bắt đầu "
                     f"({_format_hold_time(pose.start.active_frames, pose.start.required_frames)})."
                 )
+                if not user_paused and st.button("▶️ Bắt đầu", key="hud_start_btn"):
+                    st.toast(_apply_hud_command(session, pose, "start"))
+                    st.rerun()
             st.progress(
                 pose.stop.active_frames / pose.stop.required_frames,
                 text=(
@@ -423,22 +488,11 @@ def _render_ai_vision_hud_fragment() -> None:
         with btn_col1:
             if not user_paused:
                 if st.button("⏸️ Tạm ngưng", key="hud_pause_btn", use_container_width=True):
-                    st.session_state["session_user_paused"] = True
-                    pose.interrupt_tracking()
-                    session.status = "paused"
-                    st.session_state["paused_progress"] = {
-                        "reps": session.ai_reps,
-                        "paused_at": datetime.now().strftime("%H:%M:%S"),
-                        "session_name": session_name,
-                    }
-                    st.toast("Đã tạm ngưng buổi tập và lưu tiến trình!", icon="⏸️")
+                    st.toast(_apply_hud_command(session, pose, "pause"), icon="⏸️")
                     st.rerun()
             else:
                 if st.button("▶️ Tiếp tục", key="hud_resume_btn", type="primary", use_container_width=True):
-                    st.session_state["session_user_paused"] = False
-                    if pose.started and not pose.stop.is_rep_locked:
-                        session.status = "active"
-                    st.toast("Tiếp tục ghi nhận buổi tập!", icon="▶️")
+                    st.toast(_apply_hud_command(session, pose, "start"), icon="▶️")
                     st.rerun()
 
         with btn_col2:
