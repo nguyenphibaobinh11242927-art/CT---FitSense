@@ -5,79 +5,108 @@ Hệ thống Trợ lý AI hỗ trợ rèn luyện Thể dục Thể thao & Calis
 
 ---
 
-## ⚡ Hiện trạng Dự án (Sprint 1 — SCRUM-11)
+## ✨ Các tính năng chính
 
-Đây là khung giao diện Streamlit chính thức của dự án FitSense, được module hóa theo kiến trúc Tư duy Tính toán (8 phân hệ $D1 \rightarrow D8$):
-- **Phụ trách chính (Lead - Code):** Nguyễn Nhật Thùy Khanh (M02)
-- **Hỗ trợ (Support - Review & Merge):** Trương Cẩm Tú Nga (M05)
-- **Mã Jira:** `SCRUM-11` (Sprint 1: Nền tảng & UI — 4.5 Story Points).
+1. **Tài khoản & Hồ sơ Thể chất ([`src/auth_view.py`](src/auth_view.py), [`src/profile.py`](src/profile.py), [`src/profile_view.py`](src/profile_view.py)):**
+   - Quản lý đăng nhập / đăng ký, tính chỉ số BMI, mục tiêu tập luyện, dụng cụ hiện có và các hạn chế vận động / chấn thương.
+2. **Kế hoạch Tập luyện Tuần & FIT-AI ([`src/planner_view.py`](src/planner_view.py), [`src/planner_generation.py`](src/planner_generation.py), [`src/school_ai.py`](src/school_ai.py), [`src/adaptive_weekly_plan.py`](src/adaptive_weekly_plan.py)):**
+   - Sinh giáo án tuần 7 ngày cá nhân hóa bằng **HCMUS FIT-AI (`Qwen-27B`)**, lọc sẵn bài tập hợp lệ theo dụng cụ và chấn thương.
+   - Đổi bài tập thay thế theo nhóm cơ chính/phụ, hỗ trợ tải lên giáo án (`.json` / `.csv`), chỉnh sửa từng ngày, cảnh báo phục hồi và lưu trạng thái hoàn thành.
+3. **Thư viện 28 Bài tập Calisthenics ([`src/exercise_library.py`](src/exercise_library.py), [`src/exercise_library_view.py`](src/exercise_library_view.py), [`data/exercises.json`](data/exercises.json)):**
+   - Tìm kiếm tức thì theo tên tiếng Việt / tiếng Anh / nhóm cơ (`streamlit-keyup` với debounce 180ms), lọc đa tiêu chí và sơ đồ giải phẫu minh họa cơ chính/phụ mặt trước & sau.
+4. **Phòng tập Rảnh tay (HUD) & AI Pose Tracking ([`src/session_view.py`](src/session_view.py), [`src/pose_tracking.py`](src/pose_tracking.py), [`src/fsm_gestures.py`](src/fsm_gestures.py), [`src/fsm_rep_counter.py`](src/fsm_rep_counter.py), [`assets/webcam/`](assets/webcam/)):**
+   - Chạy **MediaPipe Pose Landmarker** trực tiếp trên trình duyệt, nhận diện cử chỉ **giơ tay bắt đầu** và **chữ X kết thúc**, đếm rep tự động bằng FSM, kèm **Chế độ Tự do** không cần camera.
+   - Tích hợp **Voice Coach tiếng Việt** ([`assets/webcam/voice_coach.mjs`](assets/webcam/voice_coach.mjs)) và thú cưng đồng hành **Capybara** ([`src/capybara_widget.py`](src/capybara_widget.py)).
+5. **Đánh giá Sau Buổi tập, Heatmap & Tiến độ ([`src/evaluation_view.py`](src/evaluation_view.py), [`src/heatmap_view.py`](src/heatmap_view.py), [`src/progress_view.py`](src/progress_view.py)):**
+   - Ghi nhận cảm nhận RPE, bản đồ nhiệt phục hồi từng nhóm cơ và theo dõi chuỗi ngày duy trì (Streak tối thiểu 70%).
 
 ---
 
-## 🚀 Khởi chạy trên Máy cá nhân
+## 🚀 Cài đặt & Khởi chạy
 
-Khuyến nghị môi trường **Python 3.10 - 3.12**. Mở terminal tại thư mục gốc dự án:
+Khuyến nghị **Python 3.10 – 3.12+** (mở terminal tại thư mục gốc dự án):
 
-### Cách 1: Chạy trực tiếp (Nhanh nhất)
-```powershell
-# Cài đặt thư viện:
-python -m pip install -r requirements.txt
-
-# Khởi chạy ứng dụng FitSense:
-python -m streamlit run app.py
-```
-
-### Cách 2: Khởi tạo Virtual Environment (Chuẩn phát triển)
+### 1. Tạo môi trường ảo & cài đặt thư viện
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-streamlit run app.py
+python -m pip install -r requirements.txt
 ```
+*(Trên Linux/macOS dùng `source .venv/bin/activate` thay cho `Activate.ps1`.)*
 
----
-
-### Tạo giáo án tuần với FIT-AI (SCRUM-12)
-
-Đặt `FITAI_API_KEY` trong môi trường của tiến trình Streamlit trước khi khởi động app.
-Ví dụ trên PowerShell, nhập key khi được hỏi:
+### 2. Cấu hình `FITAI_API_KEY` (cho tính năng tạo giáo án FIT-AI)
+Tham khảo [`.env.example`](.env.example) và [hướng dẫn FIT-AI](https://www.fit.hcmus.edu.vn/llm-services/). Đặt biến môi trường trước khi chạy Streamlit:
 
 ```powershell
-$env:FITAI_API_KEY = (Get-Credential -UserName 'FIT-AI' -Message 'Nhập key FIT-AI ở ô Password').GetNetworkCredential().Password
+# Windows PowerShell:
+$env:FITAI_API_KEY = "<API_KEY_CUA_BAN>"
+```
+```bash
+# Linux / macOS / WSL:
+export FITAI_API_KEY="<API_KEY_CUA_BAN>"
+```
+
+### 3. Khởi chạy ứng dụng FitSense
+```powershell
 python -m streamlit run app.py
 ```
+*(Tùy chọn kiểm tra Pose Tracking độc lập bằng Python: `python -m src.pose_tracking`.)*
 
-Mở **Kế hoạch Tập luyện**, chọn mục tiêu và bấm **Tái lập Kế hoạch AI**.
-FitSense gọi model `Qwen-27B` của HCMUS FIT-AI từ máy chủ và chỉ thay lịch sau
-khi kiểm tra đủ bảy ngày cùng các bài tập hợp lệ. Khi API lỗi, lịch hiện tại vẫn dùng được.
-Key của lớp lấy theo [hướng dẫn FIT-AI](https://www.fit.hcmus.edu.vn/llm-services/).
+---
 
-## 📂 Cấu trúc Mã nguồn FitSense (SCRUM-11)
+## 📂 Cấu trúc Mã nguồn
 
 ```text
-app.py                         # Giao diện chính, điều hướng Sidebar & khởi tạo Session State FitSense
+app.py                         # Điểm chạy Streamlit chính, điều hướng Sidebar & theme Dark/Light
+config.py                      # Cấu hình dùng chung của ứng dụng
+requirements.txt               # Danh sách thư viện Python (Streamlit, Pandas, Requests, MediaPipe, ...)
+.env.example                   # Mẫu biến môi trường (FITAI_API_KEY)
+data/
+└── exercises.json             # Danh mục 28 bài tập Calisthenics chuẩn hóa JSON Schema
+models/
+└── pose_landmarker_lite.task  # Model MediaPipe Pose chạy trên trình duyệt / Python
+assets/
+├── exercises/                 # Media minh họa bài tập
+└── webcam/                    # Thành phần Streamlit webcam, MediaPipe WASM & Voice Coach JS
 src/
-├── __init__.py                # Khai báo package ứng dụng
-├── profile_view.py            # D1: Hồ sơ thể chất, đo BMI, chấn thương & hạn chế vận động
-├── planner_view.py            # D2: Lập lịch tập tuần, phân bổ nhóm cơ & giải thích lý do AI
-├── library_view.py            # D3: Thư viện động tác Calisthenics, bộ lọc nhóm cơ & bài thay thế
-├── session_view.py            # D4 & D5: Phòng tập Rảnh tay (HUD), nhúng AI Pose Tracking & khóa sửa rep
-├── evaluation_view.py         # D5 & D7: Đánh giá sau buổi (RPE 1-10) & Thuật toán Thích ứng Tải trọng
-├── heatmap_view.py            # D6: Bảng nhiệt phục hồi nhóm cơ (Muscle Heatmap Matrix 24h-48h-72h)
-└── progress_view.py           # D6: Biểu đồ thể lực, kỷ lục PRs & Streak duy trì (tối thiểu 70%)
-tests/
-└── test_fitsense_ui.py        # Kiểm thử đơn vị tự động xác thực render và dữ liệu phiên tập
-docs_private/                  # Tài liệu nội bộ, Báo cáo Tư duy Tính toán (PDF), Bảng phân công (Excel)
-requirements.txt               # Danh mục thư viện Python (Streamlit, Pandas)
+├── auth_view.py               # Đăng nhập / Đăng ký tài khoản
+├── profile.py                 # Xử lý dữ liệu & lưu hồ sơ người dùng
+├── profile_view.py            # Giao diện Hồ sơ Thể chất & Hạn chế Vận động
+├── planner_view.py            # Giao diện Lập lịch Tuần, đổi bài & chỉnh sửa giáo án
+├── planner_generation.py      # Chuẩn hóa & sinh giáo án tuần từ AI
+├── school_ai.py               # Kết nối API HCMUS FIT-AI (Qwen-27B)
+├── workout_planner.py         # Quy tắc & kiểm định cấu trúc giáo án
+├── adaptive_weekly_plan.py    # Sắp xếp lại lịch tuần thích ứng & cảnh báo phục hồi
+├── weekly_plan_sync.py        # Đồng bộ trạng thái buổi tập với lịch tuần
+├── weekly_plan_storage.py     # Lưu / khôi phục trạng thái kế hoạch tuần
+├── exercise_library.py        # Logic tìm kiếm, lọc và gợi ý bài thay thế theo nhóm cơ
+├── exercise_library_view.py   # Giao diện thư viện 28 bài tập & sơ đồ cơ giải phẫu
+├── library_view.py            # Wrapper điều hướng Thư viện Bài tập
+├── session_view.py            # Phòng tập Trực tiếp (HUD) & điều phối phiên webcam
+├── workout_session.py         # Quản lý trạng thái phiên tập (active/paused/completed)
+├── pose_tracking.py           # Nhận diện tư thế & tính góc khớp bằng MediaPipe
+├── fsm_gestures.py            # FSM nhận diện cử chỉ bắt đầu (giơ tay) & dừng (chữ X)
+├── fsm_rep_counter.py         # FSM đếm số rep & kiểm tra độ sâu squat
+├── evaluation_view.py         # Đánh giá sau buổi tập (RPE)
+├── heatmap_view.py            # Bản đồ nhiệt phục hồi nhóm cơ
+├── progress_view.py           # Thống kê tiến độ & Streak
+└── capybara_widget.py         # Widget Capybara đồng hành
+tests/                         # Bộ kiểm thử Python (`unittest`) và JS (`node --test`)
+docs/                          # Báo cáo kiến trúc, bảng phân công & biên bản nghiệm thu
 ```
 
 ---
 
-## 🧪 Chạy Kiểm thử Đơn vị (Unit Tests)
+## 🧪 Chạy Kiểm thử (Tests)
 
-Xác thực tính toàn vẹn của toàn bộ các hàm render và cấu trúc dữ liệu thể thao:
+Chạy toàn bộ unit test Python từ thư mục gốc:
 ```powershell
-python -m unittest tests/test_fitsense_ui.py
+python -m unittest discover -s tests -v
+```
+
+Chạy unit test JavaScript cho Voice Coach & Webcam Session (yêu cầu Node.js, xem thêm [`tests/README.md`](tests/README.md)):
+```powershell
+node --test tests/test_voice_coach.mjs tests/test_webcam_session.mjs
 ```
 
 ---
@@ -85,5 +114,5 @@ python -m unittest tests/test_fitsense_ui.py
 ## 🔗 Liên kết Dự án
 
 - **Jira Board:** https://ratatouille2026.atlassian.net (Project: `FitSense - AI Fitness & Workout Assistant`, Key: `SCRUM`)
-- **Git Branch:** `scrum-14-mediapipe-pose`
-Tài liệu dự án nằm trong `docs/`. Chạy webcam SCRUM-14 bằng `python -m src.pose_tracking`.
+- **Nhánh chính:** `main`
+- **Tài liệu:** [`docs/`](docs/)

@@ -4,5 +4,4 @@ jsonschema>=4,<5
 requests>=2,<3
 mediapipe==1.2.2
 opencv-contrib-python==5.0.0.93
-
 streamlit-keyup>=1.0.0,<2
