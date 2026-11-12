@@ -3,3 +3,5 @@ pandas>=2.0.0
 jsonschema>=4,<5
 mediapipe==1.2.2
 opencv-contrib-python==5.0.0.93
+
+streamlit-keyup>=1.0.0,<2

@@ -164,44 +164,94 @@ def resolve_exercise(name_or_id: str, catalog: list[dict]) -> dict | None:
     return None
 
 
+# Planner names can originate from an old AI plan or a user-imported file.
+MUSCLE_ALIASES = {
+    'chest': ('nguc', 'chest', 'pectoral'),
+    'back': ('lung', 'xo', 'back', 'row'),
+    'shoulders': ('vai', 'shoulder', 'deltoid'),
+    'triceps': ('tay sau', 'tricep'),
+    'biceps': ('tay truoc', 'bicep'),
+    'core': ('bung', 'core', 'abs'),
+    'glutes': ('mong', 'glute'),
+    'quads': ('dui truoc', 'quadricep', 'quad'),
+    'hamstrings': ('dui sau', 'hamstring'),
+    'calves': ('bap chan', 'calf'),
+    'hip_flexors': ('gap hong', 'hip flexor'),
+}
+
+
+def _muscle_codes(value: object) -> set[str]:
+    """Parse old Vietnamese/English labels; do not infer muscles from arbitrary text."""
+    if isinstance(value, (list, tuple, set)):
+        return {code for item in value for code in _muscle_codes(item)}
+    text = normalize(value or '')
+    if not text or text in ('khong', 'none', 'toan than'):
+        return set()
+    return {code for code, aliases in MUSCLE_ALIASES.items()
+            if code == text or any(alias in text for alias in aliases)}
+
+
+def planner_target_muscles(current: dict, catalog: list[dict]) -> tuple[set[str], set[str]]:
+    """Resolve target primary/secondary muscle roles from catalogue or legacy plan."""
+    source = current if current.get('primary_muscles') else resolve_exercise(
+        current.get('exercise_id') or current.get('id') or current.get('name', ''), catalog)
+    if source:
+        return set(source.get('primary_muscles', [])), set(source.get('secondary_muscles', []))
+    primary = _muscle_codes(current.get('primary_muscle', ''))
+    secondary = _muscle_codes(current.get('secondary_muscle', '')) - primary
+    return primary, secondary
+
+
+def replacement_matches(current: dict, catalog: list[dict],
+                        available_equipment: set[str] | None = None,
+                        limitations: set[str] | None = None) -> list[dict]:
+    """Candidates must exercise at least one of the original primary/secondary muscles.
+
+    Annotate each result with a human-readable main/assisting muscle match.
+    Preserve all original catalogue fields for downstream selection by stable ID.
+    """
+    target_primary, target_secondary = planner_target_muscles(current, catalog)
+    target = target_primary | target_secondary
+    if not target:
+        return []  # Unknown muscle group: do not suggest unrelated exercises.
+    limit = set(limitations or ())
+    available = set(available_equipment) if available_equipment is not None else None
+    current_id = current.get('exercise_id') or current.get('id')
+    current_name = normalize(current.get('name', ''))
+    ranked = []
+    for candidate in catalog:
+        if not isinstance(candidate, dict) or not candidate.get('id'):
+            continue
+        if (candidate['id'] == current_id or
+                normalize(candidate.get('name','')) == current_name or
+                normalize(candidate.get('name_en','')) == current_name):
+            continue
+        if not set(candidate.get('avoid_if', [])).isdisjoint(limit):
+            continue
+        if available is not None and not set(candidate.get('equipment', [])).issubset(available):
+            continue
+        cp = set(candidate.get('primary_muscles', []))
+        cs = set(candidate.get('secondary_muscles', []))
+        main_match = cp & target
+        assist_match = cs & target
+        if not (main_match or assist_match):
+            continue
+        # Prioritize preserving the original exercise's primary muscles.
+        score = (8 * len(cp & target_primary) +
+                 4 * len(cs & target_primary) +
+                 2 * len(cp & target_secondary) +
+                 len(cs & target_secondary))
+        enriched = dict(candidate)
+        enriched['match_primary'] = sorted(main_match)
+        enriched['match_secondary'] = sorted(assist_match)
+        ranked.append((-score, len(candidate.get('equipment', [])),
+                       candidate['name'], enriched))
+    ranked.sort(key=lambda item: item[:3])
+    return [row[3] for row in ranked]
+
+
 def compatible_replacements(current: dict, catalog: list[dict],
                             available_equipment: set[str] | None = None,
                             limitations: set[str] | None = None) -> list[dict]:
-    """Return ranked replacements for either a JSON-catalogue item or planner item.
-
-    Alternatives share at least one of the target's main/assisting muscles;
-    constraints are respected, never fabricate a candidate name.
-    """
-    source = current if 'primary_muscles' in current else resolve_exercise(current.get('exercise_id') or current.get('name', ''), catalog)
-    limitations = set(limitations or ())
-    available = None if available_equipment is None else set(available_equipment)
-    primary = set((source or {}).get('primary_muscles', []))
-    secondary = set((source or {}).get('secondary_muscles', []))
-    if not primary:
-        muscle_text = normalize(str(current.get('primary_muscle', '')) + ' ' + str(current.get('secondary_muscle', '')))
-        # Translate common planner labels, including legacy "Lưng & Xô" and "Bụng & Core".
-        aliases = {
-            'chest': ('nguc', 'chest'), 'back': ('lung', 'xo', 'back', 'row'),
-            'shoulders': ('vai', 'shoulder'), 'triceps': ('tay sau', 'tricep'),
-            'biceps': ('tay truoc', 'bicep'), 'core': ('bung', 'core', 'abs'),
-            'glutes': ('mong', 'glute'), 'quads': ('dui truoc', 'quads', 'chan'),
-            'hamstrings': ('dui sau', 'hamstring'), 'calves': ('bap chan', 'calf'),
-            'hip_flexors': ('gap hong', 'hip flexor'),
-        }
-        primary = {key for key, terms in aliases.items() if any(term in muscle_text for term in terms)}
-    ranked = []
-    for ex in catalog:
-        if source is not None and ex['id'] == source['id']:
-            continue
-        if normalize(ex['name']) == normalize(current.get('name', '')):
-            continue
-        if not set(ex['avoid_if']).isdisjoint(limitations):
-            continue
-        if available is not None and not set(ex['equipment']).issubset(available):
-            continue
-        ep,es=set(ex['primary_muscles']),set(ex['secondary_muscles'])
-        points=4*len(primary & ep)+2*len(primary & es)+len(secondary & ep)
-        if points>0:
-            ranked.append((-points,len(ex['equipment']),ex['name'],ex))
-    ranked.sort(key=lambda item:item[:3])
-    return [item[3] for item in ranked]
+    """Backwards-compatible API returning only muscle-compatible exercise records."""
+    return replacement_matches(current, catalog, available_equipment, limitations)

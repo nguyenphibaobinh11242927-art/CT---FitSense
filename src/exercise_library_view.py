@@ -6,6 +6,11 @@ from xml.sax.saxutils import escape
 
 import streamlit as st
 
+try:
+    from st_keyup import st_keyup as _instant_search
+except ImportError:
+    _instant_search = None
+
 from src.exercise_library import (EQUIPMENT, INJURIES, LEVELS, MUSCLES,
                                   load_catalog, search_exercises, suggest_alternatives)
 
@@ -99,7 +104,22 @@ def render_exercise_library_view() -> None:
     equip_opts = {'Mọi dụng cụ': '', 'Không cần dụng cụ': '__none__'} | {v: k for k,v in EQUIPMENT.items()}
     groups = ['Tất cả loại'] + sorted(set(ex['category'] for ex in library))
     c1,c2,c3 = st.columns([2,1,1])
-    with c1: query = st.text_input('🔍 Tìm theo tên hoặc nhóm cơ', placeholder='Push-up, hit dat, nguc, back...')
+    with c1:
+        if _instant_search is not None:
+            # streamlit-keyup sends input on each keyup; no Enter is required.
+            query = _instant_search(
+                '🔍 Tìm theo tên hoặc nhóm cơ',
+                placeholder='Push-up, hit dat, nguc, back...',
+                key='exercise_library_live_search',
+                debounce=180,
+            ) or ''
+        else:
+            query = st.text_input(
+                '🔍 Tìm theo tên hoặc nhóm cơ',
+                placeholder='Push-up, hit dat, nguc, back...',
+                key='exercise_library_search_fallback',
+            )
+            st.caption('Để lọc ngay khi gõ: pip install streamlit-keyup')
     with c2: muscle_label = st.selectbox('Nhóm cơ', list(muscle_opts))
     with c3: role_label = st.selectbox('Vai trò cơ', ['Chính hoặc phụ','Chính','Phụ'])
     c4,c5,c6 = st.columns(3)
