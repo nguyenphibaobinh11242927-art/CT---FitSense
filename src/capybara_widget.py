@@ -10,6 +10,7 @@ Hiển thị chú chuột túi Capybara nổi ở góc màn hình dưới dạng
 - Tối giản tối đa: Đã loại bỏ hoàn toàn các thanh tiêu đề và nút bấm thủ công.
 """
 
+import hashlib
 import html
 import random
 import textwrap
@@ -93,7 +94,7 @@ CAPY_SVG_HAPPY = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120
 SAD_QUOTES = [
     "Hôm nay bạn chưa tập nè, cùng khởi động nhé! 🥺",
     "Chưa tập bài nào đó, làm vài set nhẹ thôi! 🦫",
-    "Squat 10 phút với Cappy cho tỉnh táo nha! 🔥",
+    "Squat 10 phút với CapyHeo cho tỉnh táo nha! 🔥",
     "Đừng bỏ chuỗi Streak, bắt đầu ngay bạn ơi! 💪",
     "Thảm tập sẵn sàng rồi, chỉ chờ bạn thôi đó! 🏃",
     "Ngồi lâu mỏi lưng lắm, giãn cơ một chút nào! 🤸",
@@ -112,7 +113,7 @@ HAPPY_QUOTES = [
 # Danh sách lời thoại chào mừng ở giao diện đăng nhập (<= 2 dòng)
 WELCOME_QUOTES = [
     "Xin chào! Chào mừng bạn đến với FitSense! 🦫✨",
-    "Chào bạn! Tớ là CappyHeo, trợ lý FitSense! 🍊",
+    "Chào bạn! Tớ là CapyHeo, trợ lý FitSense! 🍊",
     "Đăng nhập để AI lên lịch tập riêng cho bạn! ⚡",
     "Cùng bạn chinh phục vóc dáng mới tại FitSense! 💪",
     "Sẵn sàng cho buổi tập thông minh chưa bạn? 🚀",
@@ -148,7 +149,7 @@ SECTION_QUOTES = {
     "profile_eval": [
         "Hãy chấm điểm RPE thật lòng để AI chỉnh tải! ⭐",
         "Nhớ cập nhật thể trạng để AI chỉnh giáo án! 📋",
-        "Cơ thể mệt hay khỏe? Kể cho Cappy nghe nhé! 🦫",
+        "Cơ thể mệt hay khỏe? Kể cho Capy nghe nhé! 🦫",
         "Hoàn tất đánh giá xong nhớ uống bù nước nha! 💧",
         "Đánh giá giúp AI tối ưu lịch tuần tới cho bạn! ✨",
         "Lắng nghe cơ thể và bảo vệ khớp là số một! 💚",
@@ -157,7 +158,7 @@ SECTION_QUOTES = {
 
 
 def resolve_capy_section(current_screen: str | None, is_logged_in: bool) -> str:
-    """Ánh xạ màn hình hiện tại sang nhóm ngân hàng câu thoại CappyHeo phù hợp."""
+    """Ánh xạ màn hình hiện tại sang nhóm ngân hàng câu thoại CapyHeo phù hợp."""
     if not is_logged_in:
         return "welcome"
     if not current_screen:
@@ -265,6 +266,9 @@ def render_capybara_companion(
         quote_slides_html.append(f'<div class="capy-slide slide-{idx+1}">{safe_q_text}</div>')
 
     quotes_markup = "\n".join(quote_slides_html)
+    quote_sig = hashlib.sha1(f"{theme}|{quotes_markup}".encode("utf-8")).hexdigest()[:8]
+    bubble_anim = f"capyBubbleSilence_{quote_sig}"
+    slide_anim = f"capyRotateQuotes_{quote_sig}"
 
     # Màu sắc giao diện theo theme
     if theme == "light":
@@ -302,7 +306,7 @@ pointer-events: auto;
 }}
 .capy-bubble-slot {{
 position: relative;
-animation: capyBubbleSilence 22s infinite ease-in-out;
+animation: {bubble_anim} 22s linear infinite;
 transform-origin: bottom right;
 }}
 .capy-bubble {{
@@ -315,7 +319,7 @@ border-radius: 20px;
 padding: 13px 16px;
 padding-top: 16px;
 box-shadow: {shadow_bubble};
-color: {text_bubble};
+color: {text_bubble} !important;
 transform-origin: bottom right;
 transition: all 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
 margin-bottom: 8px;
@@ -399,12 +403,12 @@ opacity: 0;
 font-size: 13.5px;
 line-height: 1.4;
 font-weight: 600;
-color: {text_bubble};
+color: {text_bubble} !important;
 display: -webkit-box;
 -webkit-line-clamp: 2;
 -webkit-box-orient: vertical;
 overflow: hidden;
-animation: capyRotateQuotes 66s infinite ease-in-out;
+animation: {slide_anim} 66s linear infinite;
 }}
 .capy-slide.slide-1 {{
 animation-delay: 0s;
@@ -415,40 +419,35 @@ animation-delay: 22s;
 .capy-slide.slide-3 {{
 animation-delay: 44s;
 }}
-@keyframes capyBubbleSilence {{
+@keyframes {bubble_anim} {{
 0% {{
 opacity: 0;
 transform: translateY(6px) scale(0.95);
 pointer-events: none;
 }}
-4.5%, 50% {{
+3%, 51% {{
 opacity: 1;
 transform: translateY(0) scale(1);
 pointer-events: auto;
 }}
-54.5%, 99.9% {{
+54.5%, 100% {{
 opacity: 0;
 transform: translateY(4px) scale(0.94);
 pointer-events: none;
 }}
-100% {{
-opacity: 0;
-transform: translateY(6px) scale(0.95);
-pointer-events: none;
 }}
-}}
-@keyframes capyRotateQuotes {{
-0% {{
-opacity: 0;
-transform: translateY(6px);
-}}
-1.5%, 16.5% {{
+@keyframes {slide_anim} {{
+0%, 22% {{
 opacity: 1;
 transform: translateY(0);
 }}
-18.2%, 100% {{
+24%, 96% {{
 opacity: 0;
-transform: translateY(-6px);
+transform: translateY(0);
+}}
+98%, 100% {{
+opacity: 1;
+transform: translateY(0);
 }}
 }}
 .capy-avatar-btn {{
@@ -460,7 +459,6 @@ display: flex;
 align-items: flex-end;
 justify-content: center;
 transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.35));
 user-select: none;
 -webkit-user-select: none;
 flex-shrink: 0;
@@ -473,6 +471,7 @@ transform: scale(0.95);
 }}
 .capy-svg-wrap {{
 animation: capyGentleFloat 3.2s ease-in-out infinite;
+will-change: transform;
 display: flex;
 align-items: center;
 justify-content: center;
@@ -491,17 +490,17 @@ border-radius: 50%;
 background-color: {dot_color};
 border: 2px solid {bg_bubble};
 box-shadow: 0 0 8px {dot_color};
-animation: capyPulse 2s infinite;
+will-change: transform, opacity;
+animation: capyPulse 2s ease-in-out infinite;
 }}
 @keyframes capyPulse {{
-0% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({dot_rgb}, 0.7); }}
-70% {{ transform: scale(1.1); box-shadow: 0 0 0 8px rgba({dot_rgb}, 0); }}
-100% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({dot_rgb}, 0); }}
+0%, 100% {{ transform: scale(0.95); opacity: 0.78; }}
+50% {{ transform: scale(1.12); opacity: 1; }}
 }}
 </style>
 <div id="capybara-companion-container">
 <input type="checkbox" id="capy-bubble-toggle" class="capy-bubble-toggle" />
-<div class="capy-bubble-slot">
+<div class="capy-bubble-slot" data-quote-sig="{quote_sig}">
 <div class="capy-bubble">
 <label for="capy-bubble-toggle" class="capy-close-btn" title="Thu nhỏ lời thoại">✕</label>
 <div class="capy-carousel-wrap">
