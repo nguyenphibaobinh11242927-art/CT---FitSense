@@ -238,6 +238,8 @@ def _on_webcam_change(key: str) -> None:
             st.session_state.get(key),
             user_paused=bool(st.session_state.get("session_user_paused", False)),
         )
+        # Widget đã mount và có sẵn model trong iframe; tránh gửi lại 7.5MB base64 mỗi 200ms.
+        st.session_state["_webcam_batch_rerun_key"] = key
     except ValueError as error:
         st.error(f"Không thể xử lý dữ liệu camera: {error}")
 
@@ -299,8 +301,9 @@ def _render_ai_vision_hud_fragment() -> None:
                 help="Bật/tắt hiển thị FPS và các góc khớp thời gian thực bên dưới khung hình.",
             )
         widget_key = f"live_pose_{session.session_id}"
+        skip_model = st.session_state.pop("_webcam_batch_rerun_key", None) == widget_key
         webcam(
-            model=webcam_model(),
+            model=None if skip_model else webcam_model(),
             session_id=session.session_id,
             last_event_id=session.last_event_id,
             voice_feedback=pose.voice_feedback,

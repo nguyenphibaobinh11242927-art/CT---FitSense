@@ -459,7 +459,6 @@ display: flex;
 align-items: flex-end;
 justify-content: center;
 transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.35));
 user-select: none;
 -webkit-user-select: none;
 flex-shrink: 0;
@@ -472,6 +471,7 @@ transform: scale(0.95);
 }}
 .capy-svg-wrap {{
 animation: capyGentleFloat 3.2s ease-in-out infinite;
+will-change: transform;
 display: flex;
 align-items: center;
 justify-content: center;
@@ -490,12 +490,12 @@ border-radius: 50%;
 background-color: {dot_color};
 border: 2px solid {bg_bubble};
 box-shadow: 0 0 8px {dot_color};
-animation: capyPulse 2s infinite;
+will-change: transform, opacity;
+animation: capyPulse 2s ease-in-out infinite;
 }}
 @keyframes capyPulse {{
-0% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({dot_rgb}, 0.7); }}
-70% {{ transform: scale(1.1); box-shadow: 0 0 0 8px rgba({dot_rgb}, 0); }}
-100% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({dot_rgb}, 0); }}
+0%, 100% {{ transform: scale(0.95); opacity: 0.78; }}
+50% {{ transform: scale(1.12); opacity: 1; }}
 }}
 </style>
 <div id="capybara-companion-container">

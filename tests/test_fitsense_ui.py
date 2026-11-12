@@ -466,6 +466,26 @@ class TestFitSenseUIModules(unittest.TestCase):
         finally:
             st.markdown = orig_md
 
+    def test_webcam_anti_lag_optimizations(self):
+        """Kiểm tra cơ chế chống đơ trình duyệt khi bật camera AI (SCRUM-11)."""
+        from pathlib import Path
+        import inspect
+
+        js_src = Path("assets/webcam/webcam.mjs").read_text(encoding="utf-8")
+        self.assertIn("MIN_DETECT_INTERVAL_MS", js_src)
+        self.assertIn("awaitingAckSequence", js_src)
+        self.assertIn('delegate:"GPU"', js_src)
+        self.assertIn("lastFrameHeight", js_src)
+        self.assertIn("decodedModelBytes", js_src)
+
+        session_src = inspect.getsource(session_view)
+        self.assertIn("_webcam_batch_rerun_key", session_src)
+        self.assertIn("model=None if skip_model else webcam_model()", session_src)
+
+        capy_src = inspect.getsource(capybara_widget)
+        self.assertNotIn("drop-shadow(", capy_src)
+        self.assertIn("will-change: transform", capy_src)
+
 
 if __name__ == "__main__":
     unittest.main()
