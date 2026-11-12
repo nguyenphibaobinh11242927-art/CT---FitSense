@@ -5,9 +5,33 @@ const joints = [
   ["Gối trái", 23, 25, 27], ["Gối phải", 24, 26, 28]
 ];
 const labels = joints.map(() => get("angles").appendChild(document.createElement("span")));
-let encodedModel, detector, connections, stream, animation, mirrored = true;
+let detector, connections, stream, animation, mirrored = true;
 let lastVideoTime, frameCount, windowStart;
 let pendingFrames = [], batchSequence = 0, lastBatchAt = 0;
+let squatPhase = "up", deepestKnee = 180, lastFormCue = -Infinity;
+let poseWasPresent = false;
+function speakCue(text) {
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel(); // drop stale queued cues
+  const message = new SpeechSynthesisUtterance(text);
+  message.lang = "vi-VN"; message.rate = 1.05;
+  window.speechSynthesis.speak(message);
+}
+function reviewSquat(angle, now) {
+  if (angle === null) { squatPhase = "up"; deepestKnee = 180; return; }
+  if (squatPhase === "up" && angle < 150) {
+    squatPhase = "down"; deepestKnee = angle;
+  } else if (squatPhase === "down") {
+    deepestKnee = Math.min(deepestKnee, angle);
+    if (angle >= 160) {
+      if (deepestKnee > 100 && now - lastFormCue >= 8000) {
+        speakCue("Hãy hạ người sâu hơn một chút, trong phạm vi bạn thấy thoải mái.");
+        lastFormCue = now;
+      }
+      squatPhase = "up"; deepestKnee = 180;
+    }
+  }
+}
 const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -17,9 +41,6 @@ function send(type, data) {
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  if (encodedModel) return;
-  encodedModel = event.data.args.model;
-
   get("start").disabled = false;
   if (!stream) get("status").textContent = "Sẵn sàng bật camera.";
 });
@@ -87,14 +108,15 @@ function getPoseFeatures(pose) {
     xDetected = bodyWidth > 0 &&
       shoulderY < leftWrist.y && leftWrist.y < hipY &&
       shoulderY < rightWrist.y && rightWrist.y < hipY &&
-      Math.abs(leftWrist.x - rightWrist.x) < 0.08 * bodyWidth;
+      Math.abs(leftWrist.x - rightWrist.x) < 0.35 * bodyWidth;
   }
 
   return {
     knee_angle: kneeAngle,
     start_detected: startDetected,
     x_detected: xDetected,
-    head_detected: Boolean(nose)
+    head_detected: Boolean(nose),
+    timestamp_ms: performance.now()
   };
 }
 function sendFrameBatch() {
@@ -114,10 +136,12 @@ function stopCamera(message = "Đã tắt camera.") {
   detector?.close();
   detector = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  get("start").disabled = !encodedModel;
+  get("start").disabled = false;
   get("stop").disabled = true;
   get("status").textContent = message;
   get("fps").textContent = "FPS: —";
+  window.speechSynthesis?.cancel();
+  squatPhase = "up"; deepestKnee = 180;
   updateAngles([]);
 }
 function draw(now) {
@@ -143,6 +167,12 @@ function draw(now) {
       }
       updateAngles(points);
       const features = getPoseFeatures(points);
+      if (pose.length && !poseWasPresent) {
+        poseWasPresent = true;
+      } else if (!pose.length) {
+        poseWasPresent = false;
+      }
+      reviewSquat(features.knee_angle, now);
       const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
       const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
       get("status").textContent = pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.";
@@ -177,7 +207,7 @@ get("start").onclick = async () => {
     const {FilesetResolver, PoseLandmarker} = await import("./vendor/mediapipe/vision_bundle.mjs");
     const files = await FilesetResolver.forVisionTasks(new URL("./vendor/mediapipe/wasm", location.href).href);
     detector = await PoseLandmarker.createFromOptions(files, {
-      baseOptions:{modelAssetBuffer:Uint8Array.from(atob(encodedModel), c => c.charCodeAt(0))},
+      baseOptions:{modelAssetPath:new URL("./pose_landmarker_lite.task", location.href).href},
       runningMode:"VIDEO", numPoses:1
     });
     connections = PoseLandmarker.POSE_CONNECTIONS;

@@ -16,12 +16,19 @@ def render_evaluation_view():
     with col1:
         st.subheader("1. Khảo sát Cảm nhận Sau Buổi tập")
 
-        completion_rate = st.slider("Tỉ lệ hoàn thành khối lượng giáo án hôm nay (%):", min_value=10, max_value=100, value=75, step=5, help="Ví dụ bạn mệt và dừng sớm ở mức 70-75% giáo án.")
+        session_summary = st.session_state.get("fitsense_session_summary")
+        if session_summary:
+            completion_rate = session_summary["completion_rate"]
+            st.metric("Tỉ lệ hoàn thành tính từ số reps thực tế", f"{completion_rate:.1f}%")
+            st.caption(f"{session_summary['completed_reps']} / {session_summary['planned_reps']} reps; không thể sửa tay số reps AI đã đếm.")
+        else:
+            completion_rate = st.slider("Tỉ lệ hoàn thành ước tính (chưa có bản ghi camera):",
+                                        min_value=0, max_value=100, value=0, step=5)
 
         rpe = st.select_slider(
             "Thang đo Mức độ Gắng sức RPE (Borg Scale 1 - 10):",
             options=list(range(1, 11)),
-            value=8,
+            value=5,
             help="1: Rất nhẹ -> 5: Vừa sức -> 8: Rất mệt/Gắng sức cao -> 10: Kiệt sức hoàn toàn."
         )
 
@@ -61,7 +68,7 @@ def render_evaluation_view():
         st.subheader("2. Khuyến nghị Tự động của Adaptive AI")
 
         # Thuật toán thích ứng dựa trên Completion Rate và RPE
-        eval_data = st.session_state.get("last_eval", {"completion_rate": 75, "rpe": 8, "soreness": ["Cơ đùi trước (Quads)"]})
+        eval_data = st.session_state.get("last_eval", {"completion_rate": (st.session_state.get("fitsense_session_summary") or {}).get("completion_rate", 0), "rpe": 5, "soreness": []})
         comp = eval_data.get("completion_rate", 75)
         user_rpe = eval_data.get("rpe", 8)
 

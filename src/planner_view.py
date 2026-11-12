@@ -4,6 +4,7 @@ Lập lịch tập tuần, phân bổ nhóm cơ, giải thích lý do lựa ch�
 """
 
 import streamlit as st
+from src.exercise_catalog import replacement_options, swap_scheduled_exercise
 
 
 def render_planner_view():
@@ -57,5 +58,18 @@ def render_planner_view():
                             st.write(f"- **Kháng lực/Dụng cụ:** `{ex.get('equipment', 'Bodyweight')}`")
                             st.write(f"- **Độ khó:** `{ex.get('difficulty', 'Intermediate')}`")
                         with c3:
-                            if st.button("🔁 Đổi bài khác", key=f"swap_{i}_{ex_idx}"):
-                                st.warning(f"Đã đổi bài tập sang: {ex.get('substitute', 'Plank tĩnh')}")
+                            options = replacement_options(ex, st.session_state.get("exercise_library", []))
+                            if options:
+                                chosen = st.selectbox(
+                                    "Bài thay thế cùng nhóm cơ",
+                                    options,
+                                    format_func=lambda x: x["name"],
+                                    key=f"swap_choice_{i}_{ex_idx}_{ex.get('exercise_id', ex.get('name'))}",
+                                )
+                                if st.button("🔁 Đổi bài khác", key=f"swap_{i}_{ex_idx}"):
+                                    swapped = swap_scheduled_exercise(schedule, i, ex_idx, chosen)
+                                    st.session_state["exercise_library"] = st.session_state.get("exercise_library", [])
+                                    st.toast(f"Đã cập nhật giáo án: {swapped['name']}", icon="✅")
+                                    st.rerun()
+                            else:
+                                st.caption("Chưa có bài thay thế cùng nhóm cơ trong thư viện.")

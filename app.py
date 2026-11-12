@@ -14,7 +14,8 @@ import src.profile_view as profile_view_mod
 importlib.reload(profile_view_mod)
 from src.profile_view import render_profile_view
 from src.planner_view import render_planner_view
-from src.library_view import render_library_view
+from src.exercise_library_view import render_library_view
+from src.exercise_catalog import merge_catalog
 from src.session_view import render_session_view
 from src.evaluation_view import render_evaluation_view
 from src.heatmap_view import render_heatmap_view
@@ -180,6 +181,7 @@ def init_app_state(force_reset: bool = False):
             "substitute": "Dây kháng lực duỗi tay sau (Tricep Pushdown)."
         }
     ]
+    st.session_state["exercise_library"] = merge_catalog(st.session_state["exercise_library"], st.session_state["weekly_schedule"])
 
     # Bảng nhiệt Phục hồi Cơ bắp
     st.session_state["muscle_recovery"] = {
