@@ -37,6 +37,21 @@ streamlit run app.py
 
 ---
 
+### Tạo giáo án tuần với FIT-AI (SCRUM-12)
+
+Đặt `FITAI_API_KEY` trong môi trường của tiến trình Streamlit trước khi khởi động app.
+Ví dụ trên PowerShell, nhập key khi được hỏi:
+
+```powershell
+$env:FITAI_API_KEY = (Get-Credential -UserName 'FIT-AI' -Message 'Nhập key FIT-AI ở ô Password').GetNetworkCredential().Password
+python -m streamlit run app.py
+```
+
+Mở **Kế hoạch Tập luyện**, chọn mục tiêu và bấm **Tái lập Kế hoạch AI**.
+FitSense gọi model `Qwen-27B` của HCMUS FIT-AI từ máy chủ và chỉ thay lịch sau
+khi kiểm tra đủ bảy ngày cùng các bài tập hợp lệ. Khi API lỗi, lịch hiện tại vẫn dùng được.
+Key của lớp lấy theo [hướng dẫn FIT-AI](https://www.fit.hcmus.edu.vn/llm-services/).
+
 ## 📂 Cấu trúc Mã nguồn FitSense (SCRUM-11)
 
 ```text

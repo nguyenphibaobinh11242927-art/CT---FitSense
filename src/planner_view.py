@@ -10,8 +10,9 @@ import json
 import pandas as pd
 import streamlit as st
 
-
-DEFAULT_DAYS = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"]
+from src.planner_generation import DEFAULT_DAYS, generate_ai_schedule, profile_goal_id
+from src.school_ai import complete_with_school_ai
+from src.workout_planner import GOALS, WorkoutPlanError
 
 
 def get_today_weekday_name(now: datetime | None = None) -> str:
@@ -219,8 +220,26 @@ def render_planner_view():
             f"**Hôm nay ({today_name}):** {today_focus}"
         )
     with c_top2:
-        if st.button("🔄 Tái lập Kế hoạch AI", help="Yêu cầu AI phân tích lại thể trạng và tạo giáo án mới", use_container_width=True):
-            st.toast("AI đã tối ưu lại giáo án tuần theo thể trạng hiện tại!", icon="⚡")
+        goals = list(GOALS)
+        saved_goal = profile_goal_id(profile.get("goal") or "")
+        goal = st.selectbox(
+            "Mục tiêu giáo án AI", goals, format_func=GOALS.__getitem__,
+            index=goals.index(saved_goal) if saved_goal else None, placeholder="Chọn mục tiêu",
+        )
+        if st.button("🔄 Tái lập Kế hoạch AI", disabled=goal is None, use_container_width=True):
+            try:
+                with st.spinner("Đang tạo giáo án tuần bằng AI…"):
+                    generated = generate_ai_schedule(profile, goal, library, complete_with_school_ai)
+            except WorkoutPlanError as error:
+                st.error(str(error))
+            else:
+                st.session_state["weekly_schedule"] = generated
+                st.session_state.pop("custom_plan_source", None)
+                for key in list(st.session_state):
+                    if key.startswith(("edit_focus_", "edit_rest_", "editor_df_", "select_sub_")):
+                        del st.session_state[key]
+                st.toast("Đã tạo giáo án AI cho tuần này.", icon="✅")
+                st.rerun()
 
     # Tải lên kế hoạch cá nhân (.json / .csv)
     with st.expander("📤 Tự Tải lên Kế hoạch Tập luyện Cá nhân (JSON / CSV)", expanded=False):
@@ -293,7 +312,13 @@ def render_planner_view():
                 st.markdown("#### Danh sách bài tập phân bổ:")
                 exercises = day_data.get("exercises", [])
                 for ex_idx, ex in enumerate(exercises):
-                    with st.expander(f"Bài {ex_idx+1}: {ex.get('name')} — {ex.get('sets')} Sets × {ex.get('reps')} Reps (Nghỉ {ex.get('rest_sec')}s)", expanded=True):
+                    hold = ex.get("hold_seconds", 0)
+                    hold_label = f", giữ {hold}s mỗi rep" if hold else ""
+                    exercise_label = (
+                        f"Bài {ex_idx + 1}: {ex.get('name')} — {ex.get('sets')} Sets × {ex.get('reps')} Reps "
+                        f"(Nghỉ {ex.get('rest_sec')}s{hold_label})"
+                    )
+                    with st.expander(exercise_label, expanded=True):
                         c1, c2, c3 = st.columns([1.8, 1.1, 1.5])
                         with c1:
                             st.write(f"- **Nhóm cơ chính:** `{ex.get('primary_muscle')}`")
@@ -303,6 +328,19 @@ def render_planner_view():
                             st.write(f"- **Dụng cụ:** `{ex.get('equipment', 'Bodyweight')}`")
                             st.write(f"- **Độ khó:** `{ex.get('difficulty', 'Intermediate')}`")
                         with c3:
+                            if "ai_alternative" in ex:
+                                alternative = ex["ai_alternative"]
+                                if alternative and st.button(
+                                    f"Đổi sang {alternative['name']}", key=f"apply_swap_{i}_{ex_idx}",
+                                ):
+                                    previous = {key: value for key, value in ex.items() if key != "ai_alternative"}
+                                    updated = list(exercises)
+                                    updated[ex_idx] = {**alternative, "ai_alternative": previous}
+                                    st.session_state["weekly_schedule"] = [
+                                        *schedule[:i], {**day_data, "exercises": updated}, *schedule[i + 1:],
+                                    ]
+                                    st.rerun()
+                                continue
                             alt_options = _get_exercise_alternatives(ex, library)
                             chosen_sub = st.selectbox(
                                 "Chọn bài tập thay thế:",
