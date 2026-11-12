@@ -250,8 +250,10 @@ class TestFitSenseUIModules(unittest.TestCase):
                 current_screen="⚡ Phòng tập Trực tiếp (HUD)",
             )
             first_html = captured[-1]
-            self.assertIn("capyBubbleSilence 22s infinite", first_html)
-            self.assertIn("capyRotateQuotes 66s infinite", first_html)
+            self.assertIn("capyBubbleSilence_", first_html)
+            self.assertIn("22s linear infinite", first_html)
+            self.assertIn("capyRotateQuotes_", first_html)
+            self.assertIn("66s linear infinite", first_html)
             self.assertIn("animation-delay: 22s;", first_html)
             self.assertIn("animation-delay: 44s;", first_html)
             self.assertIn("-webkit-line-clamp: 2;", first_html)
