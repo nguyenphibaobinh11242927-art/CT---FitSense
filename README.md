@@ -113,6 +113,6 @@ node --test tests/test_voice_coach.mjs tests/test_webcam_session.mjs
 
 ## 🔗 Liên kết Dự án
 
-- **Jira Board:** https://ratatouille2026.atlassian.net (Project: `FitSense - AI Fitness & Workout Assistant`, Key: `SCRUM`)
+- **Jira Board:** https://fitsense2026.atlassian.net/jira/software/projects/SCRUM/boards/1 (Project: `FitSense - AI Fitness & Workout Assistant`, Key: `SCRUM`)
 - **Nhánh chính:** `main`
 - **Tài liệu:** [`docs/`](docs/)
