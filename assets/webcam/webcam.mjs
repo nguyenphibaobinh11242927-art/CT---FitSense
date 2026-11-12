@@ -1,51 +1,31 @@
-import {WorkoutFSM} from "./workout_fsm.mjs";
-
 const get = id => document.getElementById(id);
+const setStatus = text => {
+  const el = get("status");
+  if (el.textContent !== text) el.textContent = text;
+};
 const video = get("input"), canvas = get("view"), ctx = canvas.getContext("2d");
 const joints = [
   ["Khuỷu trái", 11, 13, 15], ["Khuỷu phải", 12, 14, 16],
   ["Gối trái", 23, 25, 27], ["Gối phải", 24, 26, 28]
 ];
 const labels = joints.map(() => get("angles").appendChild(document.createElement("span")));
-let encodedModel, detector, connections, stream, animation;
-let lastVideoTime = -1, frameCount = 0, windowStart = 0;
-let sessionId, sequence = 0, workout, exercises = [];
-let mirrored = true;
+let encodedModel, detector, connections, stream, animation, mirrored = true;
+let lastVideoTime, frameCount, windowStart;
+let pendingFrames = [], batchSequence = 0, lastBatchAt = 0;
+const streamId = globalThis.crypto?.randomUUID?.() ??
+  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
 }
-
-function sendEvents(events, snapshot, now) {
-  if (!events.length) return;
-  send("streamlit:setComponentValue", {
-    value: {
-      session_id: sessionId,
-      sequence: ++sequence,
-      events,
-      snapshot
-    },
-    dataType: "json"
-  });
-  renderStatus(snapshot, now, true);
-}
-
-function applyRenderArgs(args) {
-  encodedModel = args.model;
-  exercises = Array.isArray(args.exercises) ? args.exercises : [];
-  if (args.session_id !== sessionId) {
-    sessionId = args.session_id;
-    sequence = 0;
-    workout = new WorkoutFSM({exercises});
-  }
-  get("start").disabled = false;
-  if (!stream) get("status").textContent = "Sẵn sàng bật camera.";
-}
-
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  applyRenderArgs(event.data.args);
+  if (encodedModel) return;
+  encodedModel = event.data.args.model;
+
+  get("start").disabled = false;
+  if (!stream) get("status").textContent = "Sẵn sàng bật camera.";
 });
 send("streamlit:componentReady", {apiVersion: 1});
 new ResizeObserver(() => send("streamlit:setFrameHeight", {height: document.body.offsetHeight + 2}))
@@ -127,71 +107,47 @@ function getPoseFeatures(pose, width, height) {
     x_detected: xDetected
   };
 }
-
-function renderStatus(view, now, hasEvents = false) {
-  if (!workout) return;
-  const phase = view.phase;
-  let message = "Hãy đứng trong khung hình, thấy rõ đầu và thân người.";
-  if (phase === "WAITING_FOR_START") {
-    const progress = Math.round(view.start_progress * 100);
-    message = view.tracking
-      ? `Giơ tay cao hơn đầu trong 1,5 giây để bắt đầu (${progress}%).`
-      : "Hãy đứng trong khung hình, thấy rõ đầu và thân người.";
-  } else if (phase === "ACTIVE") {
-    message = view.tracking
-      ? `Đang tập · ${view.exercise_name} · ${view.reps} reps · giữ chữ X ${Math.round(view.stop_progress * 100)}%`
-      : "Mất dấu cơ thể. Đứng thẳng trong khung hình để tiếp tục an toàn.";
-  } else if (phase === "RESTING") {
-    message = `Đang nghỉ · còn ${Math.ceil(view.rest_remaining_seconds)} giây`;
-  } else if (phase === "COMPLETE") {
-    message = "Đã hoàn thành kế hoạch tập.";
-  }
-  get("status").textContent = hasEvents ? message : message;
+function sendFrameBatch() {
+  if (!pendingFrames.length) return;
+  const frames = pendingFrames;
+  pendingFrames = [];
+  send("streamlit:setComponentValue", {
+    value: {stream_id: streamId, sequence: ++batchSequence, frames},
+    dataType: "json"
+  });
 }
-
 function stopCamera(message = "Đã tắt camera.") {
-  if (workout?.tracked) {
-    const result = workout.update(
-      {tracked: false, start_detected: false, x_detected: false, head_visible: false},
-      performance.now()
-    );
-    sendEvents(result.events, result.view, performance.now());
-  }
   cancelAnimationFrame(animation);
+  if (videoFrameCallback !== undefined) video.cancelVideoFrameCallback(videoFrameCallback);
+  videoFrameCallback = undefined;
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
   video.srcObject = null;
   detector?.close();
   detector = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  get("start").disabled = !encodedModel;
-  get("stop").disabled = true;
-  get("status").textContent = message;
+  updateToggleButton(false);
+  cameraDevice.disabled = !encodedModel || !mediaDevices?.getUserMedia;
+  setStatus(message);
   get("fps").textContent = "FPS: —";
   updateAngles([]);
 }
-
 function draw(now) {
   try {
     if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
       const pose = detector.detectForVideo(video, now).landmarks[0] ?? [];
-      const width = video.videoWidth, height = video.videoHeight;
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+      const w = video.videoWidth, h = video.videoHeight;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w; canvas.height = h;
       }
-      ctx.drawImage(video, 0, 0, width, height);
-      const features = getPoseFeatures(pose, width, height);
-      ctx.strokeStyle = "#60ed86";
-      ctx.lineWidth = 2;
+      ctx.drawImage(video, 0, 0, w, h);
+      const points = pose.map(p => p.visibility >= 0.5 ? {x:p.x*w, y:p.y*h} : null);
+      ctx.strokeStyle = "#60ed86"; ctx.lineWidth = 2;
       for (const {start, end} of connections) {
-        const a = features.points[start], b = features.points[end];
+        const a = points[start], b = points[end];
         if (!a || !b) continue;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
       }
       ctx.fillStyle = "#ffbe36";
       for (const point of features.points.filter(Boolean)) {
@@ -199,17 +155,20 @@ function draw(now) {
         ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
         ctx.fill();
       }
-      updateAngles(features.points);
-
-      const result = workout.update(features, now);
-      renderStatus(result.view, now);
-      sendEvents(result.events, result.view, now);
-
+      updateAngles(points);
+      const features = getPoseFeatures(points);
+      const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
+      const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
+      get("status").textContent = pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.";
+      pendingFrames.push(features);
+      if (now - lastBatchAt >= 200) {
+        lastBatchAt = now;
+        sendFrameBatch();
+      }
       frameCount++;
       if (now - windowStart >= 1000) {
-        get("fps").textContent = "FPS: " + (1000 * frameCount / (now - windowStart)).toFixed(1);
-        frameCount = 0;
-        windowStart = now;
+        get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
+        frameCount = 0; windowStart = now;
       }
     }
     animation = requestAnimationFrame(draw);
@@ -217,55 +176,39 @@ function draw(now) {
     stopCamera("Lỗi xử lý hình: " + error.message);
   }
 }
-
-setInterval(() => {
-  if (!workout || (workout.phase !== "RESTING" && workout.trackingLostAt === null)) return;
-  const now = performance.now();
-  const result = workout.update({tracked: workout.tracked}, now);
-  renderStatus(result.view, now);
-  sendEvents(result.events, result.view, now);
-}, 250);
-
 canvas.style.transform = "scaleX(-1)";
 get("mirror").onclick = () => {
   mirrored = !mirrored;
   canvas.style.transform = mirrored ? "scaleX(-1)" : "";
   get("mirror").setAttribute("aria-pressed", String(mirrored));
 };
-
 get("start").onclick = async () => {
   get("start").disabled = true;
   get("status").textContent = "Đang mở camera và nạp model…";
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {width: {ideal: 640}, height: {ideal: 480}},
-      audio: false
-    });
+    stream = await navigator.mediaDevices.getUserMedia({video: {width:{ideal:640}, height:{ideal:480}}, audio:false});
     stream.getVideoTracks()[0].onended = () => stopCamera("Camera đã ngắt kết nối.");
     video.srcObject = stream;
     await video.play();
     const {FilesetResolver, PoseLandmarker} = await import("./vendor/mediapipe/vision_bundle.mjs");
-    const files = await FilesetResolver.forVisionTasks(
-      new URL("./vendor/mediapipe/wasm", location.href).href
-    );
+    const files = await FilesetResolver.forVisionTasks(new URL("./vendor/mediapipe/wasm", location.href).href);
     detector = await PoseLandmarker.createFromOptions(files, {
-      baseOptions: {modelAssetBuffer: Uint8Array.from(atob(encodedModel), char => char.charCodeAt(0))},
-      runningMode: "VIDEO",
-      numPoses: 1
+      baseOptions:{modelAssetBuffer:Uint8Array.from(atob(encodedModel), c => c.charCodeAt(0))},
+      runningMode:"VIDEO", numPoses:1
     });
     connections = PoseLandmarker.POSE_CONNECTIONS;
-    frameCount = 0;
-    lastVideoTime = -1;
-    windowStart = performance.now();
+    frameCount = 0; lastVideoTime = -1; windowStart = performance.now();
+    pendingFrames = []; lastBatchAt = windowStart;
     get("stop").disabled = false;
     animation = requestAnimationFrame(draw);
-  } catch (error) {
-    stopCamera(error.name === "NotAllowedError"
-      ? "Hãy cho phép camera trong trình duyệt rồi bật lại."
-      : "Không mở được camera: " + error.message);
+  } catch (err) {
+    stopCamera(err.name === "NotAllowedError" ? "Hãy cho phép camera trong trình duyệt rồi bật lại." :
+      "Không mở được camera: " + err.message);
   }
 };
-
-get("stop").onclick = () => stopCamera();
+get("stop").onclick = () => {
+  sendFrameBatch();
+  stopCamera();
+};
 window.addEventListener("pagehide", () => stopCamera());
 updateAngles([]);
