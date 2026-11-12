@@ -4,12 +4,15 @@ Lập lịch tập tuần, tải lên & tự chỉnh sửa kế hoạch cá nhâ
 """
 
 import csv
-from datetime import datetime
+from datetime import datetime, date
 import io
 import json
 import pandas as pd
 import streamlit as st
 
+from src.weekly_plan_sync import start_planned_day
+from src.adaptive_weekly_plan import (start_actual_workout, recovery_warnings, DAYS)
+from src.weekly_plan_storage import load_week_state, save_week_state
 from src.planner_generation import DEFAULT_DAYS, generate_ai_schedule, profile_goal_id
 from src.school_ai import complete_with_school_ai
 from src.workout_planner import GOALS, WorkoutPlanError
@@ -178,33 +181,117 @@ def parse_uploaded_plan(file_bytes: bytes, filename: str) -> list[dict]:
     raise ValueError("Định dạng chưa hỗ trợ. Vui lòng dùng file .json hoặc .csv.")
 
 
-def _get_exercise_alternatives(current_ex: dict, library: list[dict]) -> list[str]:
-    """Lấy danh sách các bài tập thay thế hợp lệ cho hộp chọn."""
-    current_name = current_ex.get("name", "")
-    options: list[str] = []
-    sub = current_ex.get("substitute")
-    if isinstance(sub, str) and sub.strip() and sub.strip() != current_name:
-        options.append(sub.strip())
-    for item in library or []:
-        lib_name = item.get("name", "").strip()
-        if lib_name and lib_name != current_name and lib_name not in options:
-            options.append(lib_name)
-    for fallback in [
-        "Squat Thể dục (Bodyweight Squat)",
-        "Standard Push-up (Hít đất chuẩn)",
-        "Glute Bridge (Nâng mông trên thảm)",
-        "Plank Tĩnh (Core Plank)",
-    ]:
-        if fallback != current_name and fallback not in options:
-            options.append(fallback)
-    return options
+def _get_exercise_alternatives(current_ex: dict, library: list[dict],
+                               available_equipment: set[str] | None = None,
+                               limitations: set[str] | None = None) -> list[str]:
+    """Only real, muscle-related catalogue entries; respect declared constraints."""
+    from src.exercise_library import compatible_replacements
+
+    # Older uploaded plans/tests may supply only names, without catalogue IDs or
+    # muscle/equipment metadata. Keep that legacy format functional instead of
+    # assuming all entries follow the validated catalogue schema.
+    if library and all(isinstance(item, dict) and not item.get("id") for item in library):
+        names = []
+        substitute = str(current_ex.get("substitute") or "").strip()
+        current_name = str(current_ex.get("name") or "").strip()
+        if substitute and substitute.casefold() != current_name.casefold():
+            names.append(substitute)
+        for item in library:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if name and name.casefold() != current_name.casefold() and name.casefold() not in {n.casefold() for n in names}:
+                names.append(name)
+        return names
+
+    return [ex["name"] for ex in compatible_replacements(
+        current_ex, library, available_equipment=available_equipment, limitations=limitations
+    )]
+
+
+def replacement_label(candidate: dict) -> str:
+    """Explain why this option qualifies (primary versus supporting muscle)."""
+    from src.exercise_library import MUSCLES
+    main = ', '.join(MUSCLES.get(code, code) for code in candidate.get('match_primary', []))
+    assisting = ', '.join(MUSCLES.get(code, code) for code in candidate.get('match_secondary', []))
+    details = []
+    if main:
+        details.append(f"Cơ chính: {main}")
+    if assisting:
+        details.append(f"Cơ phụ: {assisting}")
+    return f"{candidate['name']} — {' | '.join(details)}"
+
+
+def replace_in_schedule(schedule: list[dict], day_index: int, ex_index: int,
+                        replacement: dict) -> list[dict]:
+    """Return an updated plan while preserving sets, reps and rest seconds."""
+    from src.exercise_library import MUSCLES, EQUIPMENT
+    if not replacement.get('id'):
+        raise ValueError('Bài thay thế phải có ID trong thư viện.')
+    updated = [dict(day) for day in schedule]
+    day = updated[day_index]
+    entries = [dict(ex) for ex in day.get('exercises', [])]
+    old = entries[ex_index]
+    old_name = old.get('name', '')
+    selected = replacement
+    old.update({
+        'exercise_id': selected['id'],
+        'name': selected['name'],
+        'substitute': old_name,
+        'primary_muscle': ', '.join(MUSCLES.get(k, k) for k in selected['primary_muscles']),
+        'secondary_muscle': ', '.join(MUSCLES.get(k, k) for k in selected['secondary_muscles']) or 'Không',
+        'equipment': ', '.join(EQUIPMENT.get(k, k) for k in selected['equipment']) or 'Bodyweight',
+        'difficulty': selected['difficulty'],
+        'form_tip': selected['steps'][0],
+    })
+    day['exercises'] = entries
+    updated[day_index] = day
+    return updated
+
+
+def apply_selected_replacement(day_index: int, ex_index: int,
+                               choices_by_id: dict[str, dict], widget_key: str) -> None:
+    """Streamlit callback: update the actual weekly plan on selection change."""
+    selected_id = st.session_state.get(widget_key)
+    if not selected_id or selected_id not in choices_by_id:
+        return
+    schedule = st.session_state.get('weekly_schedule') or []
+    if day_index >= len(schedule) or ex_index >= len(schedule[day_index].get('exercises', [])):
+        return
+    chosen = choices_by_id[selected_id]
+    st.session_state['weekly_schedule'] = replace_in_schedule(
+        schedule, day_index, ex_index, chosen)
+    st.session_state['replacement_notice'] = f"Đã đổi sang: {chosen['name']}"
+    save_week_state(st.session_state)
+
+
+def _launch_actual_workout(source_day: str, today: date) -> None:
+    """Save updated schedule before entering HUD; history source date remains unchanged."""
+    schedule = st.session_state.get("weekly_schedule", [])
+    updated, active, method = start_actual_workout(schedule, source_day, today)
+    st.session_state["weekly_schedule"] = updated
+    st.session_state["selected_session_day"] = DAYS[today.weekday()]
+    st.session_state["selected_session_actual_date"] = today.isoformat()
+    st.session_state["active_workout"] = active
+    st.session_state["weekly_replan_method"] = method
+    # Every new launch is a new session, even for the same day.
+    for key in ("workout_session", "pose_session", "session_user_paused", "paused_progress"):
+        st.session_state.pop(key, None)
+    save_week_state(st.session_state)
+    st.session_state["pending_navigation"] = "⚡ Phòng tập Trực tiếp (HUD)"
+    st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
+    st.rerun()
 
 
 def render_planner_view():
     """Hiển thị giao diện lịch tập tuần và giáo án thể thao cá nhân hóa."""
+    load_week_state(st.session_state)
     st.header("📋 Kế hoạch Tập luyện & Lịch tuần Thông minh")
     st.caption("AI tối ưu hóa lịch phân bổ nhóm cơ, đồng thời cho phép bạn tự tải lên & chỉnh sửa giáo án cá nhân.")
 
+    notice = st.session_state.pop('replacement_notice', None)
+    if notice:
+        st.success(notice)
     profile = st.session_state.get("user_profile") or {}
     schedule = st.session_state.get("weekly_schedule", [])
     library = st.session_state.get("exercise_library", [])
@@ -235,6 +322,7 @@ def render_planner_view():
             else:
                 st.session_state["weekly_schedule"] = generated
                 st.session_state.pop("custom_plan_source", None)
+                save_week_state(st.session_state)
                 for key in list(st.session_state):
                     if key.startswith(("edit_focus_", "edit_rest_", "editor_df_", "select_sub_")):
                         del st.session_state[key]
@@ -267,6 +355,7 @@ def render_planner_view():
                         parsed = parse_uploaded_plan(uploaded_plan.getvalue(), uploaded_plan.name)
                         st.session_state["weekly_schedule"] = parsed
                         st.session_state["custom_plan_source"] = uploaded_plan.name
+                        save_week_state(st.session_state)
                         st.success(f"Đã tải kế hoạch cá nhân từ `{uploaded_plan.name}` thành công! Bạn có thể chỉnh sửa tự do từng ngày ở các tab bên dưới.")
                         st.rerun()
                     except ValueError as err:
@@ -283,12 +372,33 @@ def render_planner_view():
     if st.session_state.get("custom_plan_source"):
         st.caption(f"📁 Đang sử dụng kế hoạch cá nhân: `{st.session_state['custom_plan_source']}` (có thể chỉnh sửa bất kỳ ngày nào).")
 
+    if st.session_state.get("weekly_replan_method"):
+        st.caption("Lịch tương lai đã được sắp xếp bằng: " + st.session_state["weekly_replan_method"])
+
     st.subheader("Lịch phân bổ nhóm cơ trong tuần")
 
-    tabs = st.tabs([f"Thứ {i+2}" if i < 6 else "Chủ Nhật" for i in range(7)])
+    # Unlike st.tabs(), segmented_control supports a controlled default value.
+    # Reset on entering a new calendar day, not on every Streamlit rerun.
+    today_date = date.today()
+    view_key = "weekly_planner_day_selected"
+    if (st.session_state.get("weekly_planner_date") != today_date.isoformat()
+            or not st.session_state.get("_planner_screen_active", False)):
+        st.session_state["weekly_planner_date"] = today_date.isoformat()
+        st.session_state[view_key] = DAYS[today_date.weekday()]
+    st.session_state["_planner_screen_active"] = True
+    if hasattr(st, "segmented_control"):
+        selected_label = st.segmented_control("Ngày trong tuần", DAYS, key=view_key,
+                                              selection_mode="single", label_visibility="collapsed")
+    else:
+        selected_label = st.radio("Ngày trong tuần", DAYS, horizontal=True, key=view_key,
+                                  label_visibility="collapsed")
+    if selected_label not in DAYS:
+        selected_label = DAYS[today_date.weekday()]
 
-    for i, tab in enumerate(tabs):
-        with tab:
+    for i in range(7):
+        if DAYS[i] != selected_label:
+            continue
+        with st.container():
             day_label = f"Thứ {i+2}" if i < 6 else "Chủ Nhật"
             day_data = schedule[i] if i < len(schedule) else {"day": day_label, "focus": "Nghỉ ngơi phục hồi", "is_rest": True, "exercises": []}
 
@@ -299,15 +409,49 @@ def render_planner_view():
             else:
                 col_f1, col_f2 = st.columns([3, 1])
                 with col_f1:
+                    state_label = {
+                        "in_progress": "🟠 Đang tập",
+                        "completed": "✅ Đã hoàn thành",
+                        "abandoned": "⏹️ Đã kết thúc sớm",
+                    }.get(day_data.get("workout_status"), "📅 Chưa tập")
+                    st.caption(f"**Trạng thái kế hoạch:** {state_label}")
+                    if day_data.get("workout_status") in ("completed", "abandoned"):
+                        st.caption(
+                            f"Kết quả: {day_data.get('workout_actual_reps', 0)} reps · "
+                            f"{day_data.get('workout_completed_at', '')}"
+                        )
                     st.markdown(f"**Trọng tâm buổi tập:** `{day_data.get('focus', 'Toàn thân')}`")
                     st.caption(f"💡 **Lý do / Ghi chú:** {day_data.get('ai_reason', 'Tối ưu kích thích cơ bắp an toàn cho khớp.')}")
                 with col_f2:
                     if st.button("🚀 Tập ngay buổi này", key=f"start_btn_{i}", type="primary", use_container_width=True):
-                        st.session_state["selected_session_day"] = day_data.get("day", day_label)
-                        st.session_state["active_workout"] = day_data
-                        st.session_state["pending_navigation"] = "⚡ Phòng tập Trực tiếp (HUD)"
-                        st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
-                        st.rerun()
+                        source_name = day_data.get("day", day_label)
+                        today = date.today()
+                        warnings = recovery_warnings(
+                            day_data, today,
+                            st.session_state.get("workout_event_history", []),
+                            st.session_state.get("weekly_schedule", []),
+                        )
+                        if warnings:
+                            st.session_state["pending_recovery_choice"] = source_name
+                            st.session_state["recovery_messages"] = warnings
+                            st.rerun()
+                        _launch_actual_workout(source_name, today)
+
+                if st.session_state.get("pending_recovery_choice") == day_data.get("day", day_label):
+                    for message in st.session_state.get("recovery_messages", []):
+                        st.warning("⚠️ Phục hồi: " + message)
+                    st.caption("Đây là cảnh báo tham khảo, không thay thế đánh giá sức khỏe cá nhân.")
+                    left, right = st.columns(2)
+                    with left:
+                        if st.button("Vẫn tiếp tục tập", key=f"confirm_recovery_{i}"):
+                            st.session_state.pop("pending_recovery_choice", None)
+                            st.session_state.pop("recovery_messages", None)
+                            _launch_actual_workout(day_data.get("day", day_label), date.today())
+                    with right:
+                        if st.button("Hủy lựa chọn", key=f"cancel_recovery_{i}"):
+                            st.session_state.pop("pending_recovery_choice", None)
+                            st.session_state.pop("recovery_messages", None)
+                            st.rerun()
 
                 st.markdown("#### Danh sách bài tập phân bổ:")
                 exercises = day_data.get("exercises", [])
@@ -339,40 +483,35 @@ def render_planner_view():
                                     st.session_state["weekly_schedule"] = [
                                         *schedule[:i], {**day_data, "exercises": updated}, *schedule[i + 1:],
                                     ]
+                                    save_week_state(st.session_state)
                                     st.rerun()
                                 continue
-                            alt_options = _get_exercise_alternatives(ex, library)
-                            chosen_sub = st.selectbox(
-                                "Chọn bài tập thay thế:",
-                                options=alt_options,
-                                key=f"select_sub_{i}_{ex_idx}",
+                            from src.exercise_library_view import _profile_filters
+                            from src.exercise_library import replacement_matches
+                            available_eq, health_limits = _profile_filters()
+                            choices = replacement_matches(
+                                ex, library, available_equipment=available_eq,
+                                limitations=health_limits,
                             )
-                            if st.button("✅ Đổi bài", key=f"apply_swap_{i}_{ex_idx}", use_container_width=True):
-                                updated_schedule = list(schedule)
-                                updated_day = dict(updated_schedule[i])
-                                updated_exs = [dict(item) for item in updated_day.get("exercises", [])]
-                                old_name = updated_exs[ex_idx].get("name")
-                                updated_exs[ex_idx]["substitute"] = old_name
-                                updated_exs[ex_idx]["name"] = chosen_sub
-                                for lib_item in library:
-                                    if lib_item.get("name") == chosen_sub:
-                                        pm = lib_item.get("primary_muscle")
-                                        if not pm and isinstance(lib_item.get("primary_muscles"), list):
-                                            from src.exercise_library import MUSCLES
-                                            pm = ", ".join(MUSCLES.get(m, m) for m in lib_item["primary_muscles"])
-                                        eq = lib_item.get("equipment")
-                                        if isinstance(eq, list):
-                                            from src.exercise_library import EQUIPMENT
-                                            eq = ", ".join(EQUIPMENT.get(e, e) for e in eq) or "Bodyweight"
-                                        updated_exs[ex_idx]["primary_muscle"] = pm or updated_exs[ex_idx].get("primary_muscle")
-                                        updated_exs[ex_idx]["equipment"] = eq or updated_exs[ex_idx].get("equipment")
-                                        updated_exs[ex_idx]["difficulty"] = lib_item.get("difficulty", updated_exs[ex_idx].get("difficulty"))
-                                        break
-                                updated_day["exercises"] = updated_exs
-                                updated_schedule[i] = updated_day
-                                st.session_state["weekly_schedule"] = updated_schedule
-                                st.toast(f"Đã đổi sang bài: {chosen_sub}", icon="✅")
-                                st.rerun()
+                            if not choices:
+                                st.info('Không có bài thay thế cùng nhóm cơ chính hoặc phụ phù hợp với hồ sơ.')
+                            else:
+                                # Use IDs, never display strings, as option values. A fresh
+                                # widget key for each active exercise avoids stale selection
+                                # after the plan was edited or a replacement was applied.
+                                by_id = {entry['id']: entry for entry in choices}
+                                current_id = ex.get('exercise_id') or ex.get('name', '')
+                                widget_key = f"swap_{i}_{ex_idx}_{current_id}"
+                                st.selectbox(
+                                    'Chọn bài thay thế',
+                                    options=[''] + list(by_id),
+                                    format_func=lambda eid, mapping=by_id: (
+                                        '— Chọn một bài —' if not eid else replacement_label(mapping[eid])
+                                    ),
+                                    key=widget_key,
+                                    on_change=apply_selected_replacement,
+                                    args=(i, ex_idx, by_id, widget_key),
+                                )
 
             # Trình chỉnh sửa kế hoạch trực tiếp cho từng ngày
             with st.expander(f"✏️ Tự chỉnh sửa giáo án {day_label}", expanded=False):
@@ -446,5 +585,6 @@ def render_planner_view():
                             "exercises": new_exs,
                         }
                     st.session_state["weekly_schedule"] = updated_schedule
+                    save_week_state(st.session_state)
                     st.success(f"Đã lưu thay đổi cho {day_label}!")
                     st.rerun()

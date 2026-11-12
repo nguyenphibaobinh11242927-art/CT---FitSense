@@ -4,7 +4,7 @@ Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ 
 """
 
 import base64
-from datetime import datetime
+from datetime import datetime, date
 import logging
 import math
 from dataclasses import dataclass, field
@@ -21,6 +21,9 @@ from src.planner_view import (
     get_today_schedule_day,
 )
 from src.workout_session import WorkoutSession, finish_session, start_session
+from src.weekly_plan_sync import finish_planned_day
+from src.adaptive_weekly_plan import add_workout_event
+from src.weekly_plan_storage import save_week_state
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -222,9 +225,8 @@ class PoseSession:
 
 def _resolve_plan_day() -> dict | None:
     """Tìm buổi tập đang kích hoạt, buổi được chọn, hoặc tự khớp theo Thứ hôm nay trên máy tính."""
-    active = st.session_state.get("active_workout")
-    if isinstance(active, dict):
-        return active
+    # Luôn lấy ngày được chọn từ lịch tuần mới nhất, tránh bản sao active_workout
+    # bị lỗi thời sau khi người dùng đổi bài/chỉnh sửa giáo án.
     schedule = st.session_state.get("weekly_schedule")
     if isinstance(schedule, list):
         selected_day = st.session_state.get("selected_session_day")
@@ -236,7 +238,8 @@ def _resolve_plan_day() -> dict | None:
         if today_day is not None:
             return today_day
         return get_next_active_schedule_day(schedule)
-    return None
+    active = st.session_state.get("active_workout")
+    return active if isinstance(active, dict) else None
 
 
 def _compute_target_reps_from_active() -> tuple[str, int]:
@@ -298,6 +301,36 @@ def save_result(session, outcome, manual=None):
         "target_reps": target_reps,
         "finished_at": finished_at,
     }
+    # Kết quả thuộc ngày thực tế, không thuộc ngày gốc sao chép giáo án.
+    # Store each session independently so repeating a workout doesn't erase history.
+    selected_workout = st.session_state.get("active_workout") or {}
+    actual_date_value = st.session_state.get("selected_session_actual_date")
+    try:
+        actual_day = date.fromisoformat(actual_date_value) if actual_date_value else date.today()
+    except (TypeError, ValueError):
+        actual_day = date.today()
+    event_history = st.session_state.get("workout_event_history", [])
+    st.session_state["workout_event_history"] = add_workout_event(
+        event_history, session_id=str(session.session_id), actual_date=actual_day,
+        workout=selected_workout, reps=reps_done, status=session.status,
+        finished_at=finished_at,
+    )
+    st.session_state["session_history"] = list(st.session_state["workout_event_history"])
+    # Đồng bộ kết quả về kế hoạch tuần, để lần mở Planner sau không còn trạng thái cũ.
+    weekly_schedule = st.session_state.get("weekly_schedule")
+    if isinstance(weekly_schedule, list):
+        day_name = st.session_state.get("selected_session_day")
+        updated = finish_planned_day(
+            weekly_schedule, day_name,
+            completed=session.status == "completed",
+            actual_reps=reps_done, finished_at=finished_at,
+        )
+        st.session_state["weekly_schedule"] = updated
+        st.session_state["active_workout"] = next(
+            (day for day in updated if isinstance(day, dict) and day.get("day") == day_name),
+            st.session_state.get("active_workout"),
+        )
+    save_week_state(st.session_state)
     st.session_state["session_user_paused"] = False
     st.session_state.pop("paused_progress", None)
     st.session_state["review_session_id"] = session.session_id
