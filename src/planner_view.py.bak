@@ -182,9 +182,82 @@ def _get_exercise_alternatives(current_ex: dict, library: list[dict],
                                limitations: set[str] | None = None) -> list[str]:
     """Only real, muscle-related catalogue entries; respect declared constraints."""
     from src.exercise_library import compatible_replacements
-    return [ex['name'] for ex in compatible_replacements(
+
+    # Older uploaded plans/tests may supply only names, without catalogue IDs or
+    # muscle/equipment metadata. Keep that legacy format functional instead of
+    # assuming all entries follow the validated catalogue schema.
+    if library and all(isinstance(item, dict) and not item.get("id") for item in library):
+        names = []
+        substitute = str(current_ex.get("substitute") or "").strip()
+        current_name = str(current_ex.get("name") or "").strip()
+        if substitute and substitute.casefold() != current_name.casefold():
+            names.append(substitute)
+        for item in library:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if name and name.casefold() != current_name.casefold() and name.casefold() not in {n.casefold() for n in names}:
+                names.append(name)
+        return names
+
+    return [ex["name"] for ex in compatible_replacements(
         current_ex, library, available_equipment=available_equipment, limitations=limitations
     )]
+
+
+def replacement_label(candidate: dict) -> str:
+    """Explain why this option qualifies (primary versus supporting muscle)."""
+    from src.exercise_library import MUSCLES
+    main = ', '.join(MUSCLES.get(code, code) for code in candidate.get('match_primary', []))
+    assisting = ', '.join(MUSCLES.get(code, code) for code in candidate.get('match_secondary', []))
+    details = []
+    if main:
+        details.append(f"Cơ chính: {main}")
+    if assisting:
+        details.append(f"Cơ phụ: {assisting}")
+    return f"{candidate['name']} — {' | '.join(details)}"
+
+
+def replace_in_schedule(schedule: list[dict], day_index: int, ex_index: int,
+                        replacement: dict) -> list[dict]:
+    """Return an updated plan while preserving sets, reps and rest seconds."""
+    from src.exercise_library import MUSCLES, EQUIPMENT
+    if not replacement.get('id'):
+        raise ValueError('Bài thay thế phải có ID trong thư viện.')
+    updated = [dict(day) for day in schedule]
+    day = updated[day_index]
+    entries = [dict(ex) for ex in day.get('exercises', [])]
+    old = entries[ex_index]
+    old_name = old.get('name', '')
+    selected = replacement
+    old.update({
+        'exercise_id': selected['id'],
+        'name': selected['name'],
+        'substitute': old_name,
+        'primary_muscle': ', '.join(MUSCLES.get(k, k) for k in selected['primary_muscles']),
+        'secondary_muscle': ', '.join(MUSCLES.get(k, k) for k in selected['secondary_muscles']) or 'Không',
+        'equipment': ', '.join(EQUIPMENT.get(k, k) for k in selected['equipment']) or 'Bodyweight',
+        'difficulty': selected['difficulty'],
+        'form_tip': selected['steps'][0],
+    })
+    day['exercises'] = entries
+    updated[day_index] = day
+    return updated
+
+
+def apply_selected_replacement(day_index: int, ex_index: int,
+                               choices_by_id: dict[str, dict], widget_key: str) -> None:
+    """Streamlit callback: update the actual weekly plan on selection change."""
+    selected_id = st.session_state.get(widget_key)
+    if not selected_id or selected_id not in choices_by_id:
+        return
+    schedule = st.session_state.get('weekly_schedule') or []
+    if day_index >= len(schedule) or ex_index >= len(schedule[day_index].get('exercises', [])):
+        return
+    chosen = choices_by_id[selected_id]
+    st.session_state['weekly_schedule'] = replace_in_schedule(
+        schedule, day_index, ex_index, chosen)
+    st.session_state['replacement_notice'] = f"Đã đổi sang: {chosen['name']}"
 
 
 def render_planner_view():
@@ -192,6 +265,9 @@ def render_planner_view():
     st.header("📋 Kế hoạch Tập luyện & Lịch tuần Thông minh")
     st.caption("AI tối ưu hóa lịch phân bổ nhóm cơ, đồng thời cho phép bạn tự tải lên & chỉnh sửa giáo án cá nhân.")
 
+    notice = st.session_state.pop('replacement_notice', None)
+    if notice:
+        st.success(notice)
     profile = st.session_state.get("user_profile") or {}
     schedule = st.session_state.get("weekly_schedule", [])
     library = st.session_state.get("exercise_library", [])
@@ -292,45 +368,32 @@ def render_planner_view():
                             st.write(f"- **Độ khó:** `{ex.get('difficulty', 'Intermediate')}`")
                         with c3:
                             from src.exercise_library_view import _profile_filters
+                            from src.exercise_library import replacement_matches
                             available_eq, health_limits = _profile_filters()
-                            alt_options = _get_exercise_alternatives(
+                            choices = replacement_matches(
                                 ex, library, available_equipment=available_eq,
                                 limitations=health_limits,
                             )
-                            if not alt_options:
-                                st.info("Chưa có bài cùng nhóm cơ đủ điều kiện. Hãy kiểm tra thư viện và hồ sơ dụng cụ.")
+                            if not choices:
+                                st.info('Không có bài thay thế cùng nhóm cơ chính hoặc phụ phù hợp với hồ sơ.')
                             else:
-                                chosen_sub = st.selectbox(
-                                    "Chọn bài tập thay thế:",
-                                    options=alt_options,
-                                    key=f"select_sub_{i}_{ex_idx}",
+                                # Use IDs, never display strings, as option values. A fresh
+                                # widget key for each active exercise avoids stale selection
+                                # after the plan was edited or a replacement was applied.
+                                by_id = {entry['id']: entry for entry in choices}
+                                current_id = ex.get('exercise_id') or ex.get('name', '')
+                                widget_key = f"swap_{i}_{ex_idx}_{current_id}"
+                                st.selectbox(
+                                    'Chọn bài thay thế (áp dụng ngay):',
+                                    options=[''] + list(by_id),
+                                    format_func=lambda eid, mapping=by_id: (
+                                        '— Chọn một bài —' if not eid else replacement_label(mapping[eid])
+                                    ),
+                                    key=widget_key,
+                                    on_change=apply_selected_replacement,
+                                    args=(i, ex_idx, by_id, widget_key),
                                 )
-                                if st.button("✅ Đổi bài", key=f"apply_swap_{i}_{ex_idx}", use_container_width=True):
-                                    from src.exercise_library import MUSCLES, EQUIPMENT, resolve_exercise
-                                    selected = resolve_exercise(chosen_sub, library)
-                                    if selected is None:
-                                        st.error("Bài thay thế chưa có trong cơ sở dữ liệu.")
-                                    else:
-                                        updated_schedule = list(schedule)
-                                        updated_day = dict(updated_schedule[i])
-                                        updated_exs = [dict(item) for item in updated_day.get("exercises", [])]
-                                        old_name = updated_exs[ex_idx].get("name")
-                                        record = updated_exs[ex_idx]
-                                        record.update({
-                                            "exercise_id": selected["id"],
-                                            "name": selected["name"],
-                                            "substitute": old_name,
-                                            "primary_muscle": ", ".join(MUSCLES[k] for k in selected["primary_muscles"]),
-                                            "secondary_muscle": ", ".join(MUSCLES[k] for k in selected["secondary_muscles"]) or "Không",
-                                            "equipment": ", ".join(EQUIPMENT[k] for k in selected["equipment"]) or "Bodyweight",
-                                            "difficulty": selected["difficulty"],
-                                            "form_tip": selected["steps"][0],
-                                        })
-                                        updated_day["exercises"] = updated_exs
-                                        updated_schedule[i] = updated_day
-                                        st.session_state["weekly_schedule"] = updated_schedule
-                                        st.toast(f"Đã đổi sang bài: {selected['name']}", icon="✅")
-                                        st.rerun()
+                                st.caption('Chỉ hiện các bài tác động đến ít nhất một nhóm cơ chính hoặc phụ của bài hiện tại; việc chọn sẽ cập nhật ngay giáo án.')
 
             # Trình chỉnh sửa kế hoạch trực tiếp cho từng ngày
             with st.expander(f"✏️ Tự chỉnh sửa giáo án {day_label}", expanded=False):

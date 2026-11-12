@@ -10,6 +10,8 @@ import json
 import pandas as pd
 import streamlit as st
 
+from src.weekly_plan_sync import start_planned_day
+
 
 DEFAULT_DAYS = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"]
 
@@ -344,12 +346,35 @@ def render_planner_view():
             else:
                 col_f1, col_f2 = st.columns([3, 1])
                 with col_f1:
+                    state_label = {
+                        "in_progress": "🟠 Đang tập",
+                        "completed": "✅ Đã hoàn thành",
+                        "abandoned": "⏹️ Đã kết thúc sớm",
+                    }.get(day_data.get("workout_status"), "📅 Chưa tập")
+                    st.caption(f"**Trạng thái kế hoạch:** {state_label}")
+                    if day_data.get("workout_status") in ("completed", "abandoned"):
+                        st.caption(
+                            f"Kết quả: {day_data.get('workout_actual_reps', 0)} reps · "
+                            f"{day_data.get('workout_completed_at', '')}"
+                        )
                     st.markdown(f"**Trọng tâm buổi tập:** `{day_data.get('focus', 'Toàn thân')}`")
                     st.caption(f"💡 **Lý do / Ghi chú:** {day_data.get('ai_reason', 'Tối ưu kích thích cơ bắp an toàn cho khớp.')}")
                 with col_f2:
                     if st.button("🚀 Tập ngay buổi này", key=f"start_btn_{i}", type="primary", use_container_width=True):
-                        st.session_state["selected_session_day"] = day_data.get("day", day_label)
-                        st.session_state["active_workout"] = day_data
+                        # Cập nhật ngay dữ liệu chuẩn weekly_schedule, không chỉ lưu một bản
+                        # sao active_workout (khi quay lại Kế hoạch tuần sẽ thấy trạng thái mới).
+                        day_name = day_data.get("day", day_label)
+                        updated, active_day = start_planned_day(
+                            st.session_state.get("weekly_schedule", []), day_name
+                        )
+                        st.session_state["weekly_schedule"] = updated
+                        previous_day = st.session_state.get("selected_session_day")
+                        old_session = st.session_state.get("workout_session")
+                        if previous_day != day_name or getattr(old_session, "status", None) in ("completed", "abandoned"):
+                            for state_key in ("workout_session", "pose_session", "session_user_paused", "paused_progress"):
+                                st.session_state.pop(state_key, None)
+                        st.session_state["selected_session_day"] = day_name
+                        st.session_state["active_workout"] = active_day
                         st.session_state["pending_navigation"] = "⚡ Phòng tập Trực tiếp (HUD)"
                         st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
                         st.rerun()
@@ -384,7 +409,7 @@ def render_planner_view():
                                 current_id = ex.get('exercise_id') or ex.get('name', '')
                                 widget_key = f"swap_{i}_{ex_idx}_{current_id}"
                                 st.selectbox(
-                                    'Chọn bài thay thế (áp dụng ngay):',
+                                    'Chọn bài thay thế',
                                     options=[''] + list(by_id),
                                     format_func=lambda eid, mapping=by_id: (
                                         '— Chọn một bài —' if not eid else replacement_label(mapping[eid])
@@ -393,7 +418,6 @@ def render_planner_view():
                                     on_change=apply_selected_replacement,
                                     args=(i, ex_idx, by_id, widget_key),
                                 )
-                                st.caption('Chỉ hiện các bài tác động đến ít nhất một nhóm cơ chính hoặc phụ của bài hiện tại; việc chọn sẽ cập nhật ngay giáo án.')
 
             # Trình chỉnh sửa kế hoạch trực tiếp cho từng ngày
             with st.expander(f"✏️ Tự chỉnh sửa giáo án {day_label}", expanded=False):
