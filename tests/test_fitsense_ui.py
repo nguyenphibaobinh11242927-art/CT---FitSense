@@ -461,6 +461,8 @@ class TestFitSenseUIModules(unittest.TestCase):
             self.assertIn('[data-testid="stDialog"] > div', light_css)
             self.assertIn('[data-testid="stDialog"] [role="dialog"]', light_css)
             self.assertIn("background-color: #FFFFFF !important;", light_css)
+            self.assertIn('div[data-testid="stButtonGroup"] button[data-variant="segmented_control"]', dark_css)
+            self.assertIn('div[data-testid="stButtonGroup"] button[data-variant="segmented_control"]', light_css)
         finally:
             st.markdown = orig_md
 

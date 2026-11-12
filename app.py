@@ -716,6 +716,49 @@ def apply_custom_styles(theme: str = "dark"):
         div[data-baseweb="tab-highlight"] {
             background-color: #EAB308 !important;
         }
+
+        /* 10. SEGMENTED CONTROL & PILLS (Light Theme) */
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"],
+        div[data-testid="stButtonGroup"] button[data-variant="pills"],
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton {
+            background-color: #FFFFFF !important;
+            color: #334155 !important;
+            border: 1.5px solid #CBD5E1 !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"] *,
+        div[data-testid="stButtonGroup"] button[data-variant="pills"] *,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton * {
+            color: #334155 !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"]:hover,
+        div[data-testid="stButtonGroup"] button[data-variant="pills"]:hover,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton:hover {
+            background-color: #FEF9C3 !important;
+            border-color: #EAB308 !important;
+            color: #854D0E !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"]:hover *,
+        div[data-testid="stButtonGroup"] button[data-variant="pills"]:hover *,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton:hover * {
+            color: #854D0E !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"][data-selected],
+        div[data-testid="stButtonGroup"] button[data-variant="pills"][data-selected],
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton[data-selected],
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton[aria-pressed="true"] {
+            background-color: #FEF08A !important;
+            border-color: #EAB308 !important;
+            color: #713F12 !important;
+            font-weight: 800 !important;
+            z-index: 2 !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"][data-selected] *,
+        div[data-testid="stButtonGroup"] button[data-variant="pills"][data-selected] *,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton[data-selected] *,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton[aria-pressed="true"] * {
+            color: #713F12 !important;
+            font-weight: 800 !important;
+        }
         """
     else:
         # CHẾ ĐỘ TỐI: ĐEN XANH (Obsidian Black & Neon Blue / Cyan)
@@ -1341,6 +1384,51 @@ def apply_custom_styles(theme: str = "dark"):
         }
         div[data-baseweb="tab-highlight"] {
             background-color: #38BDF8 !important;
+        }
+
+        /* 10. SEGMENTED CONTROL & PILLS (Dark Theme) */
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"],
+        div[data-testid="stButtonGroup"] button[data-variant="pills"],
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton {
+            background-color: #111C2E !important;
+            color: #CBD5E1 !important;
+            border: 1.5px solid #1E2E48 !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"] *,
+        div[data-testid="stButtonGroup"] button[data-variant="pills"] *,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton * {
+            color: #CBD5E1 !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"]:hover,
+        div[data-testid="stButtonGroup"] button[data-variant="pills"]:hover,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton:hover {
+            background-color: #19273E !important;
+            border-color: #38BDF8 !important;
+            color: #38BDF8 !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"]:hover *,
+        div[data-testid="stButtonGroup"] button[data-variant="pills"]:hover *,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton:hover * {
+            color: #38BDF8 !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"][data-selected],
+        div[data-testid="stButtonGroup"] button[data-variant="pills"][data-selected],
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton[data-selected],
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton[aria-pressed="true"] {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.24) 0%, rgba(2, 132, 199, 0.32) 100%) !important;
+            background-color: #162B47 !important;
+            border-color: #38BDF8 !important;
+            color: #F8FAFC !important;
+            font-weight: 800 !important;
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.22) !important;
+            z-index: 2 !important;
+        }
+        div[data-testid="stButtonGroup"] button[data-variant="segmented_control"][data-selected] *,
+        div[data-testid="stButtonGroup"] button[data-variant="pills"][data-selected] *,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton[data-selected] *,
+        div[data-testid="stButtonGroup"] button.react-aria-ToggleButton[aria-pressed="true"] * {
+            color: #F8FAFC !important;
+            font-weight: 800 !important;
         }
         """
 
