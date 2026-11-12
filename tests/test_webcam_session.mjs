@@ -7,7 +7,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   const messages = [], heard = [];
   const parent = {postMessage(message) { messages.push(structuredClone(message)); }};
   const origin = "http://localhost:8501";
-  let renderListener, animation, videoFrame, updateSpeaker, now = 0;
+  let renderListener, animation, videoFrame, updateSpeaker, sendCommand, now = 0;
   const win = {parent, addEventListener(type, listener) {
     if (type === "message") renderListener = listener;
   }};
@@ -40,7 +40,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   };
   // Run the browser entry point against stand-ins for hardware and MediaPipe.
   const source = readFileSync(new URL("../assets/webcam/webcam.mjs", import.meta.url), "utf8")
-    .replace(/^import[^\n]+\n/, "")
+    .replace(/^import[^\n]+\n/gm, "")
     .replace('await import("./vendor/mediapipe/vision_bundle.mjs")', "fakeMediaPipe");
   runInNewContext(source, {
     window: win, parent, location: {origin, href: origin}, fakeMediaPipe,
@@ -48,6 +48,10 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
       return {getTracks: () => [track], getVideoTracks: () => [track]};
     }}},
     document: {getElementById: element, createElement: () => ({}), body: {}},
+    createVoiceCommands: ({onCommand}) => {
+      sendCommand = onCommand;
+      return {supported: true};
+    },
     createVoiceCoach: ({onEnabledChange}) => {
       updateSpeaker = onEnabledChange;
       return {supported: true, stop() { heard.push("stop"); }, receiveBatch(events) { heard.push(...events); }};
@@ -68,6 +72,16 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   };
 
   render({model: "dGVzdA==", last_event_id: 8});
+  assert.equal(element("voice-command").disabled, false);
+  sendCommand("start");
+  const command = batches().at(-1);
+  assert.deepEqual(command.voice_command, {id: 1, action: "start"});
+  assert.deepEqual(command.frames, []);
+  assert.equal(command.sequence, 8);
+  sendCommand("pause");
+  assert.equal(batches().length, 1);
+  render({last_event_id: 8, voice_command_feedback: {stream_id: command.stream_id, id: 1, message: "Đã bắt đầu"}});
+  assert.equal(element("command-feedback").textContent, "Đã bắt đầu");
   updateSpeaker(true);
   assert.equal(element("voice-icon").textContent, "🔊");
   assert.equal(element("voice")["aria-pressed"], "true");

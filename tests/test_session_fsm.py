@@ -114,6 +114,52 @@ class SessionFsmIntegrationTests(unittest.TestCase):
                 self.assertTrue(pose.voice_feedback["interrupted"])
                 self.assertFalse(pose.voice_feedback["stopped"])
 
+    def test_voice_commands_share_hud_state_and_ignore_replays(self):
+        app = AppTest.from_string("""
+from src.session_view import render_session_view
+render_session_view()
+""").run()
+        session = app.session_state["workout_session"]
+        pose = app.session_state["pose_session"]
+        component_id = app.get("component_instance")[0].proto.id
+
+        def send(command_id, action, frames=(), session_id=None):
+            states = WidgetStates()
+            states.widgets.add(id=component_id, json_value=json.dumps({
+                "session_id": session_id or session.session_id,
+                "stream_id": "voice-camera",
+                "sequence": session.last_event_id + len(frames),
+                "frames": frames,
+                "voice_command": {"id": command_id, "action": action},
+            }))
+            app._run(states)
+            self.assertFalse(app.exception)
+            return json.loads(app.get("component_instance")[0].proto.json_args)
+
+        self.assertIsNone(send(1, "start", session_id="old-session")["voice_command_feedback"])
+        self.assertFalse(pose.started)
+        self.assertEqual(send(1, "start")["voice_command_feedback"]["id"], 1)
+        self.assertTrue(pose.started)
+        squat = [self.frame(angle) for angle in (170, 145, 90, 120, 165)]
+        pause = send(2, "pause", squat)
+        self.assertTrue(pause["user_paused"])
+        self.assertEqual(session.ai_reps, 1)
+        self.assertEqual(app.session_state["paused_progress"]["reps"], 1)
+        self.assertEqual(session.status, "paused")
+
+        app.button(key="hud_resume_btn").click().run()
+        self.assertFalse(app.session_state["session_user_paused"])
+        self.assertFalse(send(2, "pause", [self.frame(170)])["user_paused"])
+        app.button(key="hud_pause_btn").click().run()
+        resume = send(3, "start", squat)
+        self.assertFalse(resume["user_paused"])
+        self.assertEqual(session.ai_reps, 1)
+        self.assertNotIn("workout_results", app.session_state)
+
+        for command_id, action in ((4, "rest"), (5, "next")):
+            self.assertIn("chưa sẵn sàng", send(command_id, action)["voice_command_feedback"]["message"])
+            self.assertEqual(session.ai_reps, 1)
+
     def test_voice_feedback_reaches_webcam_on_the_same_rerun(self):
         app = AppTest.from_string("""
 import streamlit as st

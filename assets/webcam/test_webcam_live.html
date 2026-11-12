@@ -8,6 +8,9 @@
 <main>
 <button id="camera-toggle" type="button" disabled aria-pressed="false">📷 Bật camera</button>
 <button id="voice" type="button" aria-pressed="false"><span id="voice-icon" aria-hidden="true">🔇</span> Voice Coach</button>
+<button id="voice-command" type="button" disabled aria-pressed="false" aria-describedby="command-status">🎙️ Khẩu lệnh</button>
+<p id="command-status" role="status">Bấm Khẩu lệnh để bật micro.</p>
+<output id="command-feedback"></output>
 <p id="status" role="status">Đang chuẩn bị camera…</p>
 <p><label for="camera-device">Camera</label>
 <select id="camera-device" aria-describedby="camera-help" disabled><option value="">Mặc định của trình duyệt</option></select></p>

@@ -13,12 +13,13 @@ function isRep(event) {
 
 export function createVoiceCoach({
   AudioContext, fetchAudio = globalThis.fetch, showCue, showStatus, now = () => performance.now(),
-  onEnabledChange = () => {}, onCorrection = () => {},
+  onEnabledChange = () => {}, onCorrection = () => {}, onPlaybackChange = () => {},
 }) {
   const supported = typeof AudioContext === "function";
   let enabled = false;
   let context, audioBuffer;
   let current, pendingRep, pendingCorrection;
+  let playing = false;
   let lastCorrectionAt = -Infinity;
 
   function setEnabled(value) {
@@ -26,17 +27,25 @@ export function createVoiceCoach({
     onEnabledChange(enabled);
   }
 
+  function setPlaybackActive(active) {
+    if (playing === active) return;
+    playing = active;
+    onPlaybackChange(active);
+  }
+
   function stop() {
     const playback = current;
     if (pendingCorrection) onCorrection(pendingCorrection.event, "stopped");
     current = pendingRep = pendingCorrection = null;
     for (const source of playback?.sources ?? []) source.stop();
+    setPlaybackActive(false);
   }
 
   async function play(cueIds, capturedAt) {
     const playback = {sources: new Set()};
     current = playback;
     try {
+      setPlaybackActive(true);
       context ??= new AudioContext();
       // Call resume before awaiting so the Voice Coach click can unlock playback.
       const ready = context.state === "running" ? undefined : context.resume();
@@ -70,6 +79,7 @@ export function createVoiceCoach({
             pendingCorrection = null;
             scheduleCorrection(next);
           }
+          if (!current) setPlaybackActive(false);
         };
         source.start(when, offset, duration);
         playback.sources.add(source);

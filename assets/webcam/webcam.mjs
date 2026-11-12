@@ -1,4 +1,5 @@
 import {createVoiceCoach} from "./voice_coach.mjs";
+import {createVoiceCommands} from "./voice_commands.mjs";
 
 const FRAME_BATCH_INTERVAL_MS = 200;
 const FRAME_STALL_TIMEOUT_MS = 600;
@@ -26,7 +27,9 @@ let trackingInterrupted = true;
 const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let lastVoiceSequence = 0;
+let lastCommandId = 0, lastCommandFeedbackId = 0, pendingCommand, commandTimeout, userPaused = false;
 const voiceButton = get("voice");
+const commandButton = get("voice-command");
 const cameraDevice = get("camera-device");
 const mediaDevices = navigator.mediaDevices;
 
@@ -48,10 +51,21 @@ const cameraErrors = {
   NotReadableError: "Không đọc được camera. Hãy kiểm tra kết nối và đóng ứng dụng khác đang dùng camera.",
   OverconstrainedError: "Camera đã chọn không còn khả dụng. Hãy chọn thiết bị khác rồi thử lại.",
 };
+const voiceCommands = createVoiceCommands({
+  SpeechRecognition: window.SpeechRecognition ?? window.webkitSpeechRecognition,
+  onCommand: sendVoiceCommand,
+  onStatus: text => { get("command-status").textContent = text; },
+  onEnabledChange: enabled => commandButton.setAttribute("aria-pressed", String(enabled)),
+});
+commandButton.onclick = () => voiceCommands.toggle();
+if (!voiceCommands.supported) {
+  get("command-status").textContent = "Trình duyệt chưa hỗ trợ khẩu lệnh. Hãy dùng các nút trên HUD.";
+}
 const voiceCoach = createVoiceCoach({
   AudioContext: window.AudioContext ?? window.webkitAudioContext,
   showCue: text => { get("voice-cue").textContent = text; },
   showStatus: text => { get("voice-status").textContent = text; },
+  onPlaybackChange: voiceCommands.setPlaybackActive,
   onEnabledChange: enabled => {
     get("voice-icon").textContent = enabled ? "🔊" : "🔇";
     voiceButton.setAttribute("aria-pressed", String(enabled));
@@ -68,6 +82,17 @@ voiceButton.onclick = () => voiceCoach.toggle();
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
+}
+
+function sendVoiceCommand(action) {
+  if (!sessionId || pendingCommand) return;
+  pendingCommand = {id: ++lastCommandId, action};
+  get("command-feedback").textContent = "";
+  sendFrameBatch(true);
+  commandTimeout = setTimeout(() => {
+    pendingCommand = undefined;
+    get("command-feedback").textContent = "HUD chưa phản hồi. Hãy kiểm tra trạng thái buổi tập.";
+  }, 3000);
 }
 
 async function refreshCameraDevices() {
@@ -95,12 +120,17 @@ if (window.parent === window) {
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  const {model, session_id: renderSessionId, last_event_id: acknowledged, voice_feedback: feedback, show_metrics: visibleMetrics} = event.data.args;
+  const {
+    model, session_id: renderSessionId, last_event_id: acknowledged,
+    voice_feedback: feedback, show_metrics: visibleMetrics,
+    user_paused: renderPaused, voice_command_feedback: commandFeedback,
+  } = event.data.args;
   applyMetricsVisibility(visibleMetrics);
   if (!encodedModel && model && renderSessionId) {
     encodedModel = model;
     sessionId = renderSessionId;
     frameSequence = acknowledged ?? 0;
+    commandButton.disabled = !voiceCommands.supported;
     clearTimeout(setupTimer);
     if (!mediaDevices?.getUserMedia) {
       get("status").textContent = window.isSecureContext
@@ -115,6 +145,18 @@ window.addEventListener("message", event => {
   }
 
   if (renderSessionId !== sessionId) return;
+  if (renderPaused && !userPaused) {
+    voiceCoach.stop();
+    get("voice-cue").textContent = "";
+  }
+  userPaused = renderPaused === true;
+  if (commandFeedback?.stream_id === streamId && commandFeedback.id === lastCommandId &&
+      commandFeedback.id > lastCommandFeedbackId) {
+    lastCommandFeedbackId = commandFeedback.id;
+    clearTimeout(commandTimeout);
+    pendingCommand = undefined;
+    get("command-feedback").textContent = commandFeedback.message;
+  }
   if (Number.isInteger(acknowledged) && acknowledged <= frameSequence) {
     const received = pendingFrames.length - (frameSequence - acknowledged);
     if (received > 0) pendingFrames.splice(0, received);
@@ -125,6 +167,7 @@ window.addEventListener("message", event => {
   if (!detector || feedback?.session_id !== sessionId || feedback.stream_id !== streamId ||
       feedback.sequence <= lastVoiceSequence) return;
   lastVoiceSequence = feedback.sequence;
+  if (userPaused) return;
   if (feedback.stopped || feedback.interrupted) {
     voiceCoach.stop();
     get("voice-cue").textContent = "";
@@ -219,14 +262,17 @@ function queueFrame(frame) {
   frameSequence++;
 }
 function sendFrameBatch(force = false, now = performance.now()) {
-  if (!pendingFrames.length) return;
+  if (!pendingFrames.length && !pendingCommand) return;
   if (!force && awaitingAckSequence !== null && now - awaitingAckSince < ACK_TIMEOUT_MS) return;
   if (!force) {
     awaitingAckSequence = frameSequence;
     awaitingAckSince = now;
   }
   send("streamlit:setComponentValue", {
-    value: {session_id: sessionId, stream_id: streamId, sequence: frameSequence, frames: pendingFrames},
+    value: {
+      session_id: sessionId, stream_id: streamId, sequence: frameSequence, frames: pendingFrames,
+      ...(pendingCommand ? {voice_command: pendingCommand} : {}),
+    },
     dataType: "json"
   });
 }
@@ -397,5 +443,10 @@ get("camera-toggle").onclick = async () => {
     void refreshCameraDevices();
   }
 };
-window.addEventListener("pagehide", () => stopCamera());
+window.addEventListener("pagehide", () => {
+  clearTimeout(commandTimeout);
+  pendingCommand = undefined;
+  voiceCommands.stop();
+  stopCamera();
+});
 updateAngles([]);
