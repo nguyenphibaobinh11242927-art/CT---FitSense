@@ -25,7 +25,8 @@ from src.workout_session import WorkoutSession, finish_session, start_session
 
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
-SHALLOW_ATTEMPT_ANGLE = 130
+SHALLOW_ATTEMPT_ANGLE = 135
+SHALLOW_TRACKING_GRACE_FRAMES = 2
 logger = logging.getLogger(__name__)
 
 
@@ -37,17 +38,37 @@ def webcam_model():
 
 @dataclass
 class SquatCorrection:
-    deepest_angle: float = 180
+    deepest_angle: float | None = None
+    missing_frames: int = 0
 
-    def update(self, angle, previous_state, result):
-        if angle is None or result["state"] == RepCounterFSM.STATE_DOWN or result["rep_incremented"]:
-            self.deepest_angle = 180
-        elif result["state"] == RepCounterFSM.STATE_GOING_DOWN:
+    @property
+    def tracking_lost(self) -> bool:
+        return self.missing_frames > SHALLOW_TRACKING_GRACE_FRAMES
+
+    def interrupt_tracking(self) -> None:
+        self.deepest_angle = None
+        self.missing_frames = SHALLOW_TRACKING_GRACE_FRAMES + 1
+
+    def update(self, angle: float | None, rep_fsm: RepCounterFSM) -> bool:
+        if angle is None:
+            if not self.tracking_lost:
+                self.missing_frames += 1
+                if self.tracking_lost:
+                    self.interrupt_tracking()
+            return False
+
+        self.missing_frames = 0
+        if angle >= rep_fsm.up_thresh:
+            deepest_angle = self.deepest_angle
+            self.deepest_angle = None
+            return deepest_angle is not None and rep_fsm.down_thresh < deepest_angle <= SHALLOW_ATTEMPT_ANGLE
+
+        # The rep FSM waits for an upright frame after tracking loss. Keep the
+        # depth of an ongoing attempt through brief gaps for form feedback.
+        if self.deepest_angle is not None:
             self.deepest_angle = min(self.deepest_angle, angle)
-        elif previous_state == RepCounterFSM.STATE_GOING_DOWN and result["state"] == RepCounterFSM.STATE_UP:
-            attempted_squat = self.deepest_angle <= SHALLOW_ATTEMPT_ANGLE
-            self.deepest_angle = 180
-            return attempted_squat
+        elif rep_fsm.state == RepCounterFSM.STATE_GOING_DOWN:
+            self.deepest_angle = angle
         return False
 
 
@@ -92,11 +113,10 @@ def process_pose_frames(
 
         stop_result = stop_fsm.update(x_detected, head_detected)
         if not stop_result["is_rep_locked"]:
-            previous_state = rep_fsm.state
             result = rep_fsm.update(knee_angle)
             if voice_events is None:
                 continue
-            needs_cue = correction is not None and correction.update(knee_angle, previous_state, result)
+            needs_cue = correction is not None and correction.update(knee_angle, rep_fsm)
             if result["rep_incremented"]:
                 event = {"kind": "rep", "count": result["rep_count"]}
             elif needs_cue:
@@ -121,6 +141,12 @@ class PoseSession:
     retired_streams: set[str] = field(default_factory=set)
     voice_feedback: dict | None = None
 
+    def interrupt_tracking(self) -> None:
+        self.rep.update(None)
+        self.correction.interrupt_tracking()
+        self.start.update(False)
+        self.stop.update(False, False)
+
     def consume(self, session: WorkoutSession, batch, *, user_paused: bool = False) -> None:
         if not isinstance(batch, dict) or batch.get("session_id") != session.session_id:
             return
@@ -138,6 +164,7 @@ class PoseSession:
         if end <= session.last_event_id or first < 1:
             return
         if user_paused:
+            self.interrupt_tracking()
             session.last_event_id = end
             session.status = "paused"
             self.voice_feedback = {
@@ -153,17 +180,18 @@ class PoseSession:
             self.retired_streams.add(self.stream_id)
         self.stream_id = stream_id
 
-        if switched or first > session.last_event_id + 1:
-            previous_state = self.rep.state
-            self.correction.update(None, previous_state, self.rep.update(None))
-            self.start.update(False)
-            self.stop.update(False, False)
+        interrupted = switched or first > session.last_event_id + 1
+        if interrupted:
+            self.interrupt_tracking()
             session.status = "paused"
 
         voice_events = []
         for seq, frame in enumerate(frames, first):
             if seq <= session.last_event_id:
                 continue
+            if isinstance(frame, dict) and frame.get("tracking_interrupted") is True:
+                self.correction.interrupt_tracking()
+                interrupted = True
             previous_event_count = len(voice_events)
             self.started = process_pose_frames(
                 [frame], self.rep, self.start, self.stop, self.started,
@@ -175,7 +203,9 @@ class PoseSession:
                 logger.debug("Detected shallow squat at frame %s (%s ms)", seq, event.get("captured_at"))
             session.ai_reps = self.rep.rep_count
             tracking = frame.get("knee_angle") is not None
-            if not tracking:
+            audio_paused = not tracking and self.started and self.correction.tracking_lost
+            if audio_paused:
+                interrupted = True
                 voice_events.clear()
             session.status = "active" if tracking and self.started and not self.stop.is_rep_locked else "paused"
             session.last_event_id = seq
@@ -185,7 +215,8 @@ class PoseSession:
             "stream_id": stream_id,
             "sequence": end,
             "events": voice_events,
-            "stopped": self.stop.is_rep_locked or (self.started and not tracking),
+            "stopped": self.stop.is_rep_locked or audio_paused,
+            "interrupted": interrupted,
         }
 
 
@@ -393,6 +424,7 @@ def _render_ai_vision_hud_fragment() -> None:
             if not user_paused:
                 if st.button("⏸️ Tạm ngưng", key="hud_pause_btn", use_container_width=True):
                     st.session_state["session_user_paused"] = True
+                    pose.interrupt_tracking()
                     session.status = "paused"
                     st.session_state["paused_progress"] = {
                         "reps": session.ai_reps,

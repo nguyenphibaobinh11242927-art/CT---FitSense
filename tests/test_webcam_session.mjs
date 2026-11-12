@@ -50,7 +50,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
     document: {getElementById: element, createElement: () => ({}), body: {}},
     createVoiceCoach: ({onEnabledChange}) => {
       updateSpeaker = onEnabledChange;
-      return {supported: true, stop() {}, receive(event) { heard.push(event); }};
+      return {supported: true, stop() { heard.push("stop"); }, receiveBatch(events) { heard.push(...events); }};
     },
     ResizeObserver: class {observe() {}}, URL, atob, setTimeout, clearTimeout,
     performance: {now: () => now}, cancelAnimationFrame() {},
@@ -80,6 +80,8 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(typeof opened.stream_id, "string");
   assert.equal(opened.sequence, 9);
   assert.equal(opened.frames[0].knee_angle, null);
+  assert.equal(opened.frames[0].tracking_interrupted, true);
+  assert.deepEqual(heard.splice(0), ["stop"]);
   render({last_event_id: 9});
 
   tick(200, 1);
@@ -100,6 +102,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   tick(800);
   assert.equal(batches().at(-1).sequence, 11);
   assert.equal(batches().at(-1).frames[0].knee_angle, null);
+  assert.equal(batches().at(-1).frames[0].tracking_interrupted, true);
   tick(900);
   assert.equal(batches().at(-1).sequence, 11);
 
@@ -108,8 +111,20 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(resumed.sequence, 12);
   assert.equal(resumed.stream_id, opened.stream_id);
   assert.deepEqual(resumed.frames.map(sample => sample.knee_angle), [null, 180]);
-  element("camera-toggle").onclick();
-  assert.equal(batches().at(-1).sequence, 13);
+
+  tick(1200, 3);
+  assert.equal(batches().at(-1).sequence, 12);
+  render({last_event_id: 12, voice_feedback: {
+    ...resumed, interrupted: true, stopped: false, events: [{kind: "rep", count: 2}],
+  }});
+  assert.deepEqual(heard, [...feedback.events, "stop", "stop", {kind: "rep", count: 2}]);
+
+  tick(1400, 4);
+  assert.equal(batches().at(-1).sequence, 14);
+  assert.deepEqual(batches().at(-1).frames.map(sample => sample.knee_angle), [180, 180]);
+  await element("camera-toggle").onclick();
+  assert.equal(batches().at(-1).sequence, 15);
   assert.equal(batches().at(-1).frames.at(-1).knee_angle, null);
+  assert.equal(batches().at(-1).frames.at(-1).tracking_interrupted, true);
   assert.equal(videoFrame, null);
 });

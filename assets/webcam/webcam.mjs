@@ -125,12 +125,11 @@ window.addEventListener("message", event => {
   if (!detector || feedback?.session_id !== sessionId || feedback.stream_id !== streamId ||
       feedback.sequence <= lastVoiceSequence) return;
   lastVoiceSequence = feedback.sequence;
-  if (feedback.stopped) {
+  if (feedback.stopped || feedback.interrupted) {
     voiceCoach.stop();
     get("voice-cue").textContent = "";
-  } else {
-    for (const event of feedback.events ?? []) voiceCoach.receive(event);
   }
+  if (!feedback.stopped) voiceCoach.receiveBatch(feedback.events ?? []);
 });
 if (window.parent !== window) {
   send("streamlit:componentReady", {apiVersion: 1});
@@ -233,7 +232,7 @@ function sendFrameBatch(force = false, now = performance.now()) {
 }
 function sendTrackingLoss() {
   trackingInterrupted = true;
-  queueFrame(getPoseFeatures([]));
+  queueFrame({...getPoseFeatures([]), tracking_interrupted: true});
   lastVoiceSequence = frameSequence;
   voiceCoach.stop();
   get("voice-cue").textContent = "";
