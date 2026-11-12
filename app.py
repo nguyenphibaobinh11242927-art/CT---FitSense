@@ -1824,6 +1824,8 @@ def main():
 
         # Khi đã đăng nhập: Hiển thị màn hình theo lựa chọn của menu
         current_screen = st.session_state.get("nav_selection", "⚡ Phòng tập Trực tiếp (HUD)")
+        if current_screen != "📋 Kế hoạch Tập luyện Tuần":
+            st.session_state["_planner_screen_active"] = False
 
         if current_screen == "⚡ Phòng tập Trực tiếp (HUD)":
             render_session_view()

@@ -4,13 +4,15 @@ Lập lịch tập tuần, tải lên & tự chỉnh sửa kế hoạch cá nhâ
 """
 
 import csv
-from datetime import datetime
+from datetime import datetime, date
 import io
 import json
 import pandas as pd
 import streamlit as st
 
 from src.weekly_plan_sync import start_planned_day
+from src.adaptive_weekly_plan import (start_actual_workout, recovery_warnings, DAYS)
+from src.weekly_plan_storage import load_week_state, save_week_state
 
 
 DEFAULT_DAYS = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"]
@@ -260,10 +262,30 @@ def apply_selected_replacement(day_index: int, ex_index: int,
     st.session_state['weekly_schedule'] = replace_in_schedule(
         schedule, day_index, ex_index, chosen)
     st.session_state['replacement_notice'] = f"Đã đổi sang: {chosen['name']}"
+    save_week_state(st.session_state)
+
+
+def _launch_actual_workout(source_day: str, today: date) -> None:
+    """Save updated schedule before entering HUD; history source date remains unchanged."""
+    schedule = st.session_state.get("weekly_schedule", [])
+    updated, active, method = start_actual_workout(schedule, source_day, today)
+    st.session_state["weekly_schedule"] = updated
+    st.session_state["selected_session_day"] = DAYS[today.weekday()]
+    st.session_state["selected_session_actual_date"] = today.isoformat()
+    st.session_state["active_workout"] = active
+    st.session_state["weekly_replan_method"] = method
+    # Every new launch is a new session, even for the same day.
+    for key in ("workout_session", "pose_session", "session_user_paused", "paused_progress"):
+        st.session_state.pop(key, None)
+    save_week_state(st.session_state)
+    st.session_state["pending_navigation"] = "⚡ Phòng tập Trực tiếp (HUD)"
+    st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
+    st.rerun()
 
 
 def render_planner_view():
     """Hiển thị giao diện lịch tập tuần và giáo án thể thao cá nhân hóa."""
+    load_week_state(st.session_state)
     st.header("📋 Kế hoạch Tập luyện & Lịch tuần Thông minh")
     st.caption("AI tối ưu hóa lịch phân bổ nhóm cơ, đồng thời cho phép bạn tự tải lên & chỉnh sửa giáo án cá nhân.")
 
@@ -314,6 +336,7 @@ def render_planner_view():
                         parsed = parse_uploaded_plan(uploaded_plan.getvalue(), uploaded_plan.name)
                         st.session_state["weekly_schedule"] = parsed
                         st.session_state["custom_plan_source"] = uploaded_plan.name
+                        save_week_state(st.session_state)
                         st.success(f"Đã tải kế hoạch cá nhân từ `{uploaded_plan.name}` thành công! Bạn có thể chỉnh sửa tự do từng ngày ở các tab bên dưới.")
                         st.rerun()
                     except ValueError as err:
@@ -330,12 +353,33 @@ def render_planner_view():
     if st.session_state.get("custom_plan_source"):
         st.caption(f"📁 Đang sử dụng kế hoạch cá nhân: `{st.session_state['custom_plan_source']}` (có thể chỉnh sửa bất kỳ ngày nào).")
 
+    if st.session_state.get("weekly_replan_method"):
+        st.caption("Lịch tương lai đã được sắp xếp bằng: " + st.session_state["weekly_replan_method"])
+
     st.subheader("Lịch phân bổ nhóm cơ trong tuần")
 
-    tabs = st.tabs([f"Thứ {i+2}" if i < 6 else "Chủ Nhật" for i in range(7)])
+    # Unlike st.tabs(), segmented_control supports a controlled default value.
+    # Reset on entering a new calendar day, not on every Streamlit rerun.
+    today_date = date.today()
+    view_key = "weekly_planner_day_selected"
+    if (st.session_state.get("weekly_planner_date") != today_date.isoformat()
+            or not st.session_state.get("_planner_screen_active", False)):
+        st.session_state["weekly_planner_date"] = today_date.isoformat()
+        st.session_state[view_key] = DAYS[today_date.weekday()]
+    st.session_state["_planner_screen_active"] = True
+    if hasattr(st, "segmented_control"):
+        selected_label = st.segmented_control("Ngày trong tuần", DAYS, key=view_key,
+                                              selection_mode="single", label_visibility="collapsed")
+    else:
+        selected_label = st.radio("Ngày trong tuần", DAYS, horizontal=True, key=view_key,
+                                  label_visibility="collapsed")
+    if selected_label not in DAYS:
+        selected_label = DAYS[today_date.weekday()]
 
-    for i, tab in enumerate(tabs):
-        with tab:
+    for i in range(7):
+        if DAYS[i] != selected_label:
+            continue
+        with st.container():
             day_label = f"Thứ {i+2}" if i < 6 else "Chủ Nhật"
             day_data = schedule[i] if i < len(schedule) else {"day": day_label, "focus": "Nghỉ ngơi phục hồi", "is_rest": True, "exercises": []}
 
@@ -361,23 +405,34 @@ def render_planner_view():
                     st.caption(f"💡 **Lý do / Ghi chú:** {day_data.get('ai_reason', 'Tối ưu kích thích cơ bắp an toàn cho khớp.')}")
                 with col_f2:
                     if st.button("🚀 Tập ngay buổi này", key=f"start_btn_{i}", type="primary", use_container_width=True):
-                        # Cập nhật ngay dữ liệu chuẩn weekly_schedule, không chỉ lưu một bản
-                        # sao active_workout (khi quay lại Kế hoạch tuần sẽ thấy trạng thái mới).
-                        day_name = day_data.get("day", day_label)
-                        updated, active_day = start_planned_day(
-                            st.session_state.get("weekly_schedule", []), day_name
+                        source_name = day_data.get("day", day_label)
+                        today = date.today()
+                        warnings = recovery_warnings(
+                            day_data, today,
+                            st.session_state.get("workout_event_history", []),
+                            st.session_state.get("weekly_schedule", []),
                         )
-                        st.session_state["weekly_schedule"] = updated
-                        previous_day = st.session_state.get("selected_session_day")
-                        old_session = st.session_state.get("workout_session")
-                        if previous_day != day_name or getattr(old_session, "status", None) in ("completed", "abandoned"):
-                            for state_key in ("workout_session", "pose_session", "session_user_paused", "paused_progress"):
-                                st.session_state.pop(state_key, None)
-                        st.session_state["selected_session_day"] = day_name
-                        st.session_state["active_workout"] = active_day
-                        st.session_state["pending_navigation"] = "⚡ Phòng tập Trực tiếp (HUD)"
-                        st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
-                        st.rerun()
+                        if warnings:
+                            st.session_state["pending_recovery_choice"] = source_name
+                            st.session_state["recovery_messages"] = warnings
+                            st.rerun()
+                        _launch_actual_workout(source_name, today)
+
+                if st.session_state.get("pending_recovery_choice") == day_data.get("day", day_label):
+                    for message in st.session_state.get("recovery_messages", []):
+                        st.warning("⚠️ Phục hồi: " + message)
+                    st.caption("Đây là cảnh báo tham khảo, không thay thế đánh giá sức khỏe cá nhân.")
+                    left, right = st.columns(2)
+                    with left:
+                        if st.button("Vẫn tiếp tục tập", key=f"confirm_recovery_{i}"):
+                            st.session_state.pop("pending_recovery_choice", None)
+                            st.session_state.pop("recovery_messages", None)
+                            _launch_actual_workout(day_data.get("day", day_label), date.today())
+                    with right:
+                        if st.button("Hủy lựa chọn", key=f"cancel_recovery_{i}"):
+                            st.session_state.pop("pending_recovery_choice", None)
+                            st.session_state.pop("recovery_messages", None)
+                            st.rerun()
 
                 st.markdown("#### Danh sách bài tập phân bổ:")
                 exercises = day_data.get("exercises", [])
@@ -491,5 +546,6 @@ def render_planner_view():
                             "exercises": new_exs,
                         }
                     st.session_state["weekly_schedule"] = updated_schedule
+                    save_week_state(st.session_state)
                     st.success(f"Đã lưu thay đổi cho {day_label}!")
                     st.rerun()
