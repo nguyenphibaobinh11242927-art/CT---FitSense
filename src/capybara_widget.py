@@ -10,6 +10,7 @@ Hiển thị chú chuột túi Capybara nổi ở góc màn hình dưới dạng
 - Tối giản tối đa: Đã loại bỏ hoàn toàn các thanh tiêu đề và nút bấm thủ công.
 """
 
+import hashlib
 import html
 import random
 import textwrap
@@ -89,47 +90,126 @@ CAPY_SVG_HAPPY = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120
   <ellipse cx="76" cy="98" rx="9" ry="6" fill="#885532"/>
 </svg>"""
 
-# Danh sách lời thoại nhắc nhở khi chưa tập (Buồn 🥺 / Thúc giục tập luyện)
+# Danh sách lời thoại nhắc nhở khi chưa tập (Buồn 🥺 / Ngắn gọn <= 2 dòng)
 SAD_QUOTES = [
-    "Hôm nay bạn chưa vận động gì đó nha... Mình chờ bạn nãy giờ nè 🥺",
-    "Chưa tập bài nào hết trơn! Cơ bắp đang buồn thiu ngồi chờ kìa 🦫💔",
-    "Dậy làm vài cái Squat với tớ đi mà, 10 phút thôi cũng được... 🥺",
-    "Đừng lười nha, giữ chuỗi Streak rực lửa đi! Tớ tin bạn làm được! 🔥",
-    "Bạn mà không chịu tập là tớ nằm ăn cỏ buồn một mình luôn á... 🌿🥺",
-    "Thảm tập đã trải, nước đã sẵn sàng... chỉ còn thiếu mỗi bạn thôi đó! 🏃",
-    "Ngồi học và làm việc lâu mỏi lưng lắm, vào làm vài set khởi động nào! 🤸",
-    "Mục tiêu vóc dáng lý tưởng đang vẫy gọi, đứng lên tập thôi bạn tôi ơi! ⏳"
+    "Hôm nay bạn chưa tập nè, cùng khởi động nhé! 🥺",
+    "Chưa tập bài nào đó, làm vài set nhẹ thôi! 🦫",
+    "Squat 10 phút với CapyHeo cho tỉnh táo nha! 🔥",
+    "Đừng bỏ chuỗi Streak, bắt đầu ngay bạn ơi! 💪",
+    "Thảm tập sẵn sàng rồi, chỉ chờ bạn thôi đó! 🏃",
+    "Ngồi lâu mỏi lưng lắm, giãn cơ một chút nào! 🤸",
 ]
 
-# Danh sách lời thoại khen ngợi khi đã tập xong (Vui tươi 🥰 / Cổ vũ nhiệt tình)
+# Danh sách lời thoại khen ngợi khi đã tập xong (Vui tươi 🥰 / Ngắn gọn <= 2 dòng)
 HAPPY_QUOTES = [
-    "Yayyy! Giỏi quá đi! Hôm nay bạn hoàn thành mục tiêu rồi nè 🎉🥰",
-    "Đỉnh chóp luôn bạn ơi! Cơ bắp đang hồi phục xịn xò lắm đó nha ✨💪",
-    "Tập xong rồi thì nhớ uống đủ nước và ăn nhẹ chút protein nhé! 🍊🥛",
-    "Tự hào về bạn quá đi! Nhìn bạn tập mà tớ có động lực ăn thêm 10 cọng cỏ 🌿✨",
-    "Chuỗi ngày rèn luyện của bạn siêu đỉnh! Nghỉ ngơi thật tốt nhé chiến thần! 🏅",
-    "Tuyệt vời ông mặt trời! Đánh giá buổi tập xong là tha hồ thư giãn nha 🥰",
-    "Hôm nay bạn đã chiến thắng sự lười biếng! Quá xuất sắc luôn bạn tôi ơi! 🌟",
-    "Trái cam trên đầu tớ đang phát sáng vì bạn tập quá nhiệt huyết đó! 🍊✨"
+    "Giỏi quá bạn ơi! Đã hoàn thành mục tiêu rồi! 🎉",
+    "Đỉnh chóp! Cơ bắp đang hồi phục rất tốt đó! 💪",
+    "Tập xong nhớ uống đủ nước và nạp protein nhé! 🥛",
+    "Tự hào về bạn quá! Nghỉ ngơi thật tốt nha! 🌿",
+    "Chuỗi Streak đang cháy rực rỡ luôn đó bạn! 🔥",
+    "Hôm nay bạn đã chiến thắng sự lười biếng rồi! 🌟",
 ]
 
-# Danh sách lời thoại chào mừng ở giao diện đăng nhập (Vui tươi 🥰 / Thân thiện chào đón khách)
+# Danh sách lời thoại chào mừng ở giao diện đăng nhập (<= 2 dòng)
 WELCOME_QUOTES = [
-    "Xin chào! Chào mừng bạn đến với FitSense nha! 🦫✨",
-    "Hế lô! Tớ là Capy – bạn đồng hành rèn luyện của bạn đây! 🍊🥰",
-    "Chào mừng bạn! FitSense đã sẵn sàng đồng hành cùng bạn hôm nay! 🏃‍♂️🌟",
-    "Rất vui được gặp bạn! Đăng nhập để cùng tớ lên lịch tập xịn xò nhé! ⚡",
-    "Chào bạn mới! Cùng FitSense chinh phục vóc dáng lý tưởng nào! 💪✨",
-    "Một ngày tuyệt vời để rèn luyện! Đăng nhập ngay cùng Capy thôi nào! 🚀",
-    "Bạn muốn khỏe đẹp và tràn đầy năng lượng? Khám phá FitSense ngay nhé! 🌟"
+    "Xin chào! Chào mừng bạn đến với FitSense! 🦫✨",
+    "Chào bạn! Tớ là CapyHeo, trợ lý FitSense! 🍊",
+    "Đăng nhập để AI lên lịch tập riêng cho bạn! ⚡",
+    "Cùng bạn chinh phục vóc dáng mới tại FitSense! 💪",
+    "Sẵn sàng cho buổi tập thông minh chưa bạn? 🚀",
+    "Chúc bạn ngày mới tập luyện tràn năng lượng! 🌟",
 ]
+
+# Ngân hàng câu thoại riêng theo từng mục (các mục chung đặc điểm dùng chung ngân hàng)
+SECTION_QUOTES = {
+    "hud": [
+        "Đứng đủ khung hình để AI bắt khớp chuẩn nhé! 📸",
+        "Giữ lưng thẳng, hít sâu trước khi xuống Squat! 🏋️",
+        "Chậm rãi kiểm soát nhịp thở theo từng rep nha! 💨",
+        "Mệt thì bấm Tạm ngưng, không cần vội đâu bạn! ⏸️",
+        "Giơ tay chữ X nếu muốn kết thúc hiệp sớm nhé! 🙅",
+        "Mỗi rep đúng kỹ thuật giá trị hơn rep vội đó! ✨",
+    ],
+    "planner_library": [
+        "Bấm 'Tập ngay' để AI đưa bài vào phòng tập! 🚀",
+        "Bạn có thể tải lên hoặc tự sửa lịch theo ý! 📝",
+        "Chưa ưng bài nào thì chọn bài thay thế nhé! 🔄",
+        "Điều chỉnh số set và thời gian nghỉ phù hợp! 💡",
+        "Đọc kỹ lỗi sai thường gặp trước khi tập nha! 📖",
+        "Ưu tiên kỹ thuật chuẩn trước khi tăng số rep! 💡",
+    ],
+    "analytics_heatmap": [
+        "Nhóm cơ cam/đỏ cần nghỉ thêm trước khi tập! 🟠",
+        "Cơ xanh lá đã hồi phục, sẵn sàng tập mạnh! 🟢",
+        "Tập đều đặn để chuỗi Streak ngày càng dài! 🔥",
+        "Xem biểu đồ tiến độ để cân bằng các nhóm cơ! 📊",
+        "Ngủ đủ giấc giúp cơ bắp phục hồi nhanh hơn! 😴",
+        "Kỷ lục mới sẽ đến khi bạn kiên trì mỗi tuần! 🏆",
+    ],
+    "profile_eval": [
+        "Hãy chấm điểm RPE thật lòng để AI chỉnh tải! ⭐",
+        "Nhớ cập nhật thể trạng để AI chỉnh giáo án! 📋",
+        "Cơ thể mệt hay khỏe? Kể cho Capy nghe nhé! 🦫",
+        "Hoàn tất đánh giá xong nhớ uống bù nước nha! 💧",
+        "Đánh giá giúp AI tối ưu lịch tuần tới cho bạn! ✨",
+        "Lắng nghe cơ thể và bảo vệ khớp là số một! 💚",
+    ],
+}
+
+
+def resolve_capy_section(current_screen: str | None, is_logged_in: bool) -> str:
+    """Ánh xạ màn hình hiện tại sang nhóm ngân hàng câu thoại CapyHeo phù hợp."""
+    if not is_logged_in:
+        return "welcome"
+    if not current_screen:
+        return "default"
+    screen_l = current_screen.lower()
+    if "hud" in screen_l or "phòng tập" in screen_l:
+        return "hud"
+    if "kế hoạch" in screen_l or "lịch" in screen_l or "thư viện" in screen_l or "bài tập" in screen_l:
+        return "planner_library"
+    if "heatmap" in screen_l or "cơ bắp" in screen_l or "tiến độ" in screen_l or "lịch sử" in screen_l:
+        return "analytics_heatmap"
+    if "đánh giá" in screen_l or "hồ sơ" in screen_l:
+        return "profile_eval"
+    return "default"
+
+
+def _select_section_quotes(
+    quotes_pool: list[str],
+    cache_key: tuple,
+    count: int = 3,
+) -> list[str]:
+    """Random 3 câu trong ngân hàng mục và giữ ổn định giữa các thao tác trên cùng màn hình."""
+    try:
+        cache = st.session_state.get("capy_quote_cache", {})
+        if isinstance(cache, dict) and cache_key in cache:
+            cached = cache[cache_key]
+            if isinstance(cached, list) and len(cached) == min(count, len(quotes_pool)):
+                return cached
+    except Exception:
+        cache = None
+
+    shuffled = list(quotes_pool)
+    random.shuffle(shuffled)
+    selected = shuffled[:count]
+
+    try:
+        if isinstance(cache, dict):
+            cache[cache_key] = selected
+            st.session_state["capy_quote_cache"] = cache
+    except Exception:
+        pass
+
+    return selected
 
 
 def render_capybara_companion(
     theme: str = "dark",
     has_worked_out_today: bool = False,
     user_name: str = "bạn",
-    is_logged_in: bool = None
+    is_logged_in: bool = None,
+    current_screen: str | None = None,
 ):
     """Render widget chú chuột túi Capybara nổi ở góc màn hình (Bottom-Right Corner Pop-up)."""
     if not st.session_state.get("show_capybara", True):
@@ -139,8 +219,9 @@ def render_capybara_companion(
     if is_logged_in is None:
         is_logged_in = st.session_state.get("is_logged_in", False)
 
+    section_key = resolve_capy_section(current_screen, bool(is_logged_in))
+
     # 1. TRƯỜNG HỢP CHƯA ĐĂNG NHẬP (Giao diện Đăng nhập / Chào đón):
-    # Thay vì giục tập luyện thì dùng các câu chào mừng thân thiện
     if not is_logged_in:
         quotes_pool = WELCOME_QUOTES
         svg_content = CAPY_SVG_HAPPY
@@ -149,30 +230,30 @@ def render_capybara_companion(
         status_title = "Trạng thái: Chào mừng bạn đến với FitSense! 🍊✨"
     else:
         # 2. TRƯỜNG HỢP ĐÃ ĐĂNG NHẬP (Theo dõi luyện tập của người dùng):
-        # Tự động đồng bộ trạng thái: nếu có lịch sử buổi tập hôm nay thì coi như đã tập xong
         if not has_worked_out_today:
             session_history = st.session_state.get("session_history", [])
             if session_history and len(session_history) > 0:
                 has_worked_out_today = True
 
-        # Xác định danh sách quote và biểu cảm SVG tương ứng
+        # Biểu cảm SVG phản ánh trạng thái tập trong ngày; câu thoại lấy theo ngân hàng mục
         if has_worked_out_today:
-            quotes_pool = HAPPY_QUOTES
             svg_content = CAPY_SVG_HAPPY
             dot_color = "#22C55E"
             dot_rgb = "34, 197, 94"
             status_title = "Trạng thái: Đã hoàn thành bài tập hôm nay! 🥰"
+            default_pool = HAPPY_QUOTES
         else:
-            quotes_pool = SAD_QUOTES
             svg_content = CAPY_SVG_SAD
             dot_color = "#EF4444"
             dot_rgb = "239, 68, 68"
             status_title = "Trạng thái: Hôm nay bạn chưa tập bài nào! 🥺"
+            default_pool = SAD_QUOTES
 
-    # Chọn ngẫu nhiên 3 câu thoại để tự động xoay vòng mượt mà
-    shuffled = list(quotes_pool)
-    random.shuffle(shuffled)
-    selected_quotes = shuffled[:3]
+        quotes_pool = SECTION_QUOTES.get(section_key, default_pool)
+
+    # Chọn ngẫu nhiên 3 câu thoại riêng của mục hiện tại (cache theo mục để không nhảy loạn khi bấm nút khác)
+    cache_key = (section_key, bool(is_logged_in), bool(has_worked_out_today))
+    selected_quotes = _select_section_quotes(quotes_pool, cache_key=cache_key, count=3)
 
     quote_slides_html = []
     for idx, raw_q in enumerate(selected_quotes):
@@ -185,6 +266,9 @@ def render_capybara_companion(
         quote_slides_html.append(f'<div class="capy-slide slide-{idx+1}">{safe_q_text}</div>')
 
     quotes_markup = "\n".join(quote_slides_html)
+    quote_sig = hashlib.sha1(f"{theme}|{quotes_markup}".encode("utf-8")).hexdigest()[:8]
+    bubble_anim = f"capyBubbleSilence_{quote_sig}"
+    slide_anim = f"capyRotateQuotes_{quote_sig}"
 
     # Màu sắc giao diện theo theme
     if theme == "light":
@@ -220,17 +304,22 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 #capybara-companion-container * {{
 pointer-events: auto;
 }}
+.capy-bubble-slot {{
+position: relative;
+animation: {bubble_anim} 22s linear infinite;
+transform-origin: bottom right;
+}}
 .capy-bubble {{
 position: relative;
-width: 280px;
+width: 300px;
 max-width: min(320px, calc(100vw - 130px));
 background-color: {bg_bubble};
 border: 2px solid {border_bubble};
 border-radius: 20px;
-padding: 14px 16px;
-padding-top: 18px;
+padding: 13px 16px;
+padding-top: 16px;
 box-shadow: {shadow_bubble};
-color: {text_bubble};
+color: {text_bubble} !important;
 transform-origin: bottom right;
 transition: all 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
 margin-bottom: 8px;
@@ -262,15 +351,18 @@ z-index: 1;
 .capy-bubble-toggle {{
 display: none !important;
 }}
-.capy-bubble-toggle:checked ~ .capy-bubble {{
-opacity: 0;
+.capy-bubble-toggle:checked ~ .capy-bubble-slot {{
+opacity: 0 !important;
+animation: none !important;
 transform: scale(0.6) translateX(24px);
 pointer-events: none !important;
 visibility: hidden;
 max-height: 0;
+width: 0;
 padding: 0;
 margin: 0;
 border: none;
+overflow: hidden;
 }}
 .capy-close-btn {{
 position: absolute;
@@ -293,10 +385,11 @@ z-index: 10;
 color: {hint_close_hover};
 transform: scale(1.15);
 }}
-/* KHUNG CHỨA CÂU THOẠI XOAY VÒNG TỰ ĐỘNG */
+/* KHUNG CHỨA CÂU THOẠI XOAY VÒNG TỰ ĐỘNG (12s hiện + 10s im lặng / câu) */
 .capy-carousel-wrap {{
 position: relative;
-min-height: 48px;
+min-height: 44px;
+max-height: 46px;
 overflow: hidden;
 display: flex;
 align-items: center;
@@ -308,32 +401,53 @@ left: 0;
 right: 0;
 opacity: 0;
 font-size: 13.5px;
-line-height: 1.45;
+line-height: 1.4;
 font-weight: 600;
-color: {text_bubble};
-animation: capyRotateQuotes 24s infinite ease-in-out;
+color: {text_bubble} !important;
+display: -webkit-box;
+-webkit-line-clamp: 2;
+-webkit-box-orient: vertical;
+overflow: hidden;
+animation: {slide_anim} 66s linear infinite;
 }}
 .capy-slide.slide-1 {{
 animation-delay: 0s;
 }}
 .capy-slide.slide-2 {{
-animation-delay: 8s;
+animation-delay: 22s;
 }}
 .capy-slide.slide-3 {{
-animation-delay: 16s;
+animation-delay: 44s;
 }}
-@keyframes capyRotateQuotes {{
+@keyframes {bubble_anim} {{
 0% {{
 opacity: 0;
-transform: translateY(6px);
+transform: translateY(6px) scale(0.95);
+pointer-events: none;
 }}
-3%, 29% {{
+3%, 51% {{
+opacity: 1;
+transform: translateY(0) scale(1);
+pointer-events: auto;
+}}
+54.5%, 100% {{
+opacity: 0;
+transform: translateY(4px) scale(0.94);
+pointer-events: none;
+}}
+}}
+@keyframes {slide_anim} {{
+0%, 22% {{
 opacity: 1;
 transform: translateY(0);
 }}
-33%, 100% {{
+24%, 96% {{
 opacity: 0;
-transform: translateY(-6px);
+transform: translateY(0);
+}}
+98%, 100% {{
+opacity: 1;
+transform: translateY(0);
 }}
 }}
 .capy-avatar-btn {{
@@ -345,7 +459,6 @@ display: flex;
 align-items: flex-end;
 justify-content: center;
 transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.35));
 user-select: none;
 -webkit-user-select: none;
 flex-shrink: 0;
@@ -358,6 +471,7 @@ transform: scale(0.95);
 }}
 .capy-svg-wrap {{
 animation: capyGentleFloat 3.2s ease-in-out infinite;
+will-change: transform;
 display: flex;
 align-items: center;
 justify-content: center;
@@ -376,20 +490,22 @@ border-radius: 50%;
 background-color: {dot_color};
 border: 2px solid {bg_bubble};
 box-shadow: 0 0 8px {dot_color};
-animation: capyPulse 2s infinite;
+will-change: transform, opacity;
+animation: capyPulse 2s ease-in-out infinite;
 }}
 @keyframes capyPulse {{
-0% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({dot_rgb}, 0.7); }}
-70% {{ transform: scale(1.1); box-shadow: 0 0 0 8px rgba({dot_rgb}, 0); }}
-100% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({dot_rgb}, 0); }}
+0%, 100% {{ transform: scale(0.95); opacity: 0.78; }}
+50% {{ transform: scale(1.12); opacity: 1; }}
 }}
 </style>
 <div id="capybara-companion-container">
 <input type="checkbox" id="capy-bubble-toggle" class="capy-bubble-toggle" />
+<div class="capy-bubble-slot" data-quote-sig="{quote_sig}">
 <div class="capy-bubble">
 <label for="capy-bubble-toggle" class="capy-close-btn" title="Thu nhỏ lời thoại">✕</label>
 <div class="capy-carousel-wrap">
 {quotes_markup}
+</div>
 </div>
 </div>
 <label for="capy-bubble-toggle" class="capy-avatar-btn" title="Nhấp vào chú Capybara để ẩn hoặc hiện lời thoại!">

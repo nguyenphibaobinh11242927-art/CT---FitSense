@@ -126,7 +126,9 @@ if "workout_session" not in st.session_state:
     st.session_state["pose_session"] = PoseSession(started=True, stop=StopGestureFSM(required_frames=1))
 render_session_view()
 """).run()
-        component_id = app.get("component_instance")[0].proto.id
+        initial_component = app.get("component_instance")[0].proto
+        self.assertTrue(json.loads(initial_component.json_args)["model"])
+        component_id = initial_component.id
         session = app.session_state["workout_session"]
 
         def send(frames, sequence=None):
@@ -141,11 +143,18 @@ render_session_view()
             self.assertFalse(app.exception)
             component = app.get("component_instance")[0].proto
             self.assertEqual(component.id, component_id)
-            return json.loads(component.json_args)["voice_feedback"]
+            component_args = json.loads(component.json_args)
+            self.assertIsNone(component_args["model"])
+            return component_args["voice_feedback"]
 
         slight_bend = send([self.frame(angle) for angle in (145, 136, 165)])
         self.assertEqual(slight_bend["events"], [])
         attempt = [self.frame(angle) for angle in (145, 135, 165)]
+        self.assertEqual(send(attempt[:-1])["events"], [])
+        app.button(key="hud_pause_btn").click().run()
+        app.button(key="hud_resume_btn").click().run()
+        self.assertEqual(send([self.frame(165)])["events"], [])
+
         self.assertEqual(send(attempt[:-1])["events"], [])
         self.assertFalse(send([self.frame(None)])["stopped"])
         self.assertEqual(session.status, "paused")

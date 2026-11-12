@@ -20,6 +20,7 @@ dist/
 data/private/
 uploads/
 docs_private/
+docs/
 
 # Editor and OS
 .idea/

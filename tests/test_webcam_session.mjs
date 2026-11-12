@@ -74,7 +74,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   updateSpeaker(false);
   assert.equal(element("voice-icon").textContent, "🔇");
   assert.equal(element("voice")["aria-pressed"], "false");
-  await element("start").onclick();
+  await element("camera-toggle").onclick();
   const opened = batches().at(-1);
   assert.equal(opened.session_id, "workout");
   assert.equal(typeof opened.stream_id, "string");
@@ -111,12 +111,20 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(resumed.sequence, 12);
   assert.equal(resumed.stream_id, opened.stream_id);
   assert.deepEqual(resumed.frames.map(sample => sample.knee_angle), [null, 180]);
+
+  tick(1200, 3);
+  assert.equal(batches().at(-1).sequence, 12);
   render({last_event_id: 12, voice_feedback: {
     ...resumed, interrupted: true, stopped: false, events: [{kind: "rep", count: 2}],
   }});
   assert.deepEqual(heard, [...feedback.events, "stop", "stop", {kind: "rep", count: 2}]);
-  element("stop").onclick();
-  assert.equal(batches().at(-1).sequence, 13);
+
+  tick(1400, 4);
+  assert.equal(batches().at(-1).sequence, 14);
+  assert.deepEqual(batches().at(-1).frames.map(sample => sample.knee_angle), [180, 180]);
+  await element("camera-toggle").onclick();
+  assert.equal(batches().at(-1).sequence, 15);
   assert.equal(batches().at(-1).frames.at(-1).knee_angle, null);
+  assert.equal(batches().at(-1).frames.at(-1).tracking_interrupted, true);
   assert.equal(videoFrame, null);
 });

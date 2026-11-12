@@ -2,18 +2,26 @@ import {createVoiceCoach} from "./voice_coach.mjs";
 
 const FRAME_BATCH_INTERVAL_MS = 200;
 const FRAME_STALL_TIMEOUT_MS = 600;
+const MIN_DETECT_INTERVAL_MS = 50;
+const ACK_TIMEOUT_MS = 1200;
 const get = id => document.getElementById(id);
+const setStatus = text => {
+  const el = get("status");
+  if (el.textContent !== text) el.textContent = text;
+};
 const video = get("input"), canvas = get("view"), ctx = canvas.getContext("2d");
 const joints = [
   ["Khuỷu trái", 11, 13, 15], ["Khuỷu phải", 12, 14, 16],
   ["Gối trái", 23, 25, 27], ["Gối phải", 24, 26, 28]
 ];
 const labels = joints.map(() => get("angles").appendChild(document.createElement("span")));
-let encodedModel, detector, connections, stream, animation, mirrored = true;
+let encodedModel, decodedModelBytes, detector, connections, stream, animation, isStarting = false, showMetrics = true;
 const observesVideoFrames = typeof video.requestVideoFrameCallback === "function";
 let sessionId, frameCount, windowStart, lastFrameAt;
 let videoFrameCallback, presentedFrame, lastDrawnFrame;
 let pendingFrames = [], frameSequence = 0, lastBatchAt = 0, cameraRun = 0;
+let awaitingAckSequence = null, awaitingAckSince = 0;
+let lastDetectAt = -Infinity, lastPose = [], lastFrameHeight = 0;
 let trackingInterrupted = true;
 const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -21,6 +29,19 @@ let lastVoiceSequence = 0;
 const voiceButton = get("voice");
 const cameraDevice = get("camera-device");
 const mediaDevices = navigator.mediaDevices;
+
+function applyMetricsVisibility(visible) {
+  showMetrics = visible !== false;
+  get("fps").hidden = !showMetrics;
+  get("angles").hidden = !showMetrics;
+}
+
+function updateToggleButton(isRunning) {
+  const btn = get("camera-toggle");
+  btn.textContent = isRunning ? "⏹ Tắt camera" : "📷 Bật camera";
+  btn.setAttribute("aria-pressed", String(Boolean(isRunning)));
+  btn.disabled = isStarting || (!isRunning && (!encodedModel || !mediaDevices?.getUserMedia));
+}
 const cameraErrors = {
   NotAllowedError: "Trình duyệt hoặc hệ điều hành đang chặn camera. Hãy kiểm tra quyền camera cho trang này rồi thử lại.",
   NotFoundError: "Không tìm thấy camera. Hãy kết nối camera hoặc chọn Chế độ Tự do trong phòng tập.",
@@ -74,7 +95,8 @@ if (window.parent === window) {
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  const {model, session_id: renderSessionId, last_event_id: acknowledged, voice_feedback: feedback} = event.data.args;
+  const {model, session_id: renderSessionId, last_event_id: acknowledged, voice_feedback: feedback, show_metrics: visibleMetrics} = event.data.args;
+  applyMetricsVisibility(visibleMetrics);
   if (!encodedModel && model && renderSessionId) {
     encodedModel = model;
     sessionId = renderSessionId;
@@ -86,7 +108,7 @@ window.addEventListener("message", event => {
         : "Camera cần HTTPS hoặc localhost. Hãy mở FitSense qua một trong hai địa chỉ này.";
       return;
     }
-    get("start").disabled = false;
+    updateToggleButton(Boolean(stream));
     cameraDevice.disabled = false;
     get("status").textContent = "Sẵn sàng bật camera.";
     void refreshCameraDevices();
@@ -96,6 +118,9 @@ window.addEventListener("message", event => {
   if (Number.isInteger(acknowledged) && acknowledged <= frameSequence) {
     const received = pendingFrames.length - (frameSequence - acknowledged);
     if (received > 0) pendingFrames.splice(0, received);
+  }
+  if (Number.isInteger(acknowledged) && awaitingAckSequence !== null && acknowledged >= awaitingAckSequence) {
+    awaitingAckSequence = null;
   }
   if (!detector || feedback?.session_id !== sessionId || feedback.stream_id !== streamId ||
       feedback.sequence <= lastVoiceSequence) return;
@@ -108,8 +133,13 @@ window.addEventListener("message", event => {
 });
 if (window.parent !== window) {
   send("streamlit:componentReady", {apiVersion: 1});
-  new ResizeObserver(() => send("streamlit:setFrameHeight", {height: document.body.offsetHeight + 2}))
-    .observe(document.body);
+  new ResizeObserver(() => {
+    const height = document.body.offsetHeight + 2;
+    if (Math.abs(height - lastFrameHeight) >= 2) {
+      lastFrameHeight = height;
+      send("streamlit:setFrameHeight", {height});
+    }
+  }).observe(document.body);
 }
 mediaDevices?.addEventListener("devicechange", refreshCameraDevices);
 
@@ -188,8 +218,13 @@ function queueFrame(frame) {
   if (pendingFrames.length > 100) pendingFrames.shift();
   frameSequence++;
 }
-function sendFrameBatch() {
+function sendFrameBatch(force = false, now = performance.now()) {
   if (!pendingFrames.length) return;
+  if (!force && awaitingAckSequence !== null && now - awaitingAckSince < ACK_TIMEOUT_MS) return;
+  if (!force) {
+    awaitingAckSequence = frameSequence;
+    awaitingAckSince = now;
+  }
   send("streamlit:setComponentValue", {
     value: {session_id: sessionId, stream_id: streamId, sequence: frameSequence, frames: pendingFrames},
     dataType: "json"
@@ -201,12 +236,17 @@ function sendTrackingLoss() {
   lastVoiceSequence = frameSequence;
   voiceCoach.stop();
   get("voice-cue").textContent = "";
-  sendFrameBatch();
+  sendFrameBatch(true);
 }
 function stopCamera(message = "Đã tắt camera.") {
   cameraRun++;
+  isStarting = false;
   if (stream) sendTrackingLoss();
   else voiceCoach.stop();
+  awaitingAckSequence = null;
+  awaitingAckSince = 0;
+  lastDetectAt = -Infinity;
+  lastPose = [];
   cancelAnimationFrame(animation);
   if (videoFrameCallback !== undefined) video.cancelVideoFrameCallback(videoFrameCallback);
   videoFrameCallback = undefined;
@@ -216,10 +256,9 @@ function stopCamera(message = "Đã tắt camera.") {
   detector?.close();
   detector = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  get("start").disabled = !encodedModel || !mediaDevices?.getUserMedia;
-  cameraDevice.disabled = get("start").disabled;
-  get("stop").disabled = true;
-  get("status").textContent = message;
+  updateToggleButton(false);
+  cameraDevice.disabled = !encodedModel || !mediaDevices?.getUserMedia;
+  setStatus(message);
   get("fps").textContent = "FPS: —";
   updateAngles([]);
 }
@@ -231,62 +270,78 @@ function draw(now) {
   try {
     if (!trackingInterrupted && now - lastFrameAt >= FRAME_STALL_TIMEOUT_MS) {
       sendTrackingLoss();
-      get("status").textContent = "Camera chưa gửi khung hình mới. Phiên tập đang tạm dừng.";
+      setStatus("Camera chưa gửi khung hình mới. Phiên tập đang tạm dừng.");
     }
     const frame = observesVideoFrames ? presentedFrame : video.currentTime;
     if (video.readyState >= 2 && frame !== undefined && frame !== lastDrawnFrame) {
       lastDrawnFrame = frame;
       lastFrameAt = now;
       trackingInterrupted = false;
-      const pose = detector.detectForVideo(video, now).landmarks[0] ?? [];
+      const shouldDetect = now - lastDetectAt >= MIN_DETECT_INTERVAL_MS;
+      if (shouldDetect) {
+        lastDetectAt = now;
+        lastPose = detector.detectForVideo(video, now).landmarks[0] ?? [];
+      }
+      const pose = lastPose;
       const w = video.videoWidth, h = video.videoHeight;
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w; canvas.height = h;
       }
       ctx.drawImage(video, 0, 0, w, h);
       const points = pose.map(p => p.visibility >= 0.5 ? {x:p.x*w, y:p.y*h} : null);
-      ctx.strokeStyle = "#60ed86"; ctx.lineWidth = 2;
-      for (const {start, end} of connections) {
-        const a = points[start], b = points[end];
-        if (!a || !b) continue;
-        ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      if (connections.length) {
+        ctx.strokeStyle = "#60ed86"; ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (const {start, end} of connections) {
+          const a = points[start], b = points[end];
+          if (!a || !b) continue;
+          ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+        }
+        ctx.stroke();
       }
       ctx.fillStyle = "#ffbe36";
       for (const p of points.filter(Boolean)) {
         ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill();
       }
-      updateAngles(points);
-      const features = getPoseFeatures(points);
-      const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
-      const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
-      get("status").textContent = pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.";
-      queueFrame({...features, captured_at: now});
+      if (shouldDetect) {
+        if (showMetrics) updateAngles(points);
+        const features = getPoseFeatures(points);
+        const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
+        const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
+        setStatus(pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.");
+        queueFrame({...features, captured_at: now});
+      }
       if (now - lastBatchAt >= FRAME_BATCH_INTERVAL_MS) {
         lastBatchAt = now;
-        sendFrameBatch();
+        sendFrameBatch(false, now);
       }
       frameCount++;
       if (now - windowStart >= 1000) {
-        get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
+        if (showMetrics) {
+          get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
+        }
         frameCount = 0; windowStart = now;
       }
     }
     animation = requestAnimationFrame(draw);
   } catch (err) { stopCamera("Lỗi xử lý hình: " + err.message); }
 }
+// Luôn lật gương mặc định 1 lần (đã bỏ nút chuyển chế độ gương thủ công)
 canvas.style.transform = "scaleX(-1)";
-get("mirror").onclick = () => {
-  mirrored = !mirrored;
-  canvas.style.transform = mirrored ? "scaleX(-1)" : "";
-  get("mirror").setAttribute("aria-pressed", String(mirrored));
-};
-get("start").onclick = async () => {
+get("camera-toggle").onclick = async () => {
+  if (stream || isStarting) {
+    stopCamera();
+    return;
+  }
   const run = ++cameraRun;
-  get("start").disabled = true;
+  isStarting = true;
+  const btn = get("camera-toggle");
+  btn.disabled = true;
+  btn.textContent = "⏳ Đang bật camera…";
   cameraDevice.disabled = true;
-  get("status").textContent = "Đang mở camera và nạp model…";
+  setStatus("Đang mở camera và nạp model…");
   try {
-    const constraints = {width: {ideal: 640}, height: {ideal: 480}};
+    const constraints = {width: {ideal: 640}, height: {ideal: 480}, frameRate: {ideal: 20}};
     if (cameraDevice.value) constraints.deviceId = {exact: cameraDevice.value};
     const openedStream = await mediaDevices.getUserMedia({video: constraints, audio: false});
     if (run !== cameraRun) {
@@ -302,10 +357,21 @@ get("start").onclick = async () => {
     await video.play();
     const {FilesetResolver, PoseLandmarker} = await import("./vendor/mediapipe/vision_bundle.mjs");
     const files = await FilesetResolver.forVisionTasks(new URL("./vendor/mediapipe/wasm", location.href).href);
-    const loadedDetector = await PoseLandmarker.createFromOptions(files, {
-      baseOptions:{modelAssetBuffer:Uint8Array.from(atob(encodedModel), c => c.charCodeAt(0))},
-      runningMode:"VIDEO", numPoses:1
-    });
+    if (!decodedModelBytes) {
+      decodedModelBytes = Uint8Array.from(atob(encodedModel), c => c.charCodeAt(0));
+    }
+    let loadedDetector;
+    try {
+      loadedDetector = await PoseLandmarker.createFromOptions(files, {
+        baseOptions:{modelAssetBuffer:decodedModelBytes.slice(), delegate:"GPU"},
+        runningMode:"VIDEO", numPoses:1
+      });
+    } catch {
+      loadedDetector = await PoseLandmarker.createFromOptions(files, {
+        baseOptions:{modelAssetBuffer:decodedModelBytes.slice()},
+        runningMode:"VIDEO", numPoses:1
+      });
+    }
     if (run !== cameraRun) {
       loadedDetector.close();
       return;
@@ -314,10 +380,15 @@ get("start").onclick = async () => {
     connections = PoseLandmarker.POSE_CONNECTIONS;
     frameCount = 0;
     presentedFrame = lastDrawnFrame = undefined;
+    awaitingAckSequence = null;
+    awaitingAckSince = 0;
+    lastDetectAt = -Infinity;
+    lastPose = [];
     windowStart = performance.now();
     lastFrameAt = lastBatchAt = windowStart;
     sendTrackingLoss();
-    get("stop").disabled = false;
+    isStarting = false;
+    updateToggleButton(true);
     if (observesVideoFrames) videoFrameCallback = video.requestVideoFrameCallback(observeVideoFrame);
     animation = requestAnimationFrame(draw);
   } catch (err) {
@@ -326,6 +397,5 @@ get("start").onclick = async () => {
     void refreshCameraDevices();
   }
 };
-get("stop").onclick = () => stopCamera();
 window.addEventListener("pagehide", () => stopCamera());
 updateAngles([]);
