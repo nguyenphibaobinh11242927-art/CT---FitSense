@@ -1,15 +1,24 @@
-# Kiểm thử webcam SCRUM-16 — 10/11/2026
+# Kiểm thử webcam SCRUM-16
 
-| Ca | Quan sát | Kết quả mong đợi | Trạng thái |
-|---|---|---|---|
-| Mất dấu ở đáy squat | Người thử rời khung lúc đang thấp rồi quay lại khi đứng thẳng. Bộ đếm đôi khi tăng 1 rep. Đã tái hiện bằng chuỗi góc mô phỏng. | Giữ số rep cũ, chờ thấy người đứng thẳng rồi mới nhận chu kỳ mới. | Đã sửa và test tự động trên nhánh review. Chờ xác nhận bằng webcam. |
-| Giữ chữ X | Người thử giữ nguyên tư thế nhưng thanh xác nhận liên tục quay về 0, gây khó dừng phiên. | Giữ đúng cử chỉ đủ thời gian thiết kế thì khóa rep; hạ tay sớm thì hủy. | Đã ghi nhận từ webcam, chưa sửa. Chưa xác định mốc nào mất trong lần thử. |
+## Luồng đã triển khai
 
-HUD đếm 45 khung liên tiếp. Ở 16,8 FPS, thời gian lý tưởng khoảng 2,7 giây. Một khung mất điều kiện làm tiến trình về 0. Hiện hai cổ tay phải có độ lệch ngang nhỏ hơn 8% bề rộng vai và hệ thống phải thấy đầu.
+- Pose, bộ đếm squat, Start và chữ X được xử lý trong trình duyệt. Python chỉ nhận sự kiện ngữ nghĩa; không gửi batch frame định kỳ.
+- Start và chữ X cần giữ 1.500 ms. Mất điều kiện tối đa 250 ms được bỏ qua; mất lâu hơn thì reset tiến trình.
+- Chữ X cần nhìn thấy đầu và hai cổ tay trong vùng thân người; ngưỡng gần cổ tay là 15% bề rộng vai. Sự kiện `END_SET` mang số reps và thời gian nghỉ trong kế hoạch.
+- Khi mất dấu giữa squat, bộ đếm hủy rep dở và chờ thấy người đứng thẳng trước khi nhận chu kỳ tiếp.
+- `END_SET` được chuyển vào session state để điều khiển đồng hồ nghỉ trên HUD; `REST_COMPLETE` chuyển trạng thái và tiến tới hiệp/bài kế.
 
-## Thử tiếp
+## Kiểm thử tự động
 
-- Tập 2 rep, che camera ở đáy rep thứ 3, đứng thẳng trước khi mở camera. Kỳ vọng giữ 2, squat trọn vẹn tiếp theo mới lên 3.
-- Giữ chữ X trước ngực, mặt nhìn thẳng, thấy đủ đầu và hai tay. Ghi FPS, số khung cao nhất và thời gian tới lúc khóa. So sánh với hai cổ tay đặt sát nhau nhưng cẳng tay không bắt chéo để kiểm tra khóa nhầm.
-- Sau khi chữ X khóa thành công, bỏ tay ra rồi squat. Số rep phải đứng yên đến khi đặt lại phiên.
-- Lặp lại ca mất dấu bằng nút tắt/bật camera ngay trong cùng phiên. Khi bật lại ở tư thế đứng, rep phải giữ nguyên.
+```powershell
+python -m unittest tests.test_gestures tests.test_session_fsm tests.test_rep_counter
+node --test tests/workout_fsm.test.mjs
+```
+
+## Cần xác nhận thủ công trên webcam thật
+
+- Giữ tay giơ cao 1,5 giây để bắt đầu.
+- Hoàn thành squat, rời khung ở đáy rep tiếp theo rồi quay lại đứng thẳng; rep dở không được tính.
+- Giữ chữ X đủ 1,5 giây; xác nhận số reps hiệp được chốt một lần và timer trên HUD đếm về 0.
+- Kiểm tra timer hết thì tự sang hiệp/bài kế tiếp; thử ngắt camera trong lúc nghỉ.
+- Việc không gửi frame qua Python được kiểm tra trong mã; quyền camera và độ mượt cần xác nhận trên trình duyệt thật.
