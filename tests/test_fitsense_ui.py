@@ -342,6 +342,7 @@ class TestFitSenseUIModules(unittest.TestCase):
 
         html_src = Path("assets/webcam/test_webcam_live.html").read_text(encoding="utf-8")
         js_src = Path("assets/webcam/webcam.mjs").read_text(encoding="utf-8")
+        session_src = Path("src/session_view.py").read_text(encoding="utf-8")
 
         self.assertIn('id="camera-toggle"', html_src)
         self.assertIn('id="voice"', html_src)
@@ -353,6 +354,10 @@ class TestFitSenseUIModules(unittest.TestCase):
         self.assertIn('canvas.style.transform = "scaleX(-1)"', js_src)
         self.assertIn("show_metrics", js_src)
         self.assertIn("createVoiceCoach", js_src)
+        self.assertIn("frameBatchFilter.shouldQueue(features, now)", js_src)
+        self.assertIn("MAX_BATCH_SEND_INTERVAL_MS", js_src)
+        self.assertIn("0.15 * bodyWidth", js_src)
+        self.assertIn("st.checkbox(", session_src)
         self.assertNotIn('get("mirror")', js_src)
 
     def test_apptest_full_navigation_and_ui_flows(self):

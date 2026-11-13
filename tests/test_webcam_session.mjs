@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
 import {runInNewContext} from "node:vm";
+import {createFrameBatchFilter} from "../assets/webcam/frame_batching.mjs";
 
 test("webcam pauses a stalled stream and resumes with the same session sequence", async () => {
   const messages = [], heard = [];
@@ -40,7 +41,8 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   };
   // Run the browser entry point against stand-ins for hardware and MediaPipe.
   const source = readFileSync(new URL("../assets/webcam/webcam.mjs", import.meta.url), "utf8")
-    .replace(/^import[^\n]+\n/, "")
+    .replace(/^import \{createVoiceCoach\}[^\n]+\n/, "")
+    .replace(/^import \{createFrameBatchFilter\}[^\n]+\n/, "")
     .replace('await import("./vendor/mediapipe/vision_bundle.mjs")', "fakeMediaPipe");
   runInNewContext(source, {
     window: win, parent, location: {origin, href: origin}, fakeMediaPipe,
@@ -52,6 +54,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
       updateSpeaker = onEnabledChange;
       return {supported: true, stop() { heard.push("stop"); }, receiveBatch(events) { heard.push(...events); }};
     },
+    createFrameBatchFilter,
     ResizeObserver: class {observe() {}}, URL, atob, setTimeout, clearTimeout,
     performance: {now: () => now}, cancelAnimationFrame() {},
     requestAnimationFrame(callback) { animation = callback; return 1; },
@@ -120,10 +123,14 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.deepEqual(heard, [...feedback.events, "stop", "stop", {kind: "rep", count: 2}]);
 
   tick(1400, 4);
-  assert.equal(batches().at(-1).sequence, 14);
-  assert.deepEqual(batches().at(-1).frames.map(sample => sample.knee_angle), [180, 180]);
+  assert.equal(batches().at(-1).sequence, 12);
+  tick(1900, 5);
+  assert.equal(batches().at(-1).sequence, 12);
+  tick(2000, 6);
+  assert.equal(batches().at(-1).sequence, 13);
+  assert.deepEqual(batches().at(-1).frames.map(sample => sample.knee_angle), [180]);
   await element("camera-toggle").onclick();
-  assert.equal(batches().at(-1).sequence, 15);
+  assert.equal(batches().at(-1).sequence, 14);
   assert.equal(batches().at(-1).frames.at(-1).knee_angle, null);
   assert.equal(batches().at(-1).frames.at(-1).tracking_interrupted, true);
   assert.equal(videoFrame, null);

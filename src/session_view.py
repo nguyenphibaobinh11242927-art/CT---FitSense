@@ -94,6 +94,7 @@ def process_pose_frames(
         x_detected = frame.get("x_detected")
         head_detected = frame.get("head_detected")
         knee_angle = frame.get("knee_angle")
+        captured_at = frame.get("captured_at")
         if (
             type(start_detected) is not bool
             or type(x_detected) is not bool
@@ -107,14 +108,21 @@ def process_pose_frames(
             or not 0 <= knee_angle <= 180
         ):
             raise ValueError("Góc gối phải nằm trong khoảng 0 đến 180 độ.")
+        if captured_at is not None and (
+            isinstance(captured_at, bool)
+            or not isinstance(captured_at, (int, float))
+            or not math.isfinite(captured_at)
+            or captured_at < 0
+        ):
+            raise ValueError("Thời điểm khung hình phải là số mili-giây hợp lệ.")
 
         if not session_started:
-            start_result = start_fsm.update(start_detected)
+            start_result = start_fsm.update(start_detected, captured_at)
             if start_result["triggered"]:
                 session_started = True
             continue
 
-        stop_result = stop_fsm.update(x_detected, head_detected)
+        stop_result = stop_fsm.update(x_detected, head_detected, captured_at)
         if not stop_result["is_rep_locked"]:
             result = rep_fsm.update(knee_angle)
             if voice_events is None:
@@ -359,7 +367,7 @@ def _render_ai_vision_hud_fragment() -> None:
         with h_col1:
             st.subheader("Màn hình Giám sát Chuyển động AI (Live Feed)")
         with h_col2:
-            show_metrics = st.toggle(
+            show_metrics = st.checkbox(
                 "⚙️ Hiện thông số kỹ thuật",
                 key="hud_show_metrics",
                 help="Bật/tắt hiển thị FPS và các góc khớp thời gian thực bên dưới khung hình.",

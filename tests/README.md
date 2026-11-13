@@ -4,9 +4,12 @@ Chạy từ thư mục gốc:
 
 ```powershell
 python -m unittest discover -s tests -v
+node --test tests/test_frame_batching.mjs tests/test_webcam_session.mjs tests/test_voice_coach.mjs
 ```
 
 Với SCRUM-14, kiểm tra góc 90°, 180° và trường hợp hai mốc trùng nhau.
+Luồng webcam SCRUM-18 chỉ gửi pose khi góc gối thay đổi đáng kể, cử chỉ đang được giữ,
+trạng thái tracking đổi, hoặc đến heartbeat; FSM giữ gesture theo thời gian mili-giây.
 
 Với SCRUM-15 và SCRUM-20, chạy `node --test tests/test_voice_coach.mjs tests/test_webcam_session.mjs`.
 Kiểm tra thực tế trong

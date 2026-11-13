@@ -1,6 +1,7 @@
 import {createVoiceCoach} from "./voice_coach.mjs";
+import {createFrameBatchFilter} from "./frame_batching.mjs";
 
-const FRAME_BATCH_INTERVAL_MS = 200;
+const MAX_BATCH_SEND_INTERVAL_MS = 200;
 const FRAME_STALL_TIMEOUT_MS = 600;
 const MIN_DETECT_INTERVAL_MS = 50;
 const ACK_TIMEOUT_MS = 1200;
@@ -20,6 +21,7 @@ const observesVideoFrames = typeof video.requestVideoFrameCallback === "function
 let sessionId, frameCount, windowStart, lastFrameAt;
 let videoFrameCallback, presentedFrame, lastDrawnFrame;
 let pendingFrames = [], frameSequence = 0, lastBatchAt = 0, cameraRun = 0;
+const frameBatchFilter = createFrameBatchFilter();
 let awaitingAckSequence = null, awaitingAckSince = 0;
 let lastDetectAt = -Infinity, lastPose = [], lastFrameHeight = 0;
 let trackingInterrupted = true;
@@ -203,7 +205,7 @@ function getPoseFeatures(pose) {
     xDetected = bodyWidth > 0 &&
       shoulderY < leftWrist.y && leftWrist.y < hipY &&
       shoulderY < rightWrist.y && rightWrist.y < hipY &&
-      Math.abs(leftWrist.x - rightWrist.x) < 0.08 * bodyWidth;
+      Math.abs(leftWrist.x - rightWrist.x) < 0.15 * bodyWidth;
   }
 
   return {
@@ -232,7 +234,9 @@ function sendFrameBatch(force = false, now = performance.now()) {
 }
 function sendTrackingLoss() {
   trackingInterrupted = true;
-  queueFrame({...getPoseFeatures([]), tracking_interrupted: true});
+  const frame = {...getPoseFeatures([]), tracking_interrupted: true};
+  queueFrame(frame);
+  frameBatchFilter.noteQueued(frame, performance.now());
   lastVoiceSequence = frameSequence;
   voiceCoach.stop();
   get("voice-cue").textContent = "";
@@ -309,9 +313,13 @@ function draw(now) {
         const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
         const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
         setStatus(pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.");
-        queueFrame({...features, captured_at: now});
+        if (frameBatchFilter.shouldQueue(features, now)) {
+          const batchFrame = {...features, captured_at: now};
+          queueFrame(batchFrame);
+          frameBatchFilter.noteQueued(features, now);
+        }
       }
-      if (now - lastBatchAt >= FRAME_BATCH_INTERVAL_MS) {
+      if (pendingFrames.length && now - lastBatchAt >= MAX_BATCH_SEND_INTERVAL_MS) {
         lastBatchAt = now;
         sendFrameBatch(false, now);
       }
@@ -384,6 +392,7 @@ get("camera-toggle").onclick = async () => {
     awaitingAckSince = 0;
     lastDetectAt = -Infinity;
     lastPose = [];
+    frameBatchFilter.reset();
     windowStart = performance.now();
     lastFrameAt = lastBatchAt = windowStart;
     sendTrackingLoss();
