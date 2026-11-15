@@ -351,7 +351,13 @@ class TestFitSenseUIModules(unittest.TestCase):
         self.assertNotIn('id="start"', html_src)
         self.assertNotIn('id="stop"', html_src)
 
-        self.assertIn('canvas.style.transform = "scaleX(-1)"', js_src)
+        self.assertNotIn('canvas.style.transform = "scaleX(-1)"', js_src)
+        self.assertIn("frameRate: {ideal: 30}", js_src)
+        self.assertIn("DETECT_BUDGET_MS = 25", js_src)
+        self.assertIn("drawSkeleton(points)", js_src)
+        self.assertIn("ctx.translate(w, 0)", js_src)
+        self.assertIn("createLandmarkSmoother", js_src)
+        self.assertIn("formatFps(fpsStats, detectCostMs)", js_src)
         self.assertIn("show_metrics", js_src)
         self.assertIn("createVoiceCoach", js_src)
         self.assertIn("frameBatchFilter.shouldQueue(features, now)", js_src)
@@ -479,7 +485,8 @@ class TestFitSenseUIModules(unittest.TestCase):
         import inspect
 
         js_src = Path("assets/webcam/webcam.mjs").read_text(encoding="utf-8")
-        self.assertIn("MIN_DETECT_INTERVAL_MS", js_src)
+        self.assertIn("DETECT_BUDGET_MS", js_src)
+        self.assertIn("frameBatchFilter.shouldQueue(features, now)", js_src)
         self.assertIn("awaitingAckSequence", js_src)
         self.assertIn('delegate:"GPU"', js_src)
         self.assertIn("lastFrameHeight", js_src)
