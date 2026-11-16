@@ -18,7 +18,8 @@ class SessionFsmIntegrationTests(unittest.TestCase):
 
     @staticmethod
     def frame(
-        knee_angle=None, start_detected=False, x_detected=False, head_detected=True
+        knee_angle=None, start_detected=False, x_detected=False, head_detected=True,
+        captured_at=None,
     ):
         """Tạo một mẫu dữ liệu khung hình."""
         return {
@@ -26,6 +27,7 @@ class SessionFsmIntegrationTests(unittest.TestCase):
             "start_detected": start_detected,
             "x_detected": x_detected,
             "head_detected": head_detected,
+            "captured_at": captured_at,
         }
 
     def process(self, frames, session_started = False):
@@ -92,6 +94,21 @@ class SessionFsmIntegrationTests(unittest.TestCase):
         self.process(frames, session_started = True)
         self.assertFalse(self.stop_fsm.is_rep_locked)
         self.assertEqual(self.stop_fsm.active_frames, 0)
+
+    def test_camera_gestures_use_captured_elapsed_time(self):
+        start_frames = [
+            self.frame(start_detected=True, captured_at=timestamp)
+            for timestamp in (0, 400, 900, 1500)
+        ]
+        self.assertTrue(self.process(start_frames))
+
+        self.stop_fsm = StopGestureFSM()
+        stop_frames = [
+            self.frame(x_detected=True, captured_at=timestamp)
+            for timestamp in (2000, 2500, 3000, 3500)
+        ]
+        self.process(stop_frames, session_started=True)
+        self.assertTrue(self.stop_fsm.is_rep_locked)
 
     def test_shallow_feedback_cancels_incomplete_attempt_at_camera_interruption(self):
         for label, stream, sequence, frames in (
