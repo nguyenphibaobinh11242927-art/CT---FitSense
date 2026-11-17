@@ -1,0 +1,643 @@
+/* ==========================================================================
+   LIVE WORKOUT AI HUD & CAMERA CSS
+   Cyber-HUD Sports Technology Styling
+   ========================================================================== */
+
+.workout-hud-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.hud-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glow);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.hud-ex-info h3 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hud-ex-target {
+  font-size: 0.85rem;
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.hud-metrics-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.hud-metric-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hud-metric-box .label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.hud-metric-box .val {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+/* Main Viewport Grid */
+.hud-viewport-grid {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .hud-viewport-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Video Stage */
+.hud-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #060b17;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1.5px solid var(--border-color);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+[data-theme="light"] .hud-stage {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05); /* Shadow nhẹ nhàng, thanh thoát ở chế độ Light */
+}
+
+.hud-stage.active {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
+}
+
+[data-theme="light"] .hud-stage.active {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.12);
+}
+
+.hud-video-el {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.hud-video-el.mirrored {
+  transform: scaleX(-1); /* Mirror camera for natural workout feel */
+}
+
+.hud-canvas-el {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Cyber HUD Overlays */
+.hud-overlay-top {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.hud-live-tag {
+  background: rgba(239, 68, 68, 0.85);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+  animation: blinkLive 1.5s infinite;
+}
+
+@keyframes blinkLive {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.hud-gesture-badge {
+  background: rgba(7, 10, 19, 0.75);
+  border: 1px solid var(--border-glow);
+  backdrop-filter: blur(8px);
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius-full);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Form Coach Banner inside stage */
+.hud-coach-banner {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(13, 21, 39, 0.9);
+  border: 1px solid var(--border-glow);
+  backdrop-filter: blur(12px);
+  padding: 0.65rem 1.25rem;
+  border-radius: var(--radius-full);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.hud-coach-banner.perfect {
+  border-color: var(--accent-emerald);
+  color: var(--accent-emerald);
+  box-shadow: 0 0 16px rgba(74, 222, 128, 0.4);
+}
+
+.hud-coach-banner.warn {
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.4);
+}
+
+/* Mode Selector Pills */
+.mode-pills-container {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  background: var(--bg-surface);
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+}
+
+.btn-mode-pill {
+  border-radius: var(--radius-full) !important;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.5rem 1.15rem;
+  transition: all var(--transition-fast);
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btn-mode-pill:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+
+.btn-mode-pill.active {
+  background: var(--accent-cyan);
+  color: #04101e !important;
+  font-weight: 800;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
+  border-color: var(--accent-cyan);
+}
+
+/* Stage Standby & Hero Actions */
+.stage-standby-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(16, 29, 49, 0.95) 0%, rgba(4, 8, 16, 0.98) 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  z-index: 15;
+  transition: opacity 0.3s ease;
+}
+
+[data-theme="light"] .stage-standby-overlay {
+  background-color: #ffffff;
+  background: radial-gradient(circle at center, #ffffff 0%, #f1f5f9 100%);
+}
+
+.stage-standby-overlay.hidden {
+  display: none !important;
+}
+
+.standby-icon-pulse {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.1);
+  border: 2px solid rgba(56, 189, 248, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 0 30px rgba(56, 189, 248, 0.2);
+  animation: standbyPulse 2.5s infinite ease-in-out;
+}
+
+[data-theme="light"] .standby-icon-pulse {
+  background: rgba(2, 132, 199, 0.08);
+  border-color: rgba(2, 132, 199, 0.25);
+  box-shadow: 0 0 20px rgba(2, 132, 199, 0.12);
+}
+
+@keyframes standbyPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+  50% { transform: scale(1.08); box-shadow: 0 0 35px rgba(56, 189, 248, 0.4); }
+}
+
+.standby-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+[data-theme="light"] .standby-title {
+  color: #0f172a !important;
+}
+
+.standby-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  max-width: 480px;
+  margin-bottom: 1.75rem;
+  line-height: 1.5;
+}
+
+[data-theme="light"] .standby-desc {
+  color: #475569 !important;
+}
+
+.standby-btn-group {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn-hero-camera {
+  padding: 0.85rem 1.75rem !important;
+  font-size: 1.05rem !important;
+  font-weight: 800 !important;
+  border-radius: var(--radius-full) !important;
+  box-shadow: 0 0 25px rgba(74, 222, 128, 0.4) !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.6rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-hero-camera:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 35px rgba(74, 222, 128, 0.6) !important;
+}
+
+.btn-hero-upload {
+  padding: 0.85rem 1.65rem !important;
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  border-radius: var(--radius-full) !important;
+  border-color: var(--accent-cyan) !important;
+  color: var(--accent-cyan) !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(56, 189, 248, 0.08) !important;
+}
+
+.btn-hero-upload:hover {
+  background: rgba(56, 189, 248, 0.2) !important;
+  color: #fff !important;
+}
+
+[data-theme="light"] .btn-hero-upload {
+  background: #ffffff !important;
+  color: #0284c7 !important;
+  border-color: #0284c7 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .btn-hero-upload:hover {
+  background: #f0f9ff !important;
+  color: #0369a1 !important;
+}
+
+/* Manual Workout Panel */
+.manual-mode-panel {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background-color: #0b1120;
+  background: radial-gradient(circle at center, #0f1c34 0%, #060913 100%);
+  z-index: 30;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  overflow-y: auto;
+}
+
+[data-theme="light"] .manual-mode-panel {
+  background-color: #ffffff;
+  background: radial-gradient(circle at center, #ffffff 0%, #f8fafc 100%);
+}
+
+.manual-card-box {
+  background: var(--bg-surface);
+  box-shadow: 0 0 25px rgba(56, 189, 248, 0.15);
+}
+
+[data-theme="light"] .manual-card-box {
+  background: #ffffff !important;
+  border-color: #0284c7 !important;
+  box-shadow: 0 4px 20px rgba(2, 132, 199, 0.12) !important;
+}
+
+#manual-rep-counter {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] #manual-rep-counter {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] #manual-panel h3 {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] #manual-panel p {
+  color: #475569 !important;
+}
+
+/* Simulation Canvas Fallback */
+.simulation-mode-panel {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: #060911;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
+.simulation-mode-panel.active {
+  display: flex;
+}
+
+.sim-canvas {
+  width: 280px;
+  height: 280px;
+}
+
+/* Live Technical Metrics Panel (Matching Old Web) */
+.hud-tech-metrics-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1.25rem;
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.tech-metrics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+.tech-joints-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .tech-joints-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.joint-reading-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.joint-reading-card .joint-name {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.joint-reading-card .joint-val {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+}
+
+/* HUD Sidebar Controls & Big Gauge */
+.hud-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Big Rep Counter Dial */
+.rep-dial-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  box-shadow: var(--shadow-md);
+}
+
+.rep-circle-wrap {
+  width: 160px;
+  height: 160px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.rep-circle-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.rep-circle-bg {
+  fill: none;
+  stroke: var(--bg-tertiary);
+  stroke-width: 10;
+}
+
+.rep-circle-progress {
+  fill: none;
+  stroke: url(#cyanEmeraldGradient);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-dasharray: 440;
+  stroke-dashoffset: 440;
+  transition: stroke-dashoffset 0.25s ease;
+}
+
+.rep-counter-number {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.rep-num {
+  font-size: 3.5rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  line-height: 1;
+  font-family: var(--font-mono);
+}
+
+.rep-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+}
+
+/* Joint Angle & Depth Meter */
+.angle-depth-meter {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0 0.5rem;
+}
+
+.angle-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.depth-bar-bg {
+  width: 100%;
+  height: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.depth-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald));
+  border-radius: var(--radius-full);
+  transition: width 0.15s linear;
+}
+
+/* Action Controls Panel */
+.hud-actions-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hud-actions-row {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.voice-coach-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.voice-coach-toggle:hover {
+  border-color: var(--border-glow);
+}

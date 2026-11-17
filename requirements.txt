@@ -1,7 +1,13 @@
-streamlit>=1.40,<2
+# FitSense Core FastAPI & Web Backend
+fastapi>=0.110.0
+uvicorn>=0.28.0
+httpx>=0.27.0
 pandas>=2.0.0
 jsonschema>=4,<5
 requests>=2,<3
 mediapipe==1.2.2
 opencv-contrib-python==5.0.0.93
+
+# Test Suite Compatibility
+streamlit>=1.40,<2
 streamlit-keyup>=1.0.0,<2

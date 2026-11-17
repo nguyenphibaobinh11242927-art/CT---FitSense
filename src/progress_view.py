@@ -30,7 +30,8 @@ def render_progress_view():
     with c3:
         st.metric(label="✅ Tổng số buổi đã tập", value=f"{len(history)} Buổi")
     with c4:
-        st.metric(label="⚡ Tỉ lệ hoàn thành TB", value="88.5%")
+        avg_completion = f"{round(sum(h.get('completion_rate', 100) for h in history) / len(history), 1)}%" if history else "0%"
+        st.metric(label="⚡ Tỉ lệ hoàn thành TB", value=avg_completion)
 
     st.info("💡 **Quy tắc tính Streak thể thao công bằng:** Để tránh áp lực và bảo vệ sức khỏe, bạn không bắt buộc phải hoàn thành 100% buổi tập. Chỉ cần hoàn thành từ **70% khối lượng bài tập trở lên**, hệ thống sẽ tự động ghi nhận duy trì Chuỗi ngày (Streak) thành công!")
 
