@@ -246,10 +246,27 @@ class TestBackendAPI(unittest.TestCase):
         self.assertNotIn("squat", ex_ids)
 
     def test_workout_session_and_fsm(self):
-        res_start = self.client.post("/api/session/start", json={"exercise_id": "squat", "target_reps": 12})
+        # SCRUM-19: Test default exercises endpoint for HUD & Up Next List
+        res_defaults = self.client.get("/api/session/default-exercises")
+        self.assertEqual(res_defaults.status_code, 200)
+        data_defaults = res_defaults.json()
+        self.assertIn("exercises", data_defaults)
+        self.assertTrue(len(data_defaults["exercises"]) >= 3)
+        self.assertEqual(data_defaults["exercises"][0]["id"], "squat")
+
+        # SCRUM-19: Start session with multi-exercise list & sets tracking
+        res_start = self.client.post("/api/session/start", json={
+            "exercise_id": "squat",
+            "target_reps": 12,
+            "total_sets": 3,
+            "current_set": 1,
+            "exercise_list": data_defaults["exercises"],
+        })
         self.assertEqual(res_start.status_code, 200)
         data = res_start.json()
         self.assertTrue(data["success"])
+        self.assertEqual(data["current_set"], 1)
+        self.assertEqual(data["total_sets"], 3)
         session_id = data["session_id"]
 
         # Step 1: Up
@@ -273,9 +290,22 @@ class TestBackendAPI(unittest.TestCase):
         self.assertTrue(res_finish_rep.json()["rep_incremented"])
         self.assertEqual(res_finish_rep.json()["rep_count"], 1)
 
+        # SCRUM-19: Test switch/jump to next exercise
+        res_switch = self.client.post("/api/session/switch-exercise", json={
+            "session_id": session_id,
+            "exercise_id": "pushup",
+            "exercise_name": "Chống đẩy (Push-up)",
+            "target_reps": 10,
+            "current_set": 1,
+            "total_sets": 3,
+        })
+        self.assertEqual(res_switch.status_code, 200)
+        self.assertTrue(res_switch.json()["success"])
+        self.assertEqual(res_switch.json()["exercise_id"], "pushup")
+
         res_finish = self.client.post("/api/session/finish", json={
             "session_id": session_id,
-            "exercise_id": "squat",
+            "exercise_id": "pushup",
             "completed_reps": 10,
             "duration_seconds": 180,
             "rpe": 8,

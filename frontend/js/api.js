@@ -111,9 +111,28 @@ export const API = {
 
   session: {
     model: () => request("/api/session/model"),
-    start: (exerciseId, targetReps = 10, day = null) => request("/api/session/start", {
+    defaultExercises: () => request("/api/session/default-exercises"),
+    start: (exerciseId, targetReps = 10, day = null, exerciseList = [], totalSets = 3, currentSet = 1) => request("/api/session/start", {
       method: "POST",
-      body: JSON.stringify({ exercise_id: exerciseId, target_reps: targetReps, day }),
+      body: JSON.stringify({
+        exercise_id: exerciseId,
+        target_reps: targetReps,
+        day,
+        exercise_list: exerciseList,
+        total_sets: totalSets,
+        current_set: currentSet,
+      }),
+    }),
+    switchExercise: (sessionId, exerciseId, exerciseName, targetReps = 10, currentSet = 1, totalSets = 3) => request("/api/session/switch-exercise", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: sessionId,
+        exercise_id: exerciseId,
+        exercise_name: exerciseName,
+        target_reps: targetReps,
+        current_set: currentSet,
+        total_sets: totalSets,
+      }),
     }),
     sendAngle: (sessionId, angle, landmarkType = "knee") => request("/api/session/fsm-rep", {
       method: "POST",

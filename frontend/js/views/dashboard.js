@@ -6,9 +6,16 @@ import { API } from "../api.js";
 import { Store } from "../state.js";
 
 export const DashboardView = {
-  async render() {
+  lastRenderTime: 0,
+
+  async render(forceRefresh = false) {
     const container = document.getElementById("view-dashboard");
     if (!container) return;
+
+    const now = Date.now();
+    if (!forceRefresh && container.children.length > 0 && (now - this.lastRenderTime < 30000)) {
+      return;
+    }
 
     try {
       const [stats, weekData, user] = await Promise.all([
@@ -16,6 +23,7 @@ export const DashboardView = {
         API.planner.getWeek(),
         API.profile.get(),
       ]);
+      this.lastRenderTime = Date.now();
 
       const todayName = weekData.today_name;
       const todaySchedule = weekData.schedule.find(
@@ -25,7 +33,30 @@ export const DashboardView = {
       const userName = user?.name || "Vận động viên";
       const userGoal = user?.goal || "Tăng cơ & Sức mạnh";
 
+      const brandLogoSvg = (document.querySelector(".brand-logo")?.innerHTML || "")
+        .replace(/hdrPinkG/g, "homeBannerPinkG")
+        .replace(/hdrBlueG/g, "homeBannerBlueG");
+
       container.innerHTML = `
+        <!-- Top Brand Hero Banner (Automatically adapts background to Light / Dark theme) -->
+        <div class="home-hero-banner">
+          <div class="home-banner-left">
+            <div class="home-banner-emblem" title="FitSense Infinity Kinetic Flow">
+              ${brandLogoSvg}
+            </div>
+            <div class="home-banner-text">
+              <h1 class="home-banner-title">FitSense</h1>
+              <div class="home-banner-subtitle">CALISTHENICS &amp; AI VISION</div>
+              <div class="home-banner-tagline">Nền tảng Huấn luyện viên Thể thao Cá nhân hóa &amp; Thị giác Máy tính AI</div>
+            </div>
+          </div>
+          <div class="home-banner-accents" aria-hidden="true">
+            <span style="width: 9px; height: 9px; border-radius: 50%; background: #f472b6; opacity: 0.8; display: inline-block;"></span>
+            <span style="width: 13px; height: 13px; border-radius: 50%; background: #38bdf8; opacity: 0.9; display: inline-block;"></span>
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: #a855f7; opacity: 0.7; display: inline-block;"></span>
+          </div>
+        </div>
+
         <div class="view-header">
           <div class="view-title-group">
             <h2>⚡ Xin chào, ${userName}!</h2>
@@ -186,7 +217,13 @@ export const DashboardView = {
       container.querySelector("#btn-start-today-session")?.addEventListener("click", () => {
         const firstEx = todaySchedule.exercises?.[0];
         if (firstEx) {
-          window.startWorkoutSession(firstEx.id || "squat", firstEx.name, parseInt(firstEx.reps) || 12);
+          window.startWorkoutSession(
+            firstEx.id || "squat",
+            firstEx.name,
+            parseInt(firstEx.reps) || 12,
+            todaySchedule.day,
+            todaySchedule.exercises || []
+          );
         } else {
           window.navigateTo("workout");
         }
@@ -196,7 +233,7 @@ export const DashboardView = {
         btn.addEventListener("click", () => {
           const exId = btn.getAttribute("data-id");
           const exName = btn.getAttribute("data-name");
-          window.startWorkoutSession(exId, exName, 12);
+          window.startWorkoutSession(exId, exName, 12, todaySchedule.day, todaySchedule.exercises || []);
         });
       });
 

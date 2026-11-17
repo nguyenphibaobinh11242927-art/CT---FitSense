@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <linearGradient id="bgGlow3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="c3Pink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="100%" stop-color="#fda4af" />
+    </linearGradient>
+    <linearGradient id="c3Blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#7dd3fc" />
+    </linearGradient>
+    <filter id="shadow3" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="512" height="512" rx="48" fill="url(#bgGlow3)" />
+  <rect x="2" y="2" width="508" height="508" rx="46" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+
+  <!-- Title Badge -->
+  <text x="256" y="58" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="16" font-weight="700" fill="#94a3b8" letter-spacing="3">Ý TƯỞNG 3: CÚ BẬT KHÔNG TRỌNG LỰC</text>
+
+  <!-- Graphic Container -->
+  <g filter="url(#shadow3)">
+    <!-- Pastel Pink Swirling Launch Arc -->
+    <path d="M120 400 C150 330 200 280 260 250 C320 220 370 180 390 120 C395 105 410 115 405 130 C380 200 325 245 260 280 C205 310 160 360 135 415 C125 430 112 420 120 400 Z" fill="url(#c3Pink)" />
+
+    <!-- Pastel Blue Counter Wind Arc -->
+    <path d="M70 280 C110 240 180 220 240 220 C290 220 340 240 370 270 C380 280 365 295 355 285 C325 255 285 240 240 240 C190 240 130 255 90 295 C80 305 60 295 70 280 Z" fill="url(#c3Blue)" />
+
+    <!-- ATHLETE IN MID-AIR PARKOUR LEAP (Pure White) -->
+    <!-- Head (Tilted energetically) -->
+    <circle cx="280" cy="110" r="26" fill="#ffffff" />
+
+    <!-- Wide Flung Arms (Mastering Balance in Air) -->
+    <!-- Left Arm sweeping back-up -->
+    <path d="M260 135 C220 120 170 120 125 140 C115 145 110 130 120 122 C170 100 225 100 270 125 Z" fill="#ffffff" />
+    
+    <!-- Right Arm driving forward-up -->
+    <path d="M295 135 C335 130 380 140 420 165 C430 172 425 185 415 180 C375 155 330 148 290 150 Z" fill="#ffffff" />
+
+    <!-- Dynamic Tucked / Flying Torso -->
+    <path d="M265 140 C285 170 295 205 285 240 C275 270 255 290 230 315 C220 325 210 310 218 300 C240 275 260 255 265 230 C275 200 265 170 250 145 Z" fill="#ffffff" />
+
+    <!-- Lead Leg (Knee driving upward in jump) -->
+    <path d="M280 230 C310 225 345 240 360 270 C370 290 350 300 342 285 C330 265 305 250 275 252 Z" fill="#ffffff" />
+    
+    <!-- Trailing Leg (Kicked behind for propulsion) -->
+    <path d="M245 295 C220 320 190 340 155 350 C140 355 135 340 148 335 C180 325 205 310 230 285 Z" fill="#ffffff" />
+
+    <!-- Sparkles of kinetic energy -->
+    <polygon points="415,85 422,95 435,97 425,107 428,120 415,112 402,120 405,107 395,97 408,95" fill="#f472b6" opacity="0.8" />
+    <circle cx="95" cy="205" r="4" fill="#38bdf8" />
+  </g>
+
+  <!-- Caption -->
+  <text x="256" y="475" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="14" font-weight="600" fill="#cbd5e1">Động tác nhảy không trung · Bứt phá trọng lực &amp; Tự do</text>
+</svg>

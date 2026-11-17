@@ -6,9 +6,15 @@ from pathlib import Path
 from typing import Any
 from fastapi import APIRouter, HTTPException
 
-from backend.schemas import FSMRepRequest, SessionFinishRequest, SessionStartRequest
+from backend.schemas import (
+    FSMRepRequest,
+    SessionFinishRequest,
+    SessionStartRequest,
+    SessionSwitchExerciseRequest,
+)
 from backend.routers.exercises import get_catalog
 from src.fsm_rep_counter import RepCounterFSM
+from src.session_view import DEFAULT_SESSION_EXERCISES
 
 router = APIRouter(prefix="/api/session", tags=["Workout Session"])
 
@@ -29,6 +35,22 @@ def get_session_model():
     return {"model": _CACHED_MODEL_B64}
 
 
+@router.get("/default-exercises")
+def get_default_exercises():
+    """Trả về danh mục bài tập mặc định cho buổi tập khi chưa có giáo án tuần (SCRUM-19)."""
+    normalized = []
+    id_map = {
+        "Squat Thể dục (Bodyweight)": "squat",
+        "Chống đẩy (Push-up)": "pushup",
+        "Plank Tĩnh (Core Plank)": "plank",
+    }
+    for ex in DEFAULT_SESSION_EXERCISES:
+        item = dict(ex)
+        item["id"] = ex.get("id") or id_map.get(ex.get("name"), "squat")
+        normalized.append(item)
+    return {"exercises": normalized}
+
+
 @router.post("/start")
 def start_session(payload: SessionStartRequest):
     catalog = get_catalog()
@@ -43,6 +65,9 @@ def start_session(payload: SessionStartRequest):
         "exercise_id": payload.exercise_id,
         "exercise_name": ex_name,
         "target_reps": payload.target_reps,
+        "current_set": payload.current_set or 1,
+        "total_sets": payload.total_sets or 3,
+        "exercise_list": payload.exercise_list or [],
         "fsm": fsm,
         "rep_count": 0,
         "history_angles": [],
@@ -54,7 +79,47 @@ def start_session(payload: SessionStartRequest):
         "exercise_id": payload.exercise_id,
         "exercise_name": ex_name,
         "target_reps": payload.target_reps,
+        "current_set": payload.current_set or 1,
+        "total_sets": payload.total_sets or 3,
         "message": f"Đã khởi động buổi tập {ex_name}!",
+    }
+
+
+@router.post("/switch-exercise")
+def switch_session_exercise(payload: SessionSwitchExerciseRequest):
+    session = ACTIVE_SESSIONS.get(payload.session_id)
+    if not session:
+        # Create lightweight session if missing
+        session = {
+            "session_id": payload.session_id,
+            "rep_count": 0,
+            "history_angles": [],
+        }
+        ACTIVE_SESSIONS[payload.session_id] = session
+
+    catalog = get_catalog()
+    exercise = next((ex for ex in catalog if ex["id"] == payload.exercise_id), None)
+    ex_name = payload.exercise_name or (exercise["name"] if exercise else payload.exercise_id)
+    
+    # Reset FSM rep counter for new exercise
+    fsm = RepCounterFSM()
+    session["exercise_id"] = payload.exercise_id
+    session["exercise_name"] = ex_name
+    session["target_reps"] = payload.target_reps
+    session["current_set"] = payload.current_set
+    session["total_sets"] = payload.total_sets
+    session["fsm"] = fsm
+    session["rep_count"] = 0
+
+    return {
+        "success": True,
+        "session_id": payload.session_id,
+        "exercise_id": payload.exercise_id,
+        "exercise_name": ex_name,
+        "target_reps": payload.target_reps,
+        "current_set": payload.current_set,
+        "total_sets": payload.total_sets,
+        "message": f"Đã chuyển sang bài {ex_name}!",
     }
 
 

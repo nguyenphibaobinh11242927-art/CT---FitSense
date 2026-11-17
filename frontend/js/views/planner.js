@@ -9,13 +9,38 @@ import { showConfirmModal } from "../components/modal.js";
 export const PlannerView = {
   scheduleData: null,
   activeDayIndex: 0,
+  catalog: [],
 
-  async render() {
+  findCatalogMatch(name) {
+    if (!name) return null;
+    const clean = name.trim().toLowerCase();
+    if (clean.includes("bài tập tự do") || clean.includes("tu_do") || clean === "custom") {
+      return null;
+    }
+    return (this.catalog || []).find((c) =>
+      c.name.toLowerCase() === clean ||
+      (c.name_en && c.name_en.toLowerCase() === clean) ||
+      c.id.toLowerCase() === clean ||
+      clean.includes(c.name.toLowerCase()) ||
+      c.name.toLowerCase().includes(clean)
+    );
+  },
+
+  async render(forceRefresh = false) {
     const container = document.getElementById("view-planner");
     if (!container) return;
 
+    if (!forceRefresh && this.scheduleData && container.children.length > 0) {
+      return;
+    }
+
     try {
-      this.scheduleData = await API.planner.getWeek();
+      const [schedule, catalogRes] = await Promise.all([
+        API.planner.getWeek(),
+        API.exercises.list().catch(() => ({ exercises: [] })),
+      ]);
+      this.scheduleData = schedule;
+      this.catalog = catalogRes?.exercises || [];
       this.activeDayIndex = this.scheduleData.today_weekday_index ?? 0;
       this.renderContent();
     } catch (err) {
@@ -65,8 +90,15 @@ export const PlannerView = {
         <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
           Hệ thống hỗ trợ nạp giáo án tự thiết kế từ file JSON hoặc CSV. Bạn cũng có thể tải file JSON mẫu về để chỉnh sửa rồi nạp lại.
         </p>
-        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-          <input type="file" id="file-plan-upload-input" accept=".json,.csv" class="form-control" style="width: auto; max-width: 320px;" />
+        <div class="custom-file-upload-wrap" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <input type="file" id="file-plan-upload-input" accept=".json,.csv" style="display: none;" />
+          <label for="file-plan-upload-input" class="btn btn-outline btn-sm custom-file-trigger" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; user-select: none;">
+            <span>📁</span>
+            <span>Chọn tệp tin (.JSON / .CSV)</span>
+          </label>
+          <span id="file-plan-upload-name" class="custom-file-name" style="font-size: 0.85rem; color: var(--text-secondary); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.4rem 0.85rem; background: var(--bg-surface); border: 1px dashed var(--border-color); border-radius: var(--radius-sm); transition: all var(--transition-fast);">
+            Chưa có tệp nào được chọn
+          </span>
           <button class="btn btn-primary btn-sm" id="btn-apply-uploaded-plan">
             ✅ Nạp kế hoạch từ file này
           </button>
@@ -191,29 +223,50 @@ export const PlannerView = {
                   <h5 style="font-size: 0.88rem; font-weight: 700;">Danh sách bài tập trong ngày:</h5>
                   <button class="btn btn-outline btn-sm" id="btn-add-exercise-row" type="button">➕ Thêm bài tập</button>
                 </div>
+
+                <!-- Datalist gợi ý từ 28 bài tập Calisthenics chuẩn của thư viện -->
+                <datalist id="catalog-exercises-datalist">
+                  ${(this.catalog || []).map(c => `
+                    <option value="${c.name}">${c.name} (${c.name_en || c.id}) · ${c.primary_muscles?.[0] || 'Toàn thân'}</option>
+                  `).join("")}
+                  <option value="Bài tập tự do (Tự nhập tên)">🎯 Bài tập tự do ngoài thư viện (Chế độ Không Camera)</option>
+                </datalist>
+
                 <div class="table-wrapper">
                   <table class="fitsense-table" id="table-edit-day-exercises">
                     <thead>
                       <tr>
-                        <th>Tên bài tập</th>
+                        <th style="min-width: 240px;">Tên bài tập (Chọn thư viện 28 bài hoặc tự gõ)</th>
                         <th style="width: 80px;">Sets</th>
                         <th style="width: 90px;">Reps</th>
                         <th style="width: 80px;">Nghỉ (s)</th>
-                        <th>Nhóm cơ</th>
+                        <th style="min-width: 140px;">Nhóm cơ</th>
                         <th style="width: 60px;">Xóa</th>
                       </tr>
                     </thead>
                     <tbody>
-                      ${(activeDay.exercises || []).map((ex, i) => `
-                        <tr data-row-idx="${i}">
-                          <td><input type="text" class="form-control ex-row-name" value="${ex.name}" /></td>
+                      ${(activeDay.exercises || []).map((ex, i) => {
+                        const matched = this.findCatalogMatch(ex.name) || (this.catalog || []).find(c => c.id === ex.id);
+                        const exId = matched?.id || ex.id || "custom";
+                        const isKnown = exId && exId !== "custom";
+                        const badgeHtml = isKnown
+                          ? `<div class="ex-match-status" style="font-size: 0.72rem; color: var(--accent-emerald); margin-top: 3px; display: flex; align-items: center; gap: 4px;"><span>✅</span> <span>AI Camera: <b>${exId}</b> · ${matched?.primary_muscles?.[0] || ex.primary_muscle || 'Chuẩn'}</span></div>`
+                          : `<div class="ex-match-status" style="font-size: 0.72rem; color: var(--accent-amber); margin-top: 3px; display: flex; align-items: center; gap: 4px;"><span>🎯</span> <span>Tự do (Không dùng Camera AI)</span></div>`;
+
+                        return `
+                        <tr data-row-idx="${i}" data-ex-id="${exId}">
+                          <td>
+                            <input type="text" class="form-control ex-row-name" list="catalog-exercises-datalist" value="${ex.name}" placeholder="Chọn bài từ 28 bài chuẩn hoặc tự gõ..." autocomplete="off" />
+                            ${badgeHtml}
+                          </td>
                           <td><input type="number" class="form-control ex-row-sets" value="${ex.sets || 3}" min="1" max="10" /></td>
                           <td><input type="text" class="form-control ex-row-reps" value="${ex.reps || '12'}" /></td>
                           <td><input type="number" class="form-control ex-row-rest" value="${ex.rest_sec || 60}" min="10" max="300" /></td>
-                          <td><input type="text" class="form-control ex-row-muscle" value="${ex.primary_muscle || 'Toàn thân'}" /></td>
+                          <td><input type="text" class="form-control ex-row-muscle" value="${ex.primary_muscle || matched?.primary_muscles?.[0] || 'Toàn thân'}" /></td>
                           <td style="text-align: center;"><button type="button" class="btn btn-icon btn-sm btn-del-ex-row" style="color: var(--accent-crimson);">🗑️</button></td>
                         </tr>
-                      `).join("")}
+                        `;
+                      }).join("")}
                     </tbody>
                   </table>
                 </div>
@@ -304,6 +357,26 @@ export const PlannerView = {
       }
     });
 
+    // Sync custom file input label & filename
+    const filePlanInput = container.querySelector("#file-plan-upload-input");
+    const filePlanName = container.querySelector("#file-plan-upload-name");
+    filePlanInput?.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file && filePlanName) {
+        filePlanName.textContent = `📄 ${file.name}`;
+        filePlanName.style.color = "var(--accent-cyan)";
+        filePlanName.style.borderColor = "var(--accent-cyan)";
+        filePlanName.style.borderStyle = "solid";
+        filePlanName.style.background = "rgba(56, 189, 248, 0.08)";
+      } else if (filePlanName) {
+        filePlanName.textContent = "Chưa có tệp nào được chọn";
+        filePlanName.style.color = "var(--text-secondary)";
+        filePlanName.style.borderColor = "var(--border-color)";
+        filePlanName.style.borderStyle = "dashed";
+        filePlanName.style.background = "var(--bg-surface)";
+      }
+    });
+
     // Apply uploaded plan
     container.querySelector("#btn-apply-uploaded-plan")?.addEventListener("click", async () => {
       const fileInput = container.querySelector("#file-plan-upload-input");
@@ -334,20 +407,64 @@ export const PlannerView = {
       if (exContainer) exContainer.style.display = e.target.checked ? "none" : "block";
     });
 
+    // Helper to dynamically update row metadata and AI status badge
+    const attachNameInputListener = (tr) => {
+      const nameInput = tr.querySelector(".ex-row-name");
+      const statusDiv = tr.querySelector(".ex-match-status");
+      const muscleInput = tr.querySelector(".ex-row-muscle");
+
+      const updateMatch = () => {
+        const val = nameInput?.value.trim() || "";
+        const matched = this.findCatalogMatch(val);
+        if (matched) {
+          tr.setAttribute("data-ex-id", matched.id);
+          if (statusDiv) {
+            statusDiv.innerHTML = `<span>✅</span> <span>AI Camera: <b>${matched.id}</b> · ${matched.primary_muscles?.[0] || 'Chuẩn'}</span>`;
+            statusDiv.style.color = "var(--accent-emerald)";
+          }
+          if (muscleInput && (!muscleInput.value || muscleInput.value === "Toàn thân")) {
+            muscleInput.value = matched.primary_muscles?.[0] || "Toàn thân";
+          }
+        } else {
+          tr.setAttribute("data-ex-id", "custom");
+          if (statusDiv) {
+            statusDiv.innerHTML = `<span>🎯</span> <span>Tự do (Không dùng Camera AI)</span>`;
+            statusDiv.style.color = "var(--accent-amber)";
+          }
+        }
+      };
+
+      nameInput?.addEventListener("input", updateMatch);
+      nameInput?.addEventListener("change", updateMatch);
+    };
+
+    // Attach to existing rows
+    container.querySelectorAll("#table-edit-day-exercises tbody tr").forEach((tr) => {
+      attachNameInputListener(tr);
+    });
+
     // Add new exercise row
     container.querySelector("#btn-add-exercise-row")?.addEventListener("click", () => {
       const tbody = container.querySelector("#table-edit-day-exercises tbody");
       if (!tbody) return;
+      const firstCat = this.catalog?.[0] || { id: "squat", name: "Squat Thể dục (Bodyweight Squat)", primary_muscles: ["Đùi trước (Quads)"] };
       const tr = document.createElement("tr");
+      tr.setAttribute("data-ex-id", firstCat.id || "squat");
       tr.innerHTML = `
-        <td><input type="text" class="form-control ex-row-name" placeholder="Tên bài tập" value="Bài tập mới" /></td>
+        <td>
+          <input type="text" class="form-control ex-row-name" list="catalog-exercises-datalist" value="${firstCat.name}" placeholder="Chọn bài từ 28 bài chuẩn hoặc tự gõ..." autocomplete="off" />
+          <div class="ex-match-status" style="font-size: 0.72rem; color: var(--accent-emerald); margin-top: 3px; display: flex; align-items: center; gap: 4px;">
+            <span>✅</span> <span>AI Camera: <b>${firstCat.id}</b> · ${firstCat.primary_muscles?.[0] || 'Chuẩn'}</span>
+          </div>
+        </td>
         <td><input type="number" class="form-control ex-row-sets" value="3" min="1" max="10" /></td>
         <td><input type="text" class="form-control ex-row-reps" value="12" /></td>
         <td><input type="number" class="form-control ex-row-rest" value="60" min="10" max="300" /></td>
-        <td><input type="text" class="form-control ex-row-muscle" value="Toàn thân" /></td>
+        <td><input type="text" class="form-control ex-row-muscle" value="${firstCat.primary_muscles?.[0] || 'Toàn thân'}" /></td>
         <td style="text-align: center;"><button type="button" class="btn btn-icon btn-sm btn-del-ex-row" style="color: var(--accent-crimson);">🗑️</button></td>
       `;
       tr.querySelector(".btn-del-ex-row")?.addEventListener("click", () => tr.remove());
+      attachNameInputListener(tr);
       tbody.appendChild(tr);
     });
 
@@ -366,21 +483,25 @@ export const PlannerView = {
 
       if (!isRest) {
         container.querySelectorAll("#table-edit-day-exercises tbody tr").forEach((tr) => {
-          const name = tr.querySelector(".ex-row-name")?.value.trim();
+          const nameInput = tr.querySelector(".ex-row-name");
+          const name = nameInput?.value.trim();
           if (!name) return;
+          const matched = this.findCatalogMatch(name);
+          const exId = tr.getAttribute("data-ex-id") || matched?.id || "custom";
           const sets = parseInt(tr.querySelector(".ex-row-sets")?.value, 10) || 3;
           const reps = tr.querySelector(".ex-row-reps")?.value.trim() || "12";
           const rest = parseInt(tr.querySelector(".ex-row-rest")?.value, 10) || 60;
-          const muscle = tr.querySelector(".ex-row-muscle")?.value.trim() || "Toàn thân";
+          const muscle = tr.querySelector(".ex-row-muscle")?.value.trim() || matched?.primary_muscles?.[0] || "Toàn thân";
           exercises.push({
-            name,
-            sets,
-            reps,
+            id: exId,
+            name: name,
+            sets: sets,
+            reps: reps,
             rest_sec: rest,
             primary_muscle: muscle,
-            secondary_muscle: "Core",
-            equipment: "Bodyweight",
-            difficulty: "Beginner",
+            secondary_muscle: matched?.secondary_muscles?.[0] || "Core",
+            equipment: matched?.equipment || "Bodyweight",
+            difficulty: matched?.difficulty || "Beginner",
           });
         });
       }
@@ -396,7 +517,7 @@ export const PlannerView = {
     });
 
     // Helper for safe workout start with recovery warning check
-    const startWorkoutWithSafetyCheck = async (exerciseId, exerciseName, targetReps) => {
+    const startWorkoutWithSafetyCheck = async (exerciseId, exerciseName, targetReps, exList = []) => {
       if (dayWarnings.length > 0) {
         const confirmed = await showConfirmModal({
           title: `Cảnh Báo Phục Hồi Cơ Bắp (${activeDay.day})`,
@@ -416,7 +537,8 @@ export const PlannerView = {
         });
         if (!confirmed) return;
       }
-      window.startWorkoutSession(exerciseId, exerciseName, targetReps, activeDay.day);
+      const exercisesToPass = exList && exList.length ? exList : (activeDay?.exercises || []);
+      window.startWorkoutSession(exerciseId, exerciseName, targetReps, activeDay.day, exercisesToPass);
     };
 
     // Start entire day workout
@@ -456,7 +578,12 @@ export const PlannerView = {
         const currentActive = this.scheduleData?.schedule?.[this.activeDayIndex] || activeDay;
         const firstEx = currentActive.exercises?.[0];
         if (firstEx) {
-          await startWorkoutWithSafetyCheck(firstEx.id || "squat", firstEx.name, parseInt(firstEx.reps) || 12);
+          await startWorkoutWithSafetyCheck(
+            firstEx.id || "squat",
+            firstEx.name,
+            parseInt(firstEx.reps) || 12,
+            currentActive.exercises || []
+          );
         }
       } catch (err) {
         Toast.error("Lỗi khởi động buổi tập: " + err.message);
@@ -500,7 +627,8 @@ export const PlannerView = {
             console.warn("Could not reschedule:", e);
           }
         }
-        await startWorkoutWithSafetyCheck(id, name, reps);
+        const currentActive = this.scheduleData?.schedule?.[this.activeDayIndex] || activeDay;
+        await startWorkoutWithSafetyCheck(id, name, reps, currentActive.exercises || []);
       });
     });
 
