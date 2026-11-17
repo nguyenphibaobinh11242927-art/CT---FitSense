@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FitSense — Nền tảng Huấn Luyện Viên Calisthenics Cá Nhân Hóa & AI Vision</title>
+  <meta name="description" content="Nền tảng Calisthenics cá nhân hóa với trí tuệ nhân tạo, thị giác máy tính đếm rep và ma trận phục hồi cơ bắp." />
+  
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Core Stylesheets -->
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/workout.css" />
+
+  <!-- Google Identity Services SDK -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       FULL-PAGE AUTHENTICATION GATE (Visible when not logged in)
+       ========================================================================== -->
+  <section id="auth-gate-screen" class="auth-gate-screen">
+    <div class="auth-gate-card">
+      <div class="auth-gate-header">
+        <div class="auth-gate-logo">⚡</div>
+        <h2 class="auth-gate-title">FitSense Platform</h2>
+        <p class="auth-gate-subtitle">
+          Nền tảng Huấn Luyện Viên Calisthenics Cá Nhân Hóa &amp; AI Vision.<br />
+          Vui lòng đăng nhập hoặc tạo tài khoản để rèn luyện cùng giáo án tối ưu.
+        </p>
+      </div>
+
+      <!-- Tab Switcher -->
+      <div class="auth-tabs-nav">
+        <button class="auth-tab-btn active" id="gate-tab-login">Đăng Nhập</button>
+        <button class="auth-tab-btn" id="gate-tab-register">Đăng Ký Mới</button>
+      </div>
+
+      <!-- Panel 1: Login Form -->
+      <div class="auth-form-panel active" id="gate-panel-login">
+        <form id="gate-form-login" onsubmit="return false;">
+          <div class="form-group">
+            <label class="form-label">Email tài khoản:</label>
+            <input type="email" class="form-input" id="gate-login-email" placeholder="VD: athlete@fitsense.vn" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Mật khẩu:</label>
+            <input type="password" class="form-input" id="gate-login-password" placeholder="Nhập mật khẩu của bạn" required />
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="gate-btn-submit-login" style="width: 100%; margin-top: 0.75rem; justify-content: center; font-weight: 700; padding: 0.75rem;">
+            🚀 Đăng Nhập Vào Hệ Thống
+          </button>
+        </form>
+
+        <div class="auth-divider">
+          <span>hoặc tiếp tục nhanh với</span>
+        </div>
+
+        <button type="button" class="btn-google" id="gate-btn-google-login">
+          <svg viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <span>Đăng nhập bằng tài khoản Google</span>
+        </button>
+      </div>
+
+      <!-- Panel 2: Register Form -->
+      <div class="auth-form-panel" id="gate-panel-register">
+        <form id="gate-form-register" onsubmit="return false;">
+          <div class="form-group">
+            <label class="form-label">Họ và tên của bạn:</label>
+            <input type="text" class="form-input" id="gate-reg-name" placeholder="VD: Nguyễn Văn A" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Email tài khoản:</label>
+            <input type="email" class="form-input" id="gate-reg-email" placeholder="VD: athlete@gmail.com" required />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Mật khẩu:</label>
+              <input type="password" class="form-input" id="gate-reg-password" placeholder="Tối thiểu 6 ký tự" required />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Xác nhận mật khẩu:</label>
+              <input type="password" class="form-input" id="gate-reg-password-confirm" placeholder="Nhập lại mật khẩu" required />
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-emerald" id="gate-btn-submit-register" style="width: 100%; margin-top: 0.75rem; justify-content: center; font-weight: 700; padding: 0.75rem;">
+            ✨ Hoàn Tất Tạo Tài Khoản Mới
+          </button>
+        </form>
+
+        <div class="auth-divider">
+          <span>hoặc đăng ký nhanh bằng</span>
+        </div>
+
+        <button type="button" class="btn-google" id="gate-btn-google-register">
+          <svg viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <span>Đăng ký trực tiếp bằng Google</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       MAIN APPLICATION WRAPPER (Shown only after successful login/registration)
+       ========================================================================== -->
+  <div id="app-wrapper" style="display: none;">
+
+  <!-- ==========================================================================
+       APP NAVBAR & HEADER
+       ========================================================================== -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-container">
+        <div class="brand-logo">⚡</div>
+        <div class="brand-text">
+          <h1>FitSense</h1>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs (Renamed & Full Display) -->
+      <nav class="app-nav">
+        <a href="#dashboard" class="nav-item active" data-view="dashboard">
+          <span class="nav-icon">🏠</span>
+          <span>Home</span>
+        </a>
+        <a href="#planner" class="nav-item" data-view="planner">
+          <span class="nav-icon">📅</span>
+          <span>Kế hoạch</span>
+        </a>
+        <a href="#library" class="nav-item" data-view="library">
+          <span class="nav-icon">📚</span>
+          <span>Thư viện</span>
+        </a>
+        <a href="#workout" class="nav-item" data-view="workout">
+          <span class="nav-icon">🎥</span>
+          <span>Live HUD</span>
+        </a>
+        <a href="#progress" class="nav-item" data-view="progress">
+          <span class="nav-icon">📊</span>
+          <span>Đánh giá</span>
+        </a>
+        <a href="#profile" class="nav-item" data-view="profile">
+          <span class="nav-icon">👤</span>
+          <span>Hồ sơ</span>
+        </a>
+      </nav>
+
+      <!-- Header Actions -->
+      <div class="header-actions">
+        <div class="server-status" id="server-status-pill" title="Trạng thái hệ thống">
+          <span class="status-dot"></span>
+          <span>Trực tuyến</span>
+        </div>
+
+        <button class="btn-icon" id="btn-theme-toggle" title="Đổi giao diện Tối / Sáng" aria-label="Toggle Theme">
+          🌙
+        </button>
+
+        <!-- Auth / Profile Chip Container -->
+        <div id="nav-auth-container">
+          <button class="btn-auth-trigger" id="btn-header-login">
+            <span>🔐</span>
+            <span>Đăng nhập</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==========================================================================
+       MAIN VIEW CONTAINERS (SPA)
+       ========================================================================== -->
+  <main class="app-main">
+    <!-- View 1: Home (Dashboard) -->
+    <section id="view-dashboard" class="view-section active"></section>
+
+    <!-- View 2: Kế hoạch tuần -->
+    <section id="view-planner" class="view-section"></section>
+
+    <!-- View 3: Thư viện -->
+    <section id="view-library" class="view-section"></section>
+
+    <!-- View 4: Live HUD -->
+    <section id="view-workout" class="view-section"></section>
+
+    <!-- View 5: Đánh giá & Ma trận phục hồi -->
+    <section id="view-progress" class="view-section"></section>
+
+    <!-- View 6: Hồ sơ thể chất -->
+    <section id="view-profile" class="view-section"></section>
+  </main>
+
+  <!-- ==========================================================================
+       CAPYBARA COMPANION MASCOT (FLOATING BOTTOM-RIGHT)
+       ========================================================================== -->
+  <aside class="capybara-companion" id="capybara-companion">
+    <div class="capy-speech-bubble" id="capy-speech-bubble" title="Nhấp để nghe Capybara chia sẻ mẹo mới!">
+      <button class="capy-close-btn" id="capy-close-btn" title="Đóng khung thoại">&times;</button>
+      <span id="capy-speech-text">Đang tải lời khuyên từ Capybara...</span>
+    </div>
+    <div class="capy-avatar-wrap" id="capy-avatar-wrap" title="Capybara Huấn Luyện Viên Đồng Hành 🦫">
+      <!-- Capybara SVG injected via JS -->
+    </div>
+  </aside>
+
+  </div> <!-- End #app-wrapper -->
+
+  <!-- ==========================================================================
+       MODAL DIALOGS
+       ========================================================================== -->
+  <!-- Modal: Authentication (Login / Register) -->
+  <div class="modal-backdrop" id="modal-auth">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="auth-modal-title">🔐 Cổng Tài Khoản FitSense</h3>
+        <span class="modal-close-btn">&times;</span>
+      </div>
+
+      <!-- Tab Switcher -->
+      <div class="auth-tabs-nav">
+        <button class="auth-tab-btn active" id="tab-btn-login">Đăng Nhập</button>
+        <button class="auth-tab-btn" id="tab-btn-register">Đăng Ký Mới</button>
+      </div>
+
+      <!-- Form 1: Login -->
+      <div class="auth-form-panel active" id="panel-login">
+        <form id="form-login" onsubmit="return false;">
+          <div class="form-group">
+            <label class="form-label">Email tài khoản:</label>
+            <input type="email" class="form-input" id="login-email" placeholder="VD: athlete@fitsense.vn" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Mật khẩu:</label>
+            <input type="password" class="form-input" id="login-password" placeholder="Nhập tối thiểu 6 ký tự" required />
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="btn-submit-login" style="width: 100%; margin-top: 0.5rem;">
+            Đăng Nhập
+          </button>
+        </form>
+
+        <div class="auth-divider">
+          <span>hoặc tiếp tục với</span>
+        </div>
+
+        <!-- Google Sign-In Button -->
+        <button type="button" class="btn-google" id="btn-google-login">
+          <svg viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <span>Đăng nhập bằng tài khoản Google</span>
+        </button>
+      </div>
+
+      <!-- Form 2: Register -->
+      <div class="auth-form-panel" id="panel-register">
+        <form id="form-register" onsubmit="return false;">
+          <div class="form-group">
+            <label class="form-label">Họ và tên của bạn:</label>
+            <input type="text" class="form-input" id="reg-name" placeholder="VD: Nguyễn Văn A" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Email tài khoản:</label>
+            <input type="email" class="form-input" id="reg-email" placeholder="VD: yourname@gmail.com" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Mật khẩu:</label>
+            <input type="password" class="form-input" id="reg-password" placeholder="Tối thiểu 6 ký tự" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Xác nhận mật khẩu:</label>
+            <input type="password" class="form-input" id="reg-password-confirm" placeholder="Nhập lại mật khẩu" required />
+          </div>
+
+          <button type="submit" class="btn btn-emerald" id="btn-submit-register" style="width: 100%; margin-top: 0.5rem;">
+            Tạo Tài Khoản Mới
+          </button>
+        </form>
+
+        <div class="auth-divider">
+          <span>hoặc đăng ký nhanh bằng</span>
+        </div>
+
+        <button type="button" class="btn-google" id="btn-google-register">
+          <svg viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <span>Đăng ký trực tiếp bằng Google</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Google Sign-In & Official Account Chooser (Identical to Google Sign-In in Image 2) -->
+  <div class="modal-backdrop" id="modal-google-chooser">
+    <div class="modal-dialog google-account-dialog" style="max-width: 480px; background: #ffffff; color: #1f1f1f; border-radius: 28px; padding: 2.2rem 2.4rem; box-shadow: 0 10px 40px rgba(0,0,0,0.28); font-family: 'Roboto', 'Inter', -apple-system, sans-serif; position: relative;">
+      
+      <!-- Top Google Brand Bar -->
+      <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.4rem;">
+        <svg viewBox="0 0 24 24" style="width: 22px; height: 22px;">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        <span style="font-size: 0.95rem; font-weight: 500; color: #1f1f1f;">Sign in with Google</span>
+      </div>
+
+      <!-- Main Chooser Header -->
+      <div style="margin-bottom: 1.5rem;">
+        <h2 style="font-size: 1.85rem; font-weight: 400; color: #1f1f1f; margin: 0 0 0.35rem 0; line-height: 1.25;">
+          Choose an account
+        </h2>
+        <p style="font-size: 1rem; color: #1f1f1f; margin: 0;">
+          to continue to <span style="font-weight: 600; color: #1a73e8;">FitSense</span>
+        </p>
+      </div>
+
+      <!-- Container: Official Google One-Tap / Button (if GSI active) -->
+      <div id="google-gsi-official-container" style="display: none; justify-content: center; margin-bottom: 1rem;"></div>
+
+      <!-- List of Google Accounts on this Device -->
+      <div id="google-accounts-picker-list" style="border-top: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+        <!-- Injected dynamically via JavaScript -->
+      </div>
+
+      <!-- Expandable "Use another account" Input Box (Hidden by default) -->
+      <div id="google-custom-account-box" style="display: none; background: #f8f9fa; border: 1px solid #dadce0; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem;">
+        <div style="font-size: 0.92rem; font-weight: 600; color: #202124; margin-bottom: 0.4rem;">
+          Đăng nhập tài khoản Google khác:
+        </div>
+        <p style="font-size: 0.8rem; color: #5f6368; margin-bottom: 0.8rem;">
+          Nhập địa chỉ Gmail của bạn để tiếp tục:
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+          <input type="email" id="google-input-email" placeholder="Email hoặc số điện thoại" style="width: 100%; box-sizing: border-box; padding: 0.65rem 0.85rem; border: 1.5px solid #1a73e8; border-radius: 6px; font-size: 0.92rem; color: #202124; background: #ffffff;" />
+          <input type="text" id="google-input-name" placeholder="Họ và tên (tùy chọn)" style="width: 100%; box-sizing: border-box; padding: 0.65rem 0.85rem; border: 1px solid #dadce0; border-radius: 6px; font-size: 0.92rem; color: #202124; background: #ffffff;" />
+          <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem;">
+            <button type="button" id="btn-cancel-custom-google" style="padding: 0.5rem 0.85rem; background: none; border: none; color: #1a73e8; font-weight: 600; font-size: 0.88rem; cursor: pointer;">
+              Hủy
+            </button>
+            <button type="button" id="btn-submit-google-login" style="padding: 0.5rem 1.25rem; background: #1a73e8; color: #fff; border: none; border-radius: 6px; font-weight: 600; font-size: 0.88rem; cursor: pointer;">
+              Tiếp theo
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: Google Cloud OAuth 2.0 Client ID Configuration (Optional) -->
+      <details id="details-google-oauth-config" style="margin-bottom: 1.25rem; font-size: 0.8rem; color: #5f6368;">
+        <summary style="cursor: pointer; font-weight: 500; color: #1a73e8; user-select: none;">
+          ⚙️ Kích hoạt Google OAuth chính thức (Client ID)
+        </summary>
+        <div style="margin-top: 0.5rem; padding: 0.85rem; background: #f8f9fa; border: 1px solid #dadce0; border-radius: 8px; color: #3c4043;">
+          <p style="margin: 0 0 0.5rem 0; line-height: 1.4;">
+            Dán <b>Google OAuth Client ID</b> (tạo từ Google Cloud Console) để bật popup chính thức của Google:
+          </p>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" id="google-config-client-id" placeholder="xxxx.apps.googleusercontent.com" style="flex: 1; padding: 0.45rem 0.65rem; border: 1px solid #dadce0; border-radius: 6px; font-size: 0.8rem; background: #fff;" />
+            <button type="button" id="btn-save-google-config-id" style="padding: 0.45rem 0.85rem; background: #1a73e8; color: #fff; border: none; border-radius: 6px; font-weight: 600; font-size: 0.8rem; cursor: pointer;">
+              Lưu &amp; Bật
+            </button>
+          </div>
+          <div id="google-client-id-status" style="margin-top: 0.4rem; font-size: 0.75rem; color: #5f6368;"></div>
+        </div>
+      </details>
+
+      <!-- Footer matching Google Sign-In Footer in Image 2 -->
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: #5f6368; padding-top: 0.5rem;">
+        <div>
+          <span style="cursor: pointer;">English (United States) ▾</span>
+        </div>
+        <div style="display: flex; gap: 1rem;">
+          <span style="cursor: pointer;">Help</span>
+          <span style="cursor: pointer;">Privacy</span>
+          <span style="cursor: pointer;">Terms</span>
+          <span style="cursor: pointer; color: #1a73e8; font-weight: 600;" onclick="document.getElementById('modal-google-chooser').classList.remove('active')">Đóng</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modal: Google Onboarding (Step 2 - New Google Users Only) -->
+  <div class="modal-backdrop" id="modal-google-onboarding">
+    <div class="modal-dialog" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 class="modal-title">🌟 Bước 2: Hoàn Tất Hồ Sơ Cá Nhân</h3>
+        <span class="modal-close-btn">&times;</span>
+      </div>
+
+      <p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
+        Chào mừng bạn đến với FitSense! Để AI tạo giáo án rèn luyện tối ưu nhất, hãy điền các thông số thể chất cơ bản dưới đây:
+      </p>
+
+      <form id="form-google-onboarding" onsubmit="return false;">
+        <div class="form-group">
+          <label class="form-label">Tài khoản Google đã kết nối:</label>
+          <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.9rem; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
+            <div id="onboard-google-avatar" style="width: 32px; height: 32px; border-radius: 50%; background: #4285F4; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700;">G</div>
+            <div>
+              <div id="onboard-google-name" style="font-weight: 700; font-size: 0.95rem;">Google User</div>
+              <div id="onboard-google-email" style="font-size: 0.8rem; color: var(--text-muted);">email@gmail.com</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row-3">
+          <div class="form-group">
+            <label class="form-label">Chiều cao (cm):</label>
+            <input type="number" class="form-input" id="onboard-height" min="100" max="230" step="0.5" value="170" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Cân nặng (kg):</label>
+            <input type="number" class="form-input" id="onboard-weight" min="30" max="200" step="0.5" value="65" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Tuổi:</label>
+            <input type="number" class="form-input" id="onboard-age" min="12" max="90" value="22" required />
+          </div>
+        </div>
+
+        <div class="form-row-3">
+          <div class="form-group">
+            <label class="form-label">Giới tính:</label>
+            <select class="form-select" id="onboard-gender">
+              <option value="Nam">Nam</option>
+              <option value="Nữ">Nữ</option>
+              <option value="Khác">Khác</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="grid-column: span 2;">
+            <label class="form-label">Trình độ thể lực:</label>
+            <select class="form-select" id="onboard-level">
+              <option value="Beginner (Người mới bắt đầu)">Beginner (Mới bắt đầu / Cần xây dựng nền tảng)</option>
+              <option value="Intermediate (Đã có nền tảng)">Intermediate (Đã tập luyện từ 6 tháng trở lên)</option>
+              <option value="Advanced (Thuần thục)">Advanced (Calisthenics nâng cao thuần thục)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Mục tiêu rèn luyện chính:</label>
+          <select class="form-select" id="onboard-goal">
+            <option value="Tăng cơ & Sức mạnh">Tăng cơ & Sức mạnh Calisthenics</option>
+            <option value="Đốt mỡ & Săn chắc toàn thân">Đốt mỡ & Săn chắc toàn thân (Fat Loss)</option>
+            <option value="Sức bền & Tim mạch">Sức bền & Thể lực tim mạch (Endurance)</option>
+            <option value="Dẻo dai & Sức mạnh cốt lõi">Dẻo dai & Sức mạnh cốt lõi (Core/Flexibility)</option>
+          </select>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-google-onboarding').classList.remove('active')">
+            Hủy bỏ
+          </button>
+          <button type="submit" class="btn btn-emerald" id="btn-submit-google-onboarding">
+            🚀 Hoàn tất & Bắt đầu rèn luyện
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 1: Swap Exercise -->
+  <div class="modal-backdrop" id="modal-swap">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">🔄 Đổi Bài Tập Tương Đương</h3>
+        <span class="modal-close-btn">&times;</span>
+      </div>
+      <div id="swap-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Exercise Details & Instructions -->
+  <div class="modal-backdrop" id="modal-exercise-detail">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">📖 Hướng Dẫn Kỹ Thuật Động Tác</h3>
+        <span class="modal-close-btn">&times;</span>
+      </div>
+      <div id="exercise-detail-body"></div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Post-Workout RPE Evaluation -->
+  <div class="modal-backdrop" id="modal-rpe">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">🏁 Đánh Giá Buổi Rèn Luyện</h3>
+        <span class="modal-close-btn">&times;</span>
+      </div>
+      <div id="rpe-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Modal 4: Welcome Daily Plan Dialog -->
+  <div class="modal-backdrop" id="modal-welcome-daily">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">⚡ Chào Mừng Ngày Mới!</h3>
+        <span class="modal-close-btn">&times;</span>
+      </div>
+      <div id="welcome-daily-body"></div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Web Confirmation Popup (Thay thế window.confirm mặc định) -->
+  <div class="modal-backdrop" id="modal-confirm">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header" style="align-items: flex-start; padding-bottom: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.85rem;">
+          <div id="confirm-modal-icon-badge" style="width: 42px; height: 42px; border-radius: 12px; background: rgba(56, 189, 248, 0.12); display: flex; align-items: center; justify-content: center; font-size: 1.35rem; color: var(--accent-cyan); flex-shrink: 0;">
+            🔀
+          </div>
+          <div>
+            <h3 class="modal-title" id="confirm-modal-title" style="font-size: 1.15rem; margin-bottom: 0.2rem;">Xác nhận</h3>
+            <span id="confirm-modal-subtitle" style="font-size: 0.78rem; color: var(--text-muted); font-weight: 500;">FitSense Intelligent Assistant</span>
+          </div>
+        </div>
+        <span class="modal-close-btn">&times;</span>
+      </div>
+      <div id="confirm-modal-body" style="font-size: 0.92rem; line-height: 1.6; color: var(--text-secondary); margin: 0.75rem 0 1.5rem 0;"></div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline" id="btn-confirm-cancel" style="min-width: 90px;">Hủy bỏ</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-ok" style="min-width: 120px;">Đồng ý</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main ES6 Application Script with Cache-Busting Version -->
+  <script type="module" src="/js/app.js?v=2.2.0"></script>
+</body>
+</html>

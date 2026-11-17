@@ -1,41 +1,62 @@
 # FitSense — AI Fitness & Workout Assistant
 
 Hệ thống Trợ lý AI hỗ trợ rèn luyện Thể dục Thể thao & Calisthenics thích ứng thông minh.  
-**Môn học:** CSC10014 — Tư duy Tính toán (Computational Thinking) — HCMUS.
+**Môn học:** CSC10014 — Tư duy Tính toán (Computational Thinking) — HCMUS.  
+**Kiến trúc hệ thống:** Decoupled Architecture (FastAPI REST Backend + Modern HTML5/CSS3/ES6 JavaScript Web Client).
 
 ---
 
 ## ✨ Các tính năng chính
 
-1. **Tài khoản & Hồ sơ Thể chất ([`src/auth_view.py`](src/auth_view.py), [`src/profile.py`](src/profile.py), [`src/profile_view.py`](src/profile_view.py)):**
-   - Quản lý đăng nhập / đăng ký, tính chỉ số BMI, mục tiêu tập luyện, dụng cụ hiện có và các hạn chế vận động / chấn thương.
-2. **Kế hoạch Tập luyện Tuần & FIT-AI ([`src/planner_view.py`](src/planner_view.py), [`src/planner_generation.py`](src/planner_generation.py), [`src/school_ai.py`](src/school_ai.py), [`src/adaptive_weekly_plan.py`](src/adaptive_weekly_plan.py)):**
-   - Sinh giáo án tuần 7 ngày cá nhân hóa bằng **HCMUS FIT-AI (`Qwen-27B`)**, lọc sẵn bài tập hợp lệ theo dụng cụ và chấn thương.
-   - Đổi bài tập thay thế theo nhóm cơ chính/phụ, hỗ trợ tải lên giáo án (`.json` / `.csv`), chỉnh sửa từng ngày, cảnh báo phục hồi và lưu trạng thái hoàn thành.
-3. **Thư viện 28 Bài tập Calisthenics ([`src/exercise_library.py`](src/exercise_library.py), [`src/exercise_library_view.py`](src/exercise_library_view.py), [`data/exercises.json`](data/exercises.json)):**
-   - Tìm kiếm tức thì theo tên tiếng Việt / tiếng Anh / nhóm cơ (`streamlit-keyup` với debounce 180ms), lọc đa tiêu chí và sơ đồ giải phẫu minh họa cơ chính/phụ mặt trước & sau.
-4. **Phòng tập Rảnh tay (HUD) & AI Pose Tracking ([`src/session_view.py`](src/session_view.py), [`src/pose_tracking.py`](src/pose_tracking.py), [`src/fsm_gestures.py`](src/fsm_gestures.py), [`src/fsm_rep_counter.py`](src/fsm_rep_counter.py), [`assets/webcam/`](assets/webcam/)):**
-   - Chạy **MediaPipe Pose Landmarker** trực tiếp trên trình duyệt, nhận diện cử chỉ **giơ tay bắt đầu** và **chữ X kết thúc**, đếm rep tự động bằng FSM, kèm **Chế độ Tự do** không cần camera.
-   - Tích hợp **Voice Coach tiếng Việt** ([`assets/webcam/voice_coach.mjs`](assets/webcam/voice_coach.mjs)) và thú cưng đồng hành **Capybara** ([`src/capybara_widget.py`](src/capybara_widget.py)).
-5. **Đánh giá Sau Buổi tập, Heatmap & Tiến độ ([`src/evaluation_view.py`](src/evaluation_view.py), [`src/heatmap_view.py`](src/heatmap_view.py), [`src/progress_view.py`](src/progress_view.py)):**
-   - Ghi nhận cảm nhận RPE, bản đồ nhiệt phục hồi từng nhóm cơ và theo dõi chuỗi ngày duy trì (Streak tối thiểu 70%).
+1. **Tài khoản, Xác thực & Hồ sơ Thể chất ([`backend/routers/auth.py`](backend/routers/auth.py), [`backend/routers/profile.py`](backend/routers/profile.py), [`src/profile.py`](src/profile.py)):**
+   - Quản lý đăng ký, đăng nhập an toàn và đăng nhập một chạm qua **Google OAuth**.
+   - Tính toán chỉ số BMI tự động, quản lý mục tiêu rèn luyện, dụng cụ hiện có và hồ sơ thể trạng.
+   - **Tự động thích ứng hạn chế vận động:** Khi người dùng cập nhật hạn chế mới (khớp gối yếu, đau lưng, cổ tay đau,...), hệ thống tự động rà soát và thay thế bài tập trong giáo án bằng các bài tập an toàn, tương thích nhóm cơ.
+
+2. **Kế hoạch Tập luyện Tuần & FIT-AI ([`backend/routers/planner.py`](backend/routers/planner.py), [`src/planner_generation.py`](src/planner_generation.py), [`src/school_ai.py`](src/school_ai.py), [`src/adaptive_weekly_plan.py`](src/adaptive_weekly_plan.py)):**
+   - Tự động sinh giáo án tuần 7 ngày cá nhân hóa bằng **HCMUS FIT-AI (`Qwen-27B`)** hoặc thuật toán heuristic dự phòng.
+   - **Tái cấu trúc lịch thông minh khi tập lệch ngày:** Cho phép chọn tập buổi khác thay cho hôm nay, AI tự động chuyển buổi tập và sắp xếp lại các ngày còn lại trong tuần để cân bằng nhóm cơ & ngày nghỉ sinh học.
+   - Hỗ trợ đổi bài tập tương đương theo nhóm cơ chính/phụ, nạp giáo án cá nhân từ file (`.json` / `.csv`), cảnh báo phục hồi cơ bắp và lưu trạng thái hoàn thành.
+
+3. **Thư viện 28 Bài tập Calisthenics Chuẩn hóa ([`backend/routers/exercises.py`](backend/routers/exercises.py), [`data/exercises.json`](data/exercises.json), [`src/exercise_library.py`](src/exercise_library.py)):**
+   - Danh mục 28 bài tập Calisthenics chuẩn hóa theo JSON Schema với sơ đồ giải phẫu cơ bắp chi tiết (mặt trước & sau).
+   - Bộ lọc đa tiêu chí (độ khó, nhóm cơ, thiết bị) kết hợp tìm kiếm tức thì theo tên tiếng Việt và tiếng Anh.
+
+4. **Phòng tập Rảnh tay (Cyber-HUD) & AI Pose Tracking ([`backend/routers/session.py`](backend/routers/session.py), [`src/fsm_rep_counter.py`](src/fsm_rep_counter.py), [`src/fsm_gestures.py`](src/fsm_gestures.py), [`assets/webcam/`](assets/webcam/)):**
+   - AI Pose Tracking bằng **MediaPipe Pose Landmarker** trực tiếp trên trình duyệt client với độ trễ thấp (WASM/WebGL).
+   - Nhận diện cử chỉ rảnh tay: **Giơ tay bắt đầu** và **Chữ X dừng khẩn cấp** phiên tập.
+   - Máy trạng thái hữu hạn (FSM) đếm rep chuẩn xác theo góc khớp động học, khóa số rep AI đối chiếu, kèm **Chế độ Không dùng Camera** cho người tập tự do.
+   - Tích hợp **Voice Coach giọng nói tiếng Việt** hướng dẫn kỹ thuật thời gian thực và thú cưng **Capybara Mascot** đồng hành.
+
+5. **Đánh giá Sau Buổi tập, Adaptive AI Deload & Ma trận Phục hồi Sinh học ([`backend/routers/progress.py`](backend/routers/progress.py), [`src/adaptive_weekly_plan.py`](src/adaptive_weekly_plan.py)):**
+   - Khảo sát mức độ gắng sức RPE (thang đo Borg 1 - 10) và vùng cơ mỏi sau buổi tập.
+   - **Tỉ lệ hoàn thành do AI đối chiếu:** Đo đạc khách quan và cố định (`AI Verified`), tự động kích hoạt chiến lược thích ứng tải trọng (Tăng tiến Overload +10%, Giảm tải Deload -15%, hoặc Duy trì Optimal Maintenance).
+   - Khối khuyến nghị Adaptive AI tự động hiển thị sau khi hoàn tất khảo sát.
+   - Ma trận bản đồ nhiệt theo dõi chu kỳ phục hồi của 7 nhóm cơ và chuỗi ngày rèn luyện (Streak công bằng $\ge 70\%$).
 
 ---
 
 ## 🚀 Cài đặt & Khởi chạy
 
-Khuyến nghị **Python 3.10 – 3.12+** (mở terminal tại thư mục gốc dự án):
+Khuyến nghị môi trường **Python 3.10 – 3.12+** (mở terminal tại thư mục gốc dự án):
 
 ### 1. Tạo môi trường ảo & cài đặt thư viện
-```powershell
+```bash
+# Tạo môi trường ảo
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-```
-*(Trên Linux/macOS dùng `source .venv/bin/activate` thay cho `Activate.ps1`.)*
 
-### 2. Cấu hình `FITAI_API_KEY` (cho tính năng tạo giáo án FIT-AI)
-Tham khảo [`.env.example`](.env.example) và [hướng dẫn FIT-AI](https://www.fit.hcmus.edu.vn/llm-services/). Đặt biến môi trường trước khi chạy Streamlit:
+# Kích hoạt môi trường ảo:
+# Trên Windows PowerShell:
+.\.venv\Scripts\Activate.ps1
+# Trên Linux / macOS / WSL:
+source .venv/bin/activate
+
+# Cài đặt các gói phụ thuộc
+pip install -r requirements.txt
+```
+
+### 2. Cấu hình biến môi trường (Tùy chọn)
+Tham khảo [`.env.example`](.env.example) và [hướng dẫn HCMUS FIT-AI](https://www.fit.hcmus.edu.vn/llm-services/). Nếu muốn sử dụng AI School để sinh giáo án tuần:
 
 ```powershell
 # Windows PowerShell:
@@ -46,66 +67,90 @@ $env:FITAI_API_KEY = "<API_KEY_CUA_BAN>"
 export FITAI_API_KEY="<API_KEY_CUA_BAN>"
 ```
 
-### 3. Khởi chạy ứng dụng FitSense
-```powershell
-python -m streamlit run app.py
+### 3. Khởi chạy Ứng dụng Web FitSense
+Chạy máy chủ ứng dụng FastAPI phục vụ toàn bộ Web Client và REST API:
+
+```bash
+python run_server.py
 ```
-*(Tùy chọn kiểm tra Pose Tracking độc lập bằng Python: `python -m src.pose_tracking`.)*
+
+*(Bạn cũng có thể khởi chạy bằng lệnh Uvicorn: `uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload`)*
+
+* **Ứng dụng Web chính thức:** [http://localhost:8000](http://localhost:8000)
+* **Tài liệu API tương tác (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
+* **Tài liệu API ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 ---
 
-## 📂 Cấu trúc Mã nguồn
+## 📂 Cấu trúc Mã nguồn Dự án
 
 ```text
-app.py                         # Điểm chạy Streamlit chính, điều hướng Sidebar & theme Dark/Light
-config.py                      # Cấu hình dùng chung của ứng dụng
-requirements.txt               # Danh sách thư viện Python (Streamlit, Pandas, Requests, MediaPipe, ...)
-.env.example                   # Mẫu biến môi trường (FITAI_API_KEY)
+run_server.py                  # Script khởi chạy toàn bộ dịch vụ FitSense (FastAPI + Web Client)
+backend/                       # Backend REST API (FastAPI)
+├── main.py                    # Khởi tạo FastAPI app, định tuyến router, CORS, cache headers & mount static files
+├── schemas.py                 # Pydantic schemas kiểm định request/response
+└── routers/
+    ├── auth.py                # API Đăng nhập, Đăng ký, Google OAuth & Phiên làm việc
+    ├── profile.py             # API Hồ sơ thể chất, tính BMI & tự động thích ứng hạn chế vận động
+    ├── exercises.py           # API Thư viện 28 bài Calisthenics & gợi ý bài thay thế
+    ├── planner.py             # API Kế hoạch tuần 7 ngày, đổi bài, sinh giáo án & re-plan thông minh
+    ├── session.py             # API Quản lý phiên tập, FSM rep counter theo góc khớp
+    ├── progress.py            # API Lịch sử rèn luyện, khảo sát RPE & Ma trận phục hồi 7 nhóm cơ
+    └── capybara.py            # API Trạng thái biểu cảm & câu thoại Capybara Mascot
+frontend/                      # Giao diện Web Client (HTML5, CSS3, ES6 JavaScript)
+├── index.html                 # Single Page Application (SPA) container & các modal pop-up web
+├── css/
+│   ├── style.css              # Obsidian Dark & Light Theme, Glassmorphism, animations & typography
+│   └── workout.css            # Styling chuyên biệt cho Cyber-HUD, camera overlay & rep gauge
+└── js/
+    ├── api.js                 # REST API fetch client kết nối Backend
+    ├── state.js               # Reactive state store quản lý trạng thái
+    ├── app.js                 # SPA Router, theme switcher & điều phối sự kiện
+    ├── components/
+    │   ├── toast.js           # Hệ thống thông báo toast notification
+    │   ├── modal.js           # Pop-up Web Modal xác nhận hành động thay thế alert trình duyệt
+    │   └── capybara.js        # Hoạt ảnh, câu thoại & tương tác Capybara mascot
+    └── views/
+        ├── dashboard.js       # Bảng điều khiển tổng quan, streak & quick stats
+        ├── planner.js         # Kế hoạch 7 ngày, đổi ngày tập thông minh & swap bài tập
+        ├── library.js         # Thư viện 28 bài tập, tìm kiếm tức thì & modal kỹ thuật
+        ├── workout.js         # AI HUD Live camera, FSM đếm rep & Chế độ Không dùng Camera
+        ├── progress.js        # Bản đồ nhiệt 7 nhóm cơ, khảo sát RPE & đề xuất Adaptive AI
+        └── profile.js         # Quản lý hồ sơ thể chất & cập nhật hạn chế vận động
+config.py                      # Cấu hình camera & thiết bị phần cứng
+requirements.txt               # Danh sách thư viện Python
 data/
-└── exercises.json             # Danh mục 28 bài tập Calisthenics chuẩn hóa JSON Schema
+├── exercises.json             # Danh mục 28 bài tập Calisthenics chuẩn hóa JSON Schema
+└── private/                   # Lưu trữ hồ sơ người dùng cục bộ & cấu hình OAuth
 models/
 └── pose_landmarker_lite.task  # Model MediaPipe Pose chạy trên trình duyệt / Python
 assets/
-├── exercises/                 # Media minh họa bài tập
-└── webcam/                    # Thành phần Streamlit webcam, MediaPipe WASM & Voice Coach JS
-src/
-├── auth_view.py               # Đăng nhập / Đăng ký tài khoản
-├── profile.py                 # Xử lý dữ liệu & lưu hồ sơ người dùng
-├── profile_view.py            # Giao diện Hồ sơ Thể chất & Hạn chế Vận động
-├── planner_view.py            # Giao diện Lập lịch Tuần, đổi bài & chỉnh sửa giáo án
-├── planner_generation.py      # Chuẩn hóa & sinh giáo án tuần từ AI
-├── school_ai.py               # Kết nối API HCMUS FIT-AI (Qwen-27B)
-├── workout_planner.py         # Quy tắc & kiểm định cấu trúc giáo án
-├── adaptive_weekly_plan.py    # Sắp xếp lại lịch tuần thích ứng & cảnh báo phục hồi
-├── weekly_plan_sync.py        # Đồng bộ trạng thái buổi tập với lịch tuần
-├── weekly_plan_storage.py     # Lưu / khôi phục trạng thái kế hoạch tuần
-├── exercise_library.py        # Logic tìm kiếm, lọc và gợi ý bài thay thế theo nhóm cơ
-├── exercise_library_view.py   # Giao diện thư viện 28 bài tập & sơ đồ cơ giải phẫu
-├── library_view.py            # Wrapper điều hướng Thư viện Bài tập
-├── session_view.py            # Phòng tập Trực tiếp (HUD) & điều phối phiên webcam
-├── workout_session.py         # Quản lý trạng thái phiên tập (active/paused/completed)
-├── pose_tracking.py           # Nhận diện tư thế & tính góc khớp bằng MediaPipe
-├── fsm_gestures.py            # FSM nhận diện cử chỉ bắt đầu (giơ tay) & dừng (chữ X)
-├── fsm_rep_counter.py         # FSM đếm số rep & kiểm tra độ sâu squat
-├── evaluation_view.py         # Đánh giá sau buổi tập (RPE)
-├── heatmap_view.py            # Bản đồ nhiệt phục hồi nhóm cơ
-├── progress_view.py           # Thống kê tiến độ & Streak
-└── capybara_widget.py         # Widget Capybara đồng hành
-tests/                         # Bộ kiểm thử Python (`unittest`) và JS (`node --test`)
-docs/                          # Báo cáo kiến trúc, bảng phân công & biên bản nghiệm thu
+├── exercises/                 # Media minh họa bài tập Calisthenics
+└── webcam/                    # MediaPipe WASM, Web Workers & Voice Coach tiếng Việt
+src/                           # Modules thuật toán & logic tính toán CT cốt lõi (Domain Logic dùng chung)
+├── adaptive_weekly_plan.py    # Thuật toán tái cấu trúc tuần thông minh & Adaptive Deload
+├── exercise_library.py        # Quản lý danh mục bài tập, lọc hạn chế chấn thương & bài tương đương
+├── fsm_rep_counter.py         # Máy trạng thái hữu hạn (FSM) đếm rep theo góc khớp động học
+├── fsm_gestures.py            # FSM nhận diện cử chỉ Giơ tay (Bắt đầu) & Chữ X (Dừng khẩn cấp)
+├── planner_generation.py      # Tích hợp prompt & phân tích cú pháp JSON sinh giáo án FIT-AI
+├── school_ai.py               # Kết nối API HCMUS FIT-AI Qwen-27B
+├── profile.py                 # Xử lý hồ sơ thể chất, tính BMI & xác thực thông tin cá nhân
+└── capybara_widget.py         # Đồ họa vector SVG & hệ sinh thái biểu cảm Capybara Mascot
+tests/                         # Bộ kiểm thử tự động toàn diện (129 test cases) bao quát toàn bộ 8 phân hệ CT
+docs/                          # Báo cáo kiến trúc 4 trụ cột CT, bảng phân công nhiệm vụ Scrum & biên bản nghiệm thu
 ```
 
 ---
 
 ## 🧪 Chạy Kiểm thử (Tests)
 
-Chạy toàn bộ unit test Python từ thư mục gốc:
-```powershell
+Chạy toàn bộ bộ kiểm thử tự động Python từ thư mục gốc dự án:
+```bash
 python -m unittest discover -s tests -v
 ```
 
 Chạy unit test JavaScript cho Voice Coach & Webcam Session (yêu cầu Node.js, xem thêm [`tests/README.md`](tests/README.md)):
-```powershell
+```bash
 node --test tests/test_voice_coach.mjs tests/test_webcam_session.mjs
 ```
 
