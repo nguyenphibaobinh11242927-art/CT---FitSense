@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from backend.schemas import FSMRepRequest, SessionFinishRequest, SessionStartRequest
 from backend.routers.exercises import get_catalog
 from src.fsm_rep_counter import RepCounterFSM
+from src.squat_correction import SquatCorrection
 
 router = APIRouter(prefix="/api/session", tags=["Workout Session"])
 
@@ -44,6 +45,7 @@ def start_session(payload: SessionStartRequest):
         "exercise_name": ex_name,
         "target_reps": payload.target_reps,
         "fsm": fsm,
+        "correction": SquatCorrection() if payload.exercise_id == "squat" else None,
         "rep_count": 0,
         "history_angles": [],
     }
@@ -73,28 +75,41 @@ def process_frame_angle(payload: FSMRepRequest):
         ACTIVE_SESSIONS[payload.session_id] = session
         
     fsm: RepCounterFSM = session["fsm"]
-    angle = payload.angle
+    correction: SquatCorrection | None = session.get("correction")
+    angle = None if payload.tracking_interrupted else payload.angle
     
     if angle is None:
+        if correction is not None:
+            if payload.tracking_interrupted:
+                correction.interrupt_tracking()
+            correction.update(None, fsm)
         result = fsm.update(None)
         return {
             "rep_count": fsm.rep_count,
             "state": result["state"],
             "rep_incremented": False,
             "depth_pct": 0,
+            "angle": None,
             "cue": None,
+            "tracking_lost": correction is None or correction.tracking_lost,
         }
     
     # Clamp angle to [0, 180]
     clamped_angle = max(0.0, min(180.0, float(angle)))
     result = fsm.update(clamped_angle)
+    shallow = correction is not None and correction.update(clamped_angle, fsm)
     
     # Calculate depth percentage (180deg = 0% depth; 90deg = 100% depth)
     depth_pct = max(0.0, min(100.0, (180.0 - clamped_angle) / (180.0 - 90.0) * 100.0))
     
     voice_cue = None
+    voice_event = None
     if result["rep_incremented"]:
         voice_cue = f"Tốt lắm! Lần {fsm.rep_count} hoàn thành!"
+        voice_event = {"kind": "rep", "count": fsm.rep_count}
+    elif shallow:
+        voice_cue = "Hạ thấp hơn nếu thấy thoải mái."
+        voice_event = {"kind": "shallow_squat"}
     elif result["state"] == "STATE_GOING_DOWN" and clamped_angle > 110:
         voice_cue = "Hạ thấp trọng tâm thêm một chút!"
     elif result["state"] == "STATE_DOWN":
@@ -107,6 +122,7 @@ def process_frame_angle(payload: FSMRepRequest):
         "angle": clamped_angle,
         "depth_pct": round(depth_pct, 1),
         "cue": voice_cue,
+        "voice_event": voice_event,
     }
 
 

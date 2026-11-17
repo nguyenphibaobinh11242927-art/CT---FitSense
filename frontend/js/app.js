@@ -48,9 +48,13 @@ class FitSenseApp {
 
     // Global helper methods for cross-view navigation
     window.navigateTo = (viewName) => this.switchView(viewName);
-    window.startWorkoutSession = (exId, exName, reps, day) => {
+    window.startWorkoutSession = (exId, exName, reps, day, prescription) => {
+      if (!exId) {
+        Toast.error("Bài tập này chưa có trong thư viện.");
+        return;
+      }
       this.switchView("workout");
-      WorkoutView.startSession(exId, exName, reps, day);
+      WorkoutView.startSession(exId, exName, reps, day, prescription);
     };
 
     // Check Authentication Status:
@@ -190,7 +194,7 @@ class FitSenseApp {
         modal.classList.remove("active");
         const firstEx = todayDay.exercises?.[0];
         if (firstEx) {
-          window.startWorkoutSession(firstEx.id || "squat", firstEx.name, parseInt(firstEx.reps) || 12, todayDay.day);
+          window.startWorkoutSession(firstEx.id, firstEx.name, parseInt(firstEx.reps, 10) || 12, todayDay.day, firstEx);
         }
       });
     } catch (e) {
@@ -236,6 +240,7 @@ class FitSenseApp {
   async switchView(viewName, updateHash = true) {
     if (!VIEWS[viewName]) return;
 
+    if (this.currentView === "workout" && viewName !== "workout") WorkoutView.leave();
     this.currentView = viewName;
     if (updateHash) {
       window.location.hash = viewName;

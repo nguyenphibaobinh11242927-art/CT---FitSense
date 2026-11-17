@@ -146,6 +146,7 @@ export function createVoiceCoach({
   return {
     supported,
     get enabled() { return enabled; },
+    get busy() { return current !== null && current !== undefined; },
     toggle() {
       if (!supported) return;
       setEnabled(!enabled);
