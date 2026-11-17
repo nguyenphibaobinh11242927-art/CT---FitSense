@@ -100,6 +100,7 @@ class ExerciseSwapRequest(BaseModel):
     day: str
     current_exercise_id: str
     new_exercise_id: str
+    exercise_index: Optional[int] = Field(default=None, ge=0)
 
 
 class SessionStartRequest(BaseModel):
@@ -112,6 +113,7 @@ class FSMRepRequest(BaseModel):
     session_id: str
     angle: Optional[float] = None
     landmark_type: str = "knee"  # 'knee' for squat, 'elbow' for pushup
+    tracking_interrupted: bool = False
 
 
 class SessionFinishRequest(BaseModel):

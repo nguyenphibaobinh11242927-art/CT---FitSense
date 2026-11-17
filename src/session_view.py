@@ -15,6 +15,7 @@ import streamlit.components.v1 as components
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 from src.fsm_rep_counter import RepCounterFSM
+from src.squat_correction import SquatCorrection
 from src.planner_view import (
     count_day_target_reps,
     get_next_active_schedule_day,
@@ -28,8 +29,6 @@ from src.weekly_plan_storage import save_week_state
 
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
-SHALLOW_ATTEMPT_ANGLE = 135
-SHALLOW_TRACKING_GRACE_FRAMES = 2
 logger = logging.getLogger(__name__)
 
 
@@ -37,42 +36,6 @@ logger = logging.getLogger(__name__)
 def webcam_model():
     model = ROOT / "models" / "pose_landmarker_lite.task"
     return base64.b64encode(model.read_bytes()).decode("ascii")
-
-
-@dataclass
-class SquatCorrection:
-    deepest_angle: float | None = None
-    missing_frames: int = 0
-
-    @property
-    def tracking_lost(self) -> bool:
-        return self.missing_frames > SHALLOW_TRACKING_GRACE_FRAMES
-
-    def interrupt_tracking(self) -> None:
-        self.deepest_angle = None
-        self.missing_frames = SHALLOW_TRACKING_GRACE_FRAMES + 1
-
-    def update(self, angle: float | None, rep_fsm: RepCounterFSM) -> bool:
-        if angle is None:
-            if not self.tracking_lost:
-                self.missing_frames += 1
-                if self.tracking_lost:
-                    self.interrupt_tracking()
-            return False
-
-        self.missing_frames = 0
-        if angle >= rep_fsm.up_thresh:
-            deepest_angle = self.deepest_angle
-            self.deepest_angle = None
-            return deepest_angle is not None and rep_fsm.down_thresh < deepest_angle <= SHALLOW_ATTEMPT_ANGLE
-
-        # The rep FSM waits for an upright frame after tracking loss. Keep the
-        # depth of an ongoing attempt through brief gaps for form feedback.
-        if self.deepest_angle is not None:
-            self.deepest_angle = min(self.deepest_angle, angle)
-        elif rep_fsm.state == RepCounterFSM.STATE_GOING_DOWN:
-            self.deepest_angle = angle
-        return False
 
 
 def process_pose_frames(

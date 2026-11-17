@@ -14,6 +14,8 @@ from src.exercise_library import (
 )
 from src.exercise_library_view import muscle_svg
 from src.profile import load_profile
+from src.planner_generation import planner_profile_filters
+from src.workout_planner import WorkoutPlanError
 from backend.routers.auth import CURRENT_SESSION
 
 router = APIRouter(prefix="/api/exercises", tags=["Exercises"])
@@ -184,30 +186,29 @@ def get_exercise_svg(exercise_id: str):
 
 
 @router.get("/{exercise_id}/alternatives")
-def get_exercise_alternatives(exercise_id: str):
+def get_exercise_alternatives(exercise_id: str, preferred_id: str | None = None):
     catalog = get_catalog()
     exercise = next((ex for ex in catalog if ex["id"] == exercise_id), None)
     if not exercise:
         raise HTTPException(status_code=404, detail="Không tìm thấy bài tập")
     
-    # Check user limitations from active profile
-    email = CURRENT_SESSION.get("user_email", "user@fitsense.local")
-    profile = load_profile(email) or {}
-    
-    # Map user profile restrictions to injury keys
-    limitations = set()
-    for r in profile.get("restrictions", []):
-        r_low = r.lower()
-        if "gối" in r_low or "knee" in r_low:
-            limitations.add("knee")
-        if "cổ tay" in r_low or "wrist" in r_low:
-            limitations.add("wrist")
-            
+    email = CURRENT_SESSION.get("user_email")
+    profile = load_profile(email) if email else None
+    try:
+        available, limitations = planner_profile_filters(profile or {})
+    except WorkoutPlanError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     alternatives = suggest_alternatives(
         exercise=exercise,
         catalog=catalog,
+        available_equipment=available,
         limitations=limitations,
     )
+    preferred = next((item for item in catalog if item["id"] == preferred_id), None)
+    if (preferred and preferred_id != exercise_id and not limitations.intersection(preferred["avoid_if"])
+            and available.issuperset(preferred["equipment"])):
+        alternatives = [preferred, *(item for item in alternatives if item["id"] != preferred_id)]
     
     return {
         "exercise_id": exercise_id,
