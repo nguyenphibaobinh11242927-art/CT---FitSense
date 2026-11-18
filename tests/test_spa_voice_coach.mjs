@@ -68,3 +68,23 @@ test("SPA plays a shallow-squat event without a counted rep and ignores an old r
   assert.equal(cues.length, 1);
   assert.deepEqual(calls, ["stop"]);
 });
+
+test("SPA stops audio once when tracking is lost so later camera guidance can finish", async () => {
+  let trackingLost = true;
+  const {view, calls} = workoutView({sendAngle: async () => ({rep_count: 0, tracking_lost: trackingLost})});
+  view.isWorkingOut = true;
+  view.sessionId = "test-session";
+  view.updateHUDDisplay = () => {};
+  for (let frame = 0; frame < 3; frame++) {
+    view.dispatchAngleToFSM(null, frame);
+    await view.poseRequest;
+  }
+  assert.deepEqual(calls, ["stop"]);
+  trackingLost = false;
+  view.dispatchAngleToFSM(165, 4);
+  await view.poseRequest;
+  trackingLost = true;
+  view.dispatchAngleToFSM(null, 5);
+  await view.poseRequest;
+  assert.deepEqual(calls, ["stop", "stop"]);
+});
