@@ -5,7 +5,8 @@
 
 import { API } from "../api.js";
 import { Toast } from "../components/toast.js";
-import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs";
+import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=camera-position-1";
+import { createCameraPositionMonitor, POSITION_MESSAGES } from "../camera_position.mjs";
 
 // Helper: Calculate joint angle in degrees from three 2D/3D points [0, 180]
 function angleAt(a, b, c) {
@@ -126,6 +127,8 @@ export const WorkoutView = {
   statusSpeech: null,
   poseRequest: null,
   poseEpoch: 0,
+  poseTrackingLost: false,
+  positionMonitor: null,
 
   videoEl: null,
   canvasEl: null,
@@ -153,6 +156,18 @@ export const WorkoutView = {
         if (status) status.textContent = text;
       },
       onEnabledChange: () => this.updateVoiceToggle(),
+    });
+    this.positionMonitor ??= createCameraPositionMonitor({
+      onChange: warning => {
+        const notice = document.getElementById("camera-position-warning");
+        if (!notice) return;
+        notice.hidden = !warning;
+        notice.textContent = warning ? `⚠️ ${POSITION_MESSAGES[warning]}` : "";
+      },
+      remind: warning => {
+        if (this.statusSpeech) return false;
+        return this.voiceCoach.warnPosition(warning);
+      },
     });
 
     container.innerHTML = `
@@ -194,6 +209,7 @@ export const WorkoutView = {
         <div class="hud-viewport-grid">
           <!-- Left Column: Stage & Tech Metrics Bar -->
           <div style="display: flex; flex-direction: column; width: 100%;">
+            <p id="camera-position-warning" role="status" hidden style="color:var(--accent-amber); padding:0.75rem 1rem;"></p>
             <!-- Video / Stage Area -->
             <div class="hud-stage" id="hud-stage">
               <!-- Raw Video (Hidden, frames drawn onto Canvas with skeleton) -->
@@ -465,6 +481,7 @@ export const WorkoutView = {
     btnManualMode?.addEventListener("click", () => {
       btnManualMode.classList.add("active");
       btnCameraMode?.classList.remove("active");
+      this.positionMonitor?.reset();
 
       // Strictly isolate manual mode: show manual panel, hide all camera HUDs
       if (manualPanel) manualPanel.style.display = "flex";
@@ -719,6 +736,7 @@ export const WorkoutView = {
   },
 
   stopVideoSource() {
+    this.positionMonitor?.reset();
     if (this.videoSourceType !== "none") this.resetPoseFeedback();
     if (this.stream) {
       this.stream.getTracks().forEach((track) => track.stop());
@@ -828,6 +846,10 @@ export const WorkoutView = {
           try {
             const results = poseDetectorInstance.detectForVideo(v, now);
             const pose = results?.landmarks?.[0] || null;
+            if (this.videoSourceType === "camera" &&
+                document.getElementById("btn-mode-camera")?.classList.contains("active")) {
+              this.positionMonitor.update(pose, this.exerciseId, w, h, now);
+            }
 
             if (pose && pose.length >= 29) {
               // Convert landmarks to pixel points
@@ -952,7 +974,8 @@ export const WorkoutView = {
       if (sessionId !== this.sessionId || epoch !== this.poseEpoch || !this.isWorkingOut) return;
       this.repCount = data.rep_count;
       this.updateHUDDisplay(data.angle, data.state, data.depth_pct, data.cue);
-      if (data.tracking_lost) this.stopVoice();
+      if (data.tracking_lost && !this.poseTrackingLost) this.stopVoice();
+      this.poseTrackingLost = data.tracking_lost === true;
       if (data.voice_event) this.playVoiceEvent({...data.voice_event, captured_at: capturedAt});
       if (data.rep_incremented) this.onRepCounted();
     }).catch(() => {}).finally(() => {

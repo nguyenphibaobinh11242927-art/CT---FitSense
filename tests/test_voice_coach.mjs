@@ -121,6 +121,27 @@ test("shows a playback error and retries the download when re-enabled", async ()
   assert.equal(calls.filter(call => call === "fetch").length, 2);
 });
 
+test("plays bundled camera warnings twelve seconds apart without cutting current audio", async () => {
+  const {coach, played, advance} = setup();
+  assert.equal(coach.warnPosition("too_close"), false);
+  coach.toggle();
+  await flush();
+  assert.equal(coach.warnPosition("too_close"), false);
+  played.shift().onended();
+  assert.equal(coach.warnPosition("too_close"), true);
+  await flush();
+  assert.deepEqual(played[0].args, [3, ...VI_CUES[103]]);
+  assert.equal(coach.warnPosition("wrong_angle"), false);
+  played[0].onended();
+  advance(11999);
+  assert.equal(coach.warnPosition("wrong_angle"), false);
+  advance(1);
+  assert.equal(coach.warnPosition("wrong_angle"), true);
+  await flush();
+  assert.deepEqual(played[1].args, [3, ...VI_CUES[104]]);
+  assert.equal(played[0].stopped, undefined);
+});
+
 test("reads the latest completed rep before coaching on a newer attempt in the same batch", async () => {
   const {coach, played, corrections} = setup();
   coach.toggle();
