@@ -6,7 +6,7 @@ import {VI_CUES} from "../assets/webcam/voice/vi_cues.mjs";
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function setup(response) {
+function setup(response, onPlaybackChange) {
   const played = [], cues = [], status = [], calls = [], enabledStates = [], corrections = [];
   let now = 250;
   const coach = createVoiceCoach({
@@ -33,10 +33,33 @@ function setup(response) {
     showStatus: text => status.push(text),
     onEnabledChange: enabled => enabledStates.push(enabled),
     onCorrection: (event, decision) => corrections.push([event.frame_sequence, decision]),
+    onPlaybackChange,
     now: () => now,
   });
   return {coach, played, cues, status, calls, enabledStates, corrections, advance(ms) { now += ms; }};
 }
+
+test("keeps the mic blocked across queued clips and releases it when muted", async () => {
+  const states = [];
+  const {coach, played} = setup(undefined, playing => states.push(playing));
+  coach.toggle();
+  await flush();
+  played.shift().onended();
+  coach.receive({kind: "rep", count: 1});
+  await flush();
+  coach.receive({kind: "rep", count: 2});
+  played[0].onended();
+  await flush();
+  assert.deepEqual(states, [true, false, true]);
+  played[1].onended();
+  assert.deepEqual(states, [true, false, true, false]);
+
+  coach.receive({kind: "rep", count: 3});
+  await flush();
+  coach.toggle();
+  played[2].onended();
+  assert.deepEqual(states, [true, false, true, false, true, false]);
+});
 
 test("plays Vietnamese rep and form clips with only one audio download", async () => {
   const {coach, played, cues, status, calls} = setup();

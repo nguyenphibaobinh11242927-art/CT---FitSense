@@ -899,7 +899,7 @@
   background: radial-gradient(circle at center, rgba(15, 23, 42, 0.94) 0%, rgba(6, 11, 23, 0.98) 100%);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  z-index: 25;
+  z-index: 35; /* Keep rest controls above the manual rep panel. */
   display: flex;
   align-items: center;
   justify-content: center;
