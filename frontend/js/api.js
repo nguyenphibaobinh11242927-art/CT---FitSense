@@ -115,7 +115,7 @@ export const API = {
   session: {
     model: () => request("/api/session/model"),
     defaultExercises: () => request("/api/session/default-exercises"),
-    start: (exerciseId, targetReps = 10, day = null, exerciseList = [], totalSets = 3, currentSet = 1) => request("/api/session/start", {
+    start: (exerciseId, targetReps = 10, day = null, exerciseList = [], totalSets = 3, currentSet = 1, {mode = "ai", exerciseIndex = 0} = {}) => request("/api/session/start", {
       method: "POST",
       body: JSON.stringify({
         exercise_id: exerciseId,
@@ -124,9 +124,11 @@ export const API = {
         exercise_list: exerciseList,
         total_sets: totalSets,
         current_set: currentSet,
+        mode,
+        exercise_index: exerciseIndex,
       }),
     }),
-    switchExercise: (sessionId, exerciseId, exerciseName, targetReps = 10, currentSet = 1, totalSets = 3) => request("/api/session/switch-exercise", {
+    switchExercise: (sessionId, exerciseId, exerciseName, targetReps = 10, currentSet = 1, totalSets = 3, exerciseIndex = null) => request("/api/session/switch-exercise", {
       method: "POST",
       body: JSON.stringify({
         session_id: sessionId,
@@ -135,13 +137,23 @@ export const API = {
         target_reps: targetReps,
         current_set: currentSet,
         total_sets: totalSets,
+        exercise_index: exerciseIndex,
       }),
     }),
-    sendAngle: (sessionId, angle, landmarkType = "knee", trackingInterrupted = false) => request("/api/session/fsm-rep", {
+    sendAngle: (sessionId, angle, landmarkType = "knee", trackingInterrupted = false, currentSet = null, exerciseIndex = null, frameId = null) => request("/api/session/fsm-rep", {
       method: "POST",
-      body: JSON.stringify({ session_id: sessionId, angle, landmark_type: landmarkType, tracking_interrupted: trackingInterrupted }),
+      body: JSON.stringify({
+        session_id: sessionId, angle, landmark_type: landmarkType,
+        tracking_interrupted: trackingInterrupted, current_set: currentSet,
+        exercise_index: exerciseIndex, frame_id: frameId,
+      }),
     }),
-    finish: ({ sessionId, exerciseId, completedReps, durationSeconds, rpe = 7, notes = "", day = null, targetReps = null }) => request("/api/session/finish", {
+    summary: sessionId => request(`/api/session/summary/${encodeURIComponent(sessionId)}`),
+    setPaused: (sessionId, paused) => request("/api/session/pause", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, paused }),
+    }),
+    finish: ({ sessionId, exerciseId, completedReps, durationSeconds, rpe = 7, notes = "", day = null, outcome = "completed" }) => request("/api/session/finish", {
       method: "POST",
       body: JSON.stringify({
         session_id: sessionId,
@@ -151,7 +163,7 @@ export const API = {
         rpe,
         feedback_notes: notes,
         day,
-        target_reps: targetReps,
+        outcome,
       }),
     }),
   },

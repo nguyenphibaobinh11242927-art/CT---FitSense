@@ -3,7 +3,7 @@ import {readFileSync} from "node:fs";
 import test from "node:test";
 import {runInNewContext} from "node:vm";
 
-function workoutView({voices = [], sendAngle} = {}) {
+function workoutView({voices = [], sendAngle, sessionApi = {}} = {}) {
   const speech = [], cues = [], calls = [];
   const voice = {
     enabled: true,
@@ -13,7 +13,12 @@ function workoutView({voices = [], sendAngle} = {}) {
   const source = readFileSync(new URL("../frontend/js/views/workout.js", import.meta.url), "utf8")
     .replace(/^import .*;\r?$/gm, "").replace("export const WorkoutView", "const WorkoutView");
   const view = runInNewContext(source + "\nWorkoutView", {
-    API: {session: {sendAngle}},
+    API: {session: {sendAngle, ...sessionApi}},
+    Toast: {success() {}, error() {}},
+    clearTimeout,
+    clearInterval,
+    structuredClone,
+    document: {getElementById: () => null},
     window: {speechSynthesis: {
       getVoices: () => voices,
       cancel() { calls.push("cancel"); },
@@ -39,6 +44,33 @@ test("SPA never uses the default browser voice when Vietnamese is unavailable", 
   view.playVoiceEvent(rep);
   assert.deepEqual(cues, [rep]);
   assert.deepEqual(calls, ["cancel"]);
+});
+
+test("SPA starts each set with the new set number and ignores feedback from the previous set", async () => {
+  const requests = [];
+  const {view, cues} = workoutView({
+    sendAngle: (...args) => new Promise(resolve => requests.push({args, resolve})),
+  });
+  Object.assign(view, {
+    isWorkingOut: true, sessionId: "test-session", currentSet: 1, totalSets: 2,
+    updateHUDDisplay() {}, updateSetsDisplay() {}, renderUpNextListUI() {},
+    startRestTimer() { this.isResting = true; },
+  });
+  view.dispatchAngleToFSM(170, 0);
+  assert.equal(requests[0].args[4], 1);
+  view.completeCurrentSet();
+  assert.equal(view.currentSet, 2);
+  assert.equal(view.dispatchAngleToFSM(170, 50), false);
+  requests[0].resolve({rep_count: 12, voice_event: {kind: "rep", count: 12}});
+  await view.poseRequest;
+  assert.equal(view.repCount, 0);
+  assert.equal(cues.length, 0);
+
+  view.finishRestPeriod();
+  view.dispatchAngleToFSM(170, 100);
+  assert.equal(requests[1].args[4], 2);
+  requests[1].resolve({rep_count: 0});
+  await view.poseRequest;
 });
 
 test("SPA plays a shallow-squat event without a counted rep and ignores an old response after pausing", async () => {
@@ -87,4 +119,63 @@ test("SPA stops audio once when tracking is lost so later camera guidance can fi
   view.dispatchAngleToFSM(null, 5);
   await view.poseRequest;
   assert.deepEqual(calls, ["stop", "stop"]);
+});
+
+test("AI and manual modes keep independent sessions and counters", async () => {
+  const pauses = [];
+  const {view} = workoutView({sessionApi: {
+    start: async (...args) => ({session_id: args[6].mode + "-session"}),
+    setPaused: async (id, paused) => {
+      pauses.push([id, paused]);
+      return {current_set: 1, exercise_index: 0, rep_count: 6};
+    },
+  }});
+  Object.assign(view, {
+    sessionId: "ai-session", repCount: 6, currentSet: 1, isWorkingOut: true,
+    stopVideoSource() { this.videoSourceType = "none"; },
+    updateSetsDisplay() {}, renderUpNextListUI() {},
+  });
+  assert.equal(view.changeManualReps(1), false);
+  assert.equal(view.repCount, 6);
+  assert.equal(await view.selectWorkoutMode("manual"), true);
+  assert.equal(view.sessionId, "manual-session");
+  assert.equal(view.repCount, 0);
+  view.isWorkingOut = true;
+  assert.ok(view.changeManualReps(1));
+  assert.equal(view.dispatchAngleToFSM(170, 0), false);
+  assert.equal(view.repCount, 1);
+  assert.equal(await view.selectWorkoutMode("ai"), true);
+  assert.equal(view.sessionId, "ai-session");
+  assert.equal(view.repCount, 6);
+  assert.equal(await view.selectWorkoutMode("manual"), true);
+  assert.equal(view.sessionId, "manual-session");
+  assert.equal(view.repCount, 1);
+  assert.deepEqual(pauses, [["ai-session", true], ["manual-session", true], ["ai-session", true]]);
+});
+
+test("AI needs a visible in-frame joint chain even during the warning delay", () => {
+  const {view} = workoutView();
+  const pose = Array(33).fill(null);
+  pose[23] = {x: 0.5, y: 0.3, visibility: 0.95};
+  pose[25] = {x: 0.5, y: 0.5, visibility: 0.95};
+  pose[27] = {x: 0.5, y: 0.7, visibility: 0.95};
+  assert.equal(view.measureTrackedAngle(pose, 640, 480, false), 180);
+  pose[25].visibility = 0.4;
+  assert.equal(view.measureTrackedAngle(pose, 640, 480, false), null);
+  pose[25].visibility = 0.95;
+  pose[27].y = 1.1;
+  assert.equal(view.measureTrackedAngle(pose, 640, 480, false), null);
+});
+
+test("AI completion preview uses the server total across sets", async () => {
+  const {view} = workoutView({sessionApi: {
+    summary: async () => ({total_reps: 24}),
+  }});
+  Object.assign(view, {
+    sessionId: "ai-session", repCount: 12,
+    leave: async () => true,
+    openRPEEvaluationModal(reps) { this.previewReps = reps; },
+  });
+  await view.finishWorkout();
+  assert.equal(view.previewReps, 24);
 });

@@ -5,7 +5,7 @@
 
 import { API } from "../api.js";
 import { Toast } from "../components/toast.js";
-import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=mai-anh-2";
+import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=voice-feedback-1";
 import { createCameraPositionMonitor, POSITION_MESSAGES } from "../camera_position.mjs";
 
 // Helper: Calculate joint angle in degrees from three 2D/3D points [0, 180]
@@ -153,6 +153,14 @@ async function getPoseDetector() {
 
 export const WorkoutView = {
   sessionId: null,
+  workoutMode: "ai",
+  modeSessions: new Map(),
+  modeRequest: null,
+  sessionStartRequest: null,
+  sessionClosed: false,
+  sessionClosing: false,
+  frameId: 0,
+  manualSetReps: new Map(),
   exerciseId: "squat",
   exerciseName: "Bodyweight Squat",
   targetReps: 12,
@@ -171,6 +179,7 @@ export const WorkoutView = {
   restRemainingSec: 60,
   isResting: false,
   restTimerInterval: null,
+  setCompletionTimer: null,
   restSoundPlayed: { 3: false, 2: false, 1: false, 0: false },
   audioCtx: null,
   onRestFinishCallback: null,
@@ -186,6 +195,7 @@ export const WorkoutView = {
   voiceCoach: null,
   statusSpeech: null,
   poseRequest: null,
+  poseSwitchRequest: null,
   poseEpoch: 0,
   poseTrackingLost: false,
   positionMonitor: null,
@@ -619,6 +629,9 @@ export const WorkoutView = {
               <button class="btn btn-primary" id="btn-finish-workout" style="margin-top: 0.5rem; font-weight: 700;">
                 🏁 Hoàn thành buổi tập
               </button>
+              <button class="btn btn-outline" id="btn-abandon-workout" style="margin-top: 0.5rem;">
+                Bỏ dở buổi tập
+              </button>
             </div>
           </div>
         </div>
@@ -684,6 +697,9 @@ export const WorkoutView = {
     container.querySelector("#btn-finish-workout")?.addEventListener("click", () => {
       this.finishWorkout();
     });
+    container.querySelector("#btn-abandon-workout")?.addEventListener("click", () => {
+      this.finishWorkout("abandoned");
+    });
 
     // Mode Switcher (AI Vision vs Manual Mode)
     const btnCameraMode = container.querySelector("#btn-mode-camera");
@@ -696,12 +712,13 @@ export const WorkoutView = {
 
     const updateManualDisplay = () => {
       if (manualCounter) manualCounter.textContent = this.repCount;
-      this.updateHUDDisplay(this.currentAngle, this.currentState, false, this.currentDepthPct, null);
+      this.updateHUDDisplay(null, this.currentState, 0, null);
     };
 
     const standbyOverlay = container.querySelector("#stage-standby");
 
-    btnCameraMode?.addEventListener("click", () => {
+    btnCameraMode?.addEventListener("click", async () => {
+      if (!await this.selectWorkoutMode("ai")) return;
       btnCameraMode.classList.add("active");
       btnManualMode?.classList.remove("active");
       if (manualPanel) manualPanel.style.display = "none";
@@ -722,9 +739,11 @@ export const WorkoutView = {
         if (topOverlay) topOverlay.style.display = "none";
       }
       if (techMetrics) techMetrics.style.display = "";
+      this.updateSetsDisplay();
     });
 
-    btnManualMode?.addEventListener("click", () => {
+    btnManualMode?.addEventListener("click", async () => {
+      if (!await this.selectWorkoutMode("manual")) return;
       btnManualMode.classList.add("active");
       btnCameraMode?.classList.remove("active");
       this.positionMonitor?.reset();
@@ -740,37 +759,19 @@ export const WorkoutView = {
       if (techMetrics) techMetrics.style.display = "none";
 
       updateManualDisplay();
-      if (!this.isWorkingOut) this.startWorkout();
+      this.updateSetsDisplay();
+      if (!this.isWorkingOut) void this.startWorkout();
     });
 
-    // Manual rep buttons
-    container.querySelector("#btn-manual-rep-plus1")?.addEventListener("click", () => {
-      this.repCount += 1;
-      updateManualDisplay();
-      this.playVoiceEvent({kind: "rep", count: this.repCount});
-      if (this.repCount >= this.targetReps) {
-        Toast.success(`Đạt chỉ tiêu hiệp ${this.currentSet}/${this.totalSets}! Bấm "Hoàn thành hiệp" để tiếp tục.`);
-      }
-    });
-
-    container.querySelector("#btn-manual-rep-plus5")?.addEventListener("click", () => {
-      this.repCount += 5;
-      updateManualDisplay();
-      this.playVoiceEvent({kind: "rep", count: this.repCount});
-      if (this.repCount >= this.targetReps) {
-        Toast.success(`Đạt chỉ tiêu hiệp ${this.currentSet}/${this.totalSets}! Bấm "Hoàn thành hiệp" để tiếp tục.`);
-      }
-    });
-
-    container.querySelector("#btn-manual-rep-minus")?.addEventListener("click", () => {
-      this.repCount = Math.max(0, this.repCount - 1);
-      updateManualDisplay();
-    });
-
-    container.querySelector("#btn-manual-rep-reset")?.addEventListener("click", () => {
-      this.repCount = 0;
-      updateManualDisplay();
-    });
+    for (const [name, delta] of [["plus1", 1], ["plus5", 5], ["minus", -1], ["reset", null]]) {
+      container.querySelector(`#btn-manual-rep-${name}`)?.addEventListener("click", () => {
+        if (!this.changeManualReps(delta)) return;
+        updateManualDisplay();
+        if (delta > 0 && this.repCount >= this.targetReps) {
+          Toast.success(`Đạt chỉ tiêu hiệp ${this.currentSet}/${this.totalSets}! Bấm "Hoàn thành hiệp" để tiếp tục.`);
+        }
+      });
+    }
 
     container.querySelector("#btn-manual-finish-workout")?.addEventListener("click", () => {
       this.finishWorkout();
@@ -830,6 +831,12 @@ export const WorkoutView = {
     this.sessionStartTime = 0;
     this.sessionId = null;
     this.poseRequest = null;
+    this.sessionStartRequest = null;
+    this.modeSessions = new Map();
+    this.workoutMode = "ai";
+    this.sessionClosed = this.sessionClosing = false;
+    this.frameId = 0;
+    this.manualSetReps = new Map();
     this.exerciseId = exerciseId || "squat";
     this.exerciseName = exerciseName || "Bodyweight Squat";
     this.targetReps = targetReps || 12;
@@ -877,16 +884,6 @@ export const WorkoutView = {
     this.updateSetsDisplay();
 
     try {
-      const res = await API.session.start(
-        this.exerciseId,
-        this.targetReps,
-        this.day,
-        this.exerciseList,
-        this.totalSets,
-        this.currentSet
-      );
-      this.sessionId = res.session_id;
-
       if (this.exerciseId === "custom" || (this.exerciseId || "").startsWith("custom")) {
         setTimeout(() => {
           const btnManual = document.getElementById("btn-mode-manual");
@@ -894,6 +891,7 @@ export const WorkoutView = {
           Toast.info("🎯 Bài tập tùy chỉnh: Đã tự động chuyển sang Chế độ Không dùng Camera (Tự do).");
         }, 50);
       } else {
+        if (!await this.ensureWorkoutSession()) return;
         Toast.success(`Sẵn sàng cho bài tập ${this.exerciseName} (Hiệp 1/${this.totalSets})!`);
         this.speak(`Chào bạn! Hãy chuẩn bị bắt đầu bài tập ${this.exerciseName}, hiệp một trên ${this.totalSets}.`);
       }
@@ -902,15 +900,115 @@ export const WorkoutView = {
     }
   },
 
+  createWorkoutSession(mode, currentSet) {
+    return API.session.start(
+      this.exerciseId, this.targetReps, this.day, this.exerciseList, this.totalSets, currentSet,
+      {mode, exerciseIndex: this.currentExerciseIdx},
+    );
+  },
+
+  async ensureWorkoutSession() {
+    if (this.sessionClosed) return false;
+    if (this.sessionId) return true;
+    if (!this.sessionStartRequest) {
+      const request = this.createWorkoutSession(this.workoutMode, this.currentSet).then(data => {
+        if (this.sessionStartRequest !== request) return false;
+        this.sessionId = data.session_id;
+        return true;
+      }).catch(() => {
+        Toast.error("Không thể mở phiên tập. Hãy thử lại.");
+        return false;
+      }).finally(() => {
+        if (this.sessionStartRequest === request) this.sessionStartRequest = null;
+      });
+      this.sessionStartRequest = request;
+    }
+    return this.sessionStartRequest;
+  },
+
+  async selectWorkoutMode(mode) {
+    if (this.modeRequest || this.sessionClosing) return false;
+    if (mode === this.workoutMode) return this.ensureWorkoutSession();
+    const request = this.changeWorkoutMode(mode);
+    this.modeRequest = request;
+    try {
+      return await request;
+    } finally {
+      if (this.modeRequest === request) this.modeRequest = null;
+    }
+  },
+
+  async changeWorkoutMode(mode) {
+    const sessions = this.modeSessions;
+    await this.sessionStartRequest;
+    if (sessions !== this.modeSessions) return false;
+    const paused = this.leave();
+    const epoch = this.poseEpoch;
+    await paused;
+    if (sessions !== this.modeSessions || epoch !== this.poseEpoch) return false;
+    const fields = [
+      "sessionId", "exerciseId", "exerciseName", "exerciseList", "currentExerciseIdx", "currentSet",
+      "totalSets", "targetReps", "holdSeconds", "restSeconds", "restDurationSec", "restRemainingSec",
+      "isResting", "restNextInfo", "onRestFinishCallback", "repCount", "manualSetReps", "frameId",
+      "sessionStartTime", "sessionClosed",
+    ];
+    const previous = Object.fromEntries(fields.map(field => [field, this[field]]));
+    const saved = this.modeSessions.get(mode);
+    if (saved && !saved.sessionClosed) {
+      Object.assign(this, saved);
+    } else {
+      try {
+        const data = await this.createWorkoutSession(mode, 1);
+        if (sessions !== this.modeSessions || epoch !== this.poseEpoch) return false;
+        this.sessionId = data.session_id;
+      } catch {
+        Toast.error("Không thể chuyển chế độ tập. Hãy thử lại.");
+        return false;
+      }
+      this.exerciseList = structuredClone(this.exerciseList);
+      this.currentSet = 1;
+      this.repCount = 0;
+      this.frameId = 0;
+      this.isResting = false;
+      this.onRestFinishCallback = null;
+      this.sessionStartTime = 0;
+      this.sessionClosed = false;
+      this.manualSetReps = new Map();
+    }
+    this.modeSessions.set(this.workoutMode, previous);
+    this.workoutMode = mode;
+    const restOverlay = document.getElementById("hud-rest-overlay");
+    if (restOverlay) restOverlay.style.display = this.isResting ? "flex" : "none";
+    this.renderUpNextListUI();
+    return true;
+  },
+
+  manualSetKey() {
+    return JSON.stringify([this.currentExerciseIdx, this.exerciseId, this.currentSet]);
+  },
+
+  changeManualReps(delta) {
+    if (this.workoutMode !== "manual" || !this.isWorkingOut || this.isResting || this.sessionClosing) return false;
+    this.repCount = delta === null ? 0 : Math.max(0, this.repCount + delta);
+    this.manualSetReps.set(this.manualSetKey(), this.repCount);
+    if (delta > 0) this.playVoiceEvent({kind: "rep", count: this.repCount});
+    return true;
+  },
+
   startRestTimer(seconds = null, nextInfo = "", onFinishCallback = null) {
     this.isResting = true;
-    this.restDurationSec = seconds || this.restDurationSec || 60;
+    this.restDurationSec = seconds ?? this.restDurationSec ?? 60;
     this.restSeconds = this.restDurationSec;
     this.restRemainingSec = this.restDurationSec;
     this.restSoundPlayed = { 3: false, 2: false, 1: false, 0: false };
     this.onRestFinishCallback = onFinishCallback;
+    this.restNextInfo = nextInfo;
 
     clearInterval(this.restTimerInterval);
+    if (this.restDurationSec === 0) {
+      this.finishRestPeriod();
+      return;
+    }
 
     const overlay = document.getElementById("hud-rest-overlay");
     const nextInfoEl = document.getElementById("rest-next-info");
@@ -927,7 +1025,7 @@ export const WorkoutView = {
     this.speak(`Bắt đầu nghỉ giữa hiệp ${this.restRemainingSec} giây.`);
     this.updateRestDisplay();
 
-    this.restTimerInterval = setInterval(() => {
+    const interval = setInterval(() => {
       this.restRemainingSec = Math.max(0, this.restRemainingSec - 1);
       this.updateRestDisplay();
 
@@ -952,10 +1050,11 @@ export const WorkoutView = {
         Toast.success("🔔 Hết giờ nghỉ! Sẵn sàng vào hiệp mới!");
         clearInterval(this.restTimerInterval);
         setTimeout(() => {
-          this.finishRestPeriod();
+          if (this.restTimerInterval === interval) this.finishRestPeriod();
         }, 800);
       }
     }, 1000);
+    this.restTimerInterval = interval;
   },
 
   updateRestDisplay() {
@@ -999,6 +1098,7 @@ export const WorkoutView = {
 
   finishRestPeriod() {
     clearInterval(this.restTimerInterval);
+    this.restTimerInterval = null;
     this.isResting = false;
 
     const overlay = document.getElementById("hud-rest-overlay");
@@ -1047,15 +1147,19 @@ export const WorkoutView = {
   },
 
   completeCurrentSet() {
+    clearTimeout(this.setCompletionTimer);
+    this.setCompletionTimer = null;
     if (this.isResting) {
       this.skipRestTimer();
       return;
     }
 
     if (this.currentSet < this.totalSets) {
+      this.poseEpoch++;
+      this.stopVoice();
       const finishedSet = this.currentSet;
       this.currentSet++;
-      this.repCount = 0;
+      this.repCount = this.workoutMode === "manual" ? this.manualSetReps.get(this.manualSetKey()) ?? 0 : 0;
       this.updateSetsDisplay();
       this.renderUpNextListUI();
       Toast.success(`✅ Hoàn thành hiệp ${finishedSet}/${this.totalSets}! Nghỉ ngơi hồi phục.`);
@@ -1101,40 +1205,35 @@ export const WorkoutView = {
   async jumpToExercise(targetIdx) {
     if (targetIdx < 0 || targetIdx >= this.exerciseList.length) return;
 
+    const targetEx = this.exerciseList[targetIdx];
+    const exerciseId = targetEx.id || "squat";
+    const exerciseName = targetEx.name || "Bài tập";
+    const targetReps = parseInt(targetEx.reps) || 12;
+    const totalSets = parseInt(targetEx.sets) || 3;
+    const switched = await this.syncPoseExercise(exerciseId, exerciseName, targetReps, 1, totalSets, targetIdx);
+    if (!switched) return;
+
     clearInterval(this.restTimerInterval);
+    this.restTimerInterval = null;
     this.isResting = false;
     const overlay = document.getElementById("hud-rest-overlay");
     if (overlay) overlay.style.display = "none";
 
     this.currentExerciseIdx = targetIdx;
-    const targetEx = this.exerciseList[targetIdx];
-    this.exerciseId = targetEx.id || "squat";
-    this.exerciseName = targetEx.name || "Bài tập";
-    this.targetReps = parseInt(targetEx.reps) || 12;
-    this.totalSets = parseInt(targetEx.sets) || 3;
+    this.exerciseId = exerciseId;
+    this.exerciseName = exerciseName;
+    this.targetReps = targetReps;
+    this.totalSets = totalSets;
     this.holdSeconds = targetEx.hold_seconds ?? 0;
     this.restSeconds = targetEx.rest_sec ?? 60;
     this.restDurationSec = this.restSeconds;
     this.currentSet = 1;
-    this.repCount = 0;
+    this.repCount = this.workoutMode === "manual"
+      ? this.manualSetReps.get(this.manualSetKey()) ?? 0
+      : switched.rep_count ?? 0;
 
     this.updateSetsDisplay();
     this.renderUpNextListUI();
-
-    try {
-      if (this.sessionId) {
-        await API.session.switchExercise(
-          this.sessionId,
-          this.exerciseId,
-          this.exerciseName,
-          this.targetReps,
-          this.currentSet,
-          this.totalSets
-        );
-      }
-    } catch (e) {
-      console.warn("Could not sync exercise switch to backend:", e);
-    }
 
     Toast.success(`🎯 Chuyển sang bài: ${this.exerciseName}!`);
     this.speak(`Bắt đầu bài tập ${this.exerciseName}. Mục tiêu ${this.targetReps} lần.`);
@@ -1142,6 +1241,10 @@ export const WorkoutView = {
 
   async swapCurrentExercise(substituteName, substituteId = null) {
     if (!substituteName) return;
+    const switched = await this.syncPoseExercise(
+      substituteId || this.exerciseId, substituteName, this.targetReps, this.currentSet, this.totalSets
+    );
+    if (!switched) return;
     const currentEx = this.exerciseList[this.currentExerciseIdx];
     if (currentEx) {
       currentEx.originalName = currentEx.originalName || currentEx.name;
@@ -1150,25 +1253,12 @@ export const WorkoutView = {
     }
     this.exerciseName = substituteName;
     if (substituteId) this.exerciseId = substituteId;
-    this.repCount = 0;
+    this.repCount = this.workoutMode === "manual"
+      ? this.manualSetReps.get(this.manualSetKey()) ?? 0
+      : switched.rep_count ?? 0;
 
     this.updateSetsDisplay();
     this.renderUpNextListUI();
-
-    try {
-      if (this.sessionId) {
-        await API.session.switchExercise(
-          this.sessionId,
-          this.exerciseId,
-          this.exerciseName,
-          this.targetReps,
-          this.currentSet,
-          this.totalSets
-        );
-      }
-    } catch (e) {
-      console.warn("Could not sync swap to backend:", e);
-    }
 
     Toast.success(`🔄 Đã đổi sang bài tập: ${substituteName}!`);
     this.speak(`Đã đổi sang bài ${substituteName}.`);
@@ -1293,8 +1383,15 @@ export const WorkoutView = {
     });
   },
 
-  startWorkout() {
+  async startWorkout() {
+    if (this.sessionClosing) return false;
+    const epoch = this.poseEpoch;
+    if (!await this.ensureWorkoutSession() || epoch !== this.poseEpoch ||
+        !await this.queueSessionPause(false) || epoch !== this.poseEpoch) return false;
     this.isWorkingOut = true;
+    if (this.isResting && this.restTimerInterval === null) {
+      this.startRestTimer(this.restRemainingSec, this.restNextInfo, this.onRestFinishCallback);
+    }
     const btn = document.getElementById("btn-toggle-workout");
     if (btn) {
       btn.innerHTML = "⏸️ Tạm dừng tập";
@@ -1326,12 +1423,16 @@ export const WorkoutView = {
 
     Toast.info("Buổi tập bắt đầu! Giữ đúng nhịp thở và kiểm soát tư thế.");
     this.speak("Buổi tập bắt đầu!");
+    return true;
   },
 
   pauseWorkout() {
     this.isWorkingOut = false;
-    this.resetPoseFeedback();
+    this.poseEpoch++;
+    this.stopVoice();
     clearInterval(this.sessionTimerInterval);
+    clearInterval(this.restTimerInterval);
+    this.restTimerInterval = null;
 
     if (this.videoEl && this.videoSourceType === "file" && !this.videoEl.paused) {
       this.videoEl.pause();
@@ -1343,9 +1444,12 @@ export const WorkoutView = {
       btn.className = "btn btn-emerald";
     }
     Toast.info("Đã tạm dừng buổi tập.");
+    return this.queueSessionPause(true);
   },
 
   async startCamera() {
+    if (!await this.selectWorkoutMode("ai")) return;
+    document.getElementById("btn-mode-camera")?.click();
     this.stopVideoSource();
 
     const stage = document.getElementById("hud-stage");
@@ -1357,7 +1461,8 @@ export const WorkoutView = {
     if (statusText) statusText.textContent = "⏳ Đang kết nối camera và khởi tạo MediaPipe AI...";
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      const generation = this.poseEpoch;
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 640 },
           height: { ideal: 480 },
@@ -1366,6 +1471,11 @@ export const WorkoutView = {
         },
         audio: false,
       });
+      if (this.workoutMode !== "ai" || this.poseEpoch !== generation) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      this.stream = stream;
 
       if (this.videoEl) {
         this.videoEl.srcObject = this.stream;
@@ -1390,7 +1500,10 @@ export const WorkoutView = {
       if (btnCam) btnCam.textContent = "⏹️ Tắt Camera";
       if (liveText) liveText.textContent = "LIVE CAMERA FEED";
 
-      if (!this.isWorkingOut) this.startWorkout();
+      if (!this.isWorkingOut && !await this.startWorkout()) {
+        this.stopVideoSource();
+        return;
+      }
       this.startFrameAnalysisLoop();
       Toast.success("Đã bật Camera thành công! AI đang quét khung xương khớp...");
       this.speak("Đã kết nối camera. Hãy lùi lại để AI nhận diện tư thế.");
@@ -1403,6 +1516,8 @@ export const WorkoutView = {
   },
 
   async loadVideoFile(file) {
+    if (!await this.selectWorkoutMode("ai")) return;
+    document.getElementById("btn-mode-camera")?.click();
     this.stopVideoSource();
 
     const stage = document.getElementById("hud-stage");
@@ -1450,7 +1565,10 @@ export const WorkoutView = {
     if (liveText) liveText.textContent = `VIDEO: ${this.videoFileName.slice(0, 18)}`;
     if (statusText) statusText.textContent = `Đang phân tích khung xương video: ${this.videoFileName}`;
 
-    if (!this.isWorkingOut) this.startWorkout();
+    if (!this.isWorkingOut && !await this.startWorkout()) {
+      this.stopVideoSource();
+      return;
+    }
     this.startFrameAnalysisLoop();
     Toast.success(`Đã tải video: ${file.name}. AI bắt đầu phân tích từng khung hình!`);
     this.speak(`Đã tải video bài tập. AI đang theo dõi chuyển động.`);
@@ -1544,6 +1662,28 @@ export const WorkoutView = {
     let cachedPoints = [];
     let cachedAngles = null;
     let cachedDetectedAngle = null;
+    let lastVideoTime = null;
+    let lastVideoFrameAt = performance.now();
+    let pendingTrackingLoss = false;
+    let trackingLossSent = false;
+
+    const sendTrackedAngle = (angle, now, landmarkType) => {
+      if (angle === null) {
+        if (!trackingLossSent) pendingTrackingLoss = true;
+      } else {
+        trackingLossSent = false;
+      }
+      if (pendingTrackingLoss) {
+        if (this.dispatchAngleToFSM(null, now, landmarkType, true)) {
+          pendingTrackingLoss = false;
+          trackingLossSent = true;
+          lastDispatchTime = now;
+        }
+      } else if (angle !== null && now - lastDispatchTime >= DISPATCH_INTERVAL_MS &&
+                 this.dispatchAngleToFSM(angle, now, landmarkType)) {
+        lastDispatchTime = now;
+      }
+    };
 
     const step = () => {
       if (this.videoSourceType === "none" || !this.videoEl || !this.canvasEl || !this.ctx) return;
@@ -1551,6 +1691,14 @@ export const WorkoutView = {
       const v = this.videoEl;
       const ctx = this.ctx;
       const canvas = this.canvasEl;
+      const now = performance.now();
+      if (v.readyState < 2 || v.paused || v.ended || v.currentTime === lastVideoTime) {
+        if (v.ended || now - lastVideoFrameAt >= 250) sendTrackedAngle(null, now, "knee");
+        this.animationLoopId = requestAnimationFrame(step);
+        return;
+      }
+      lastVideoTime = v.currentTime;
+      lastVideoFrameAt = now;
 
       if (v.readyState >= 2 && !v.paused && !v.ended) {
         const w = v.videoWidth || 640;
@@ -1566,7 +1714,6 @@ export const WorkoutView = {
 
         // 2. Compute FPS
         this.frameCount++;
-        const now = performance.now();
         if (now - this.lastFpsTime >= 1000) {
           const fps = ((this.frameCount * 1000) / (now - this.lastFpsTime)).toFixed(1);
           const fpsBadge = document.getElementById("tech-fps-badge");
@@ -1612,27 +1759,14 @@ export const WorkoutView = {
 
                 cachedAngles = this.updateTechnicalMetrics(cachedPoints);
 
-                const lowerId = (this.exerciseId || "").toLowerCase();
-                const isUpper = lowerId.includes("push") ||
-                                lowerId.includes("dip") ||
-                                lowerId.includes("pull") ||
-                                lowerId.includes("row") ||
-                                lowerId.includes("chin") ||
-                                lowerId.includes("arm") ||
-                                lowerId.includes("chest") ||
-                                lowerId.includes("hit_dat") ||
-                                lowerId.includes("chong_day") ||
-                                lowerId.includes("press");
-
-                cachedDetectedAngle = isUpper
-                  ? (cachedAngles.leftElbow || cachedAngles.rightElbow || this.currentAngle)
-                  : (cachedAngles.leftKnee || cachedAngles.rightKnee || this.currentAngle);
+                cachedDetectedAngle = this.measureTrackedAngle(pose, w, h, usesElbowAngle(this.exerciseId));
               } else {
                 cachedPose = null;
                 cachedPoints = [];
                 cachedAngles = null;
                 cachedDetectedAngle = null;
               }
+              sendTrackedAngle(cachedDetectedAngle, now, usesElbowAngle(this.exerciseId) ? "elbow" : "knee");
             }
 
             if (cachedPose && cachedPoints.length >= 29) {
@@ -1680,11 +1814,7 @@ export const WorkoutView = {
               }
 
               const isUpper = usesElbowAngle(this.exerciseId);
-              const detectedAngle = cachedDetectedAngle !== null
-                ? cachedDetectedAngle
-                : (isUpper
-                  ? (angles.leftElbow ?? angles.rightElbow ?? this.currentAngle)
-                  : (angles.leftKnee ?? angles.rightKnee ?? this.currentAngle));
+              const detectedAngle = cachedDetectedAngle;
 
               // Evaluate real-time positioning: too_close or bad_angle (SCRUM-19 Smart Warnings)
               const isPositionValid = this.evaluatePosePositioning(pose, points, w, h, isUpper, angles, detectedAngle, now);
@@ -1714,15 +1844,6 @@ export const WorkoutView = {
                 ctx.restore();
               }
 
-              // Send to backend FSM rep counter (only when working out AND NOT resting AND position is valid)
-              if (now - lastDispatchTime >= DISPATCH_INTERVAL_MS) {
-                if (this.isWorkingOut && !this.isResting && this.sessionId) {
-                  const accepted = isPositionValid && detectedAngle !== null
-                    ? this.dispatchAngleToFSM(detectedAngle, now, isUpper ? "elbow" : "knee")
-                    : this.dispatchAngleToFSM(null, now, isUpper ? "elbow" : "knee");
-                  if (accepted) lastDispatchTime = now;
-                }
-              }
             } else {
               this.evaluatePosePositioning(null, [], w, h, false, null, null, now);
               if (this.videoSourceType === "camera" &&
@@ -1730,14 +1851,9 @@ export const WorkoutView = {
                 this.positionMonitor?.update(null, this.exerciseId, w, h, now);
               }
               this.resetXGesture();
-              if (now - lastDispatchTime >= DISPATCH_INTERVAL_MS &&
-                  this.isWorkingOut && !this.isResting &&
-                  this.dispatchAngleToFSM(null, now)) {
-                lastDispatchTime = now;
-              }
             }
           } catch (detErr) {
-            // Frame detection error handled gracefully
+            sendTrackedAngle(null, now, "knee");
           }
         } else {
           // Detector still loading
@@ -1749,6 +1865,21 @@ export const WorkoutView = {
     };
 
     this.animationLoopId = requestAnimationFrame(step);
+  },
+
+  measureTrackedAngle(pose, width, height, isUpper) {
+    const chains = isUpper ? [[11, 13, 15], [12, 14, 16]] : [[23, 25, 27], [24, 26, 28]];
+    const trackedPoint = index => {
+      const point = pose[index];
+      if (!point || (point.visibility ?? 0) < 0.6 || (point.presence ?? 1) < 0.6 ||
+          !(point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1)) return null;
+      return {x: point.x * width, y: point.y * height};
+    };
+    for (const chain of chains) {
+      const angle = angleAt(...chain.map(trackedPoint));
+      if (Number.isFinite(angle)) return angle;
+    }
+    return null;
   },
 
   // SCRUM-19: Real-time Camera Pose & Standing Position Warnings (Yêu cầu 30 & 38)
@@ -1997,15 +2128,20 @@ export const WorkoutView = {
     return { leftElbow, rightElbow, leftKnee, rightKnee };
   },
 
-  dispatchAngleToFSM(angle, capturedAt, landmarkType = "knee") {
-    if (!this.isWorkingOut || !this.sessionId || this.poseRequest) return false;
-    const sessionId = this.sessionId, epoch = this.poseEpoch;
-    const request = API.session.sendAngle(sessionId, angle, landmarkType).then(data => {
-      if (sessionId !== this.sessionId || epoch !== this.poseEpoch || !this.isWorkingOut) return;
+  dispatchAngleToFSM(angle, capturedAt, landmarkType = "knee", trackingInterrupted = false) {
+    if (this.workoutMode !== "ai" || !this.isWorkingOut || this.isResting || !this.sessionId ||
+        this.poseRequest || this.setCompletionTimer) return false;
+    const sessionId = this.sessionId, epoch = this.poseEpoch, currentSet = this.currentSet;
+    const request = API.session.sendAngle(
+      sessionId, angle, landmarkType, trackingInterrupted, currentSet, this.currentExerciseIdx, ++this.frameId,
+    ).then(data => {
+      if (sessionId !== this.sessionId || epoch !== this.poseEpoch || currentSet !== this.currentSet ||
+          !this.isWorkingOut || this.isResting) return;
       this.repCount = data.rep_count;
       this.updateHUDDisplay(data.angle, data.state, data.depth_pct, data.cue);
-      if (data.tracking_lost && !this.poseTrackingLost) this.stopVoice();
-      this.poseTrackingLost = data.tracking_lost === true;
+      const trackingLost = data.status === "paused" || data.tracking_lost === true;
+      if (trackingLost && !this.poseTrackingLost) this.stopVoice();
+      this.poseTrackingLost = trackingLost;
       if (data.voice_event) this.playVoiceEvent({...data.voice_event, captured_at: capturedAt});
       if (data.rep_incremented) this.onRepCounted();
     }).catch(() => {}).finally(() => {
@@ -2015,14 +2151,39 @@ export const WorkoutView = {
     return true;
   },
 
+  syncPoseExercise(exerciseId, exerciseName, targetReps, currentSet, totalSets, exerciseIndex = this.currentExerciseIdx) {
+    if (this.poseSwitchRequest) return false;
+    clearTimeout(this.setCompletionTimer);
+    this.setCompletionTimer = null;
+    const sessionId = this.sessionId, epoch = ++this.poseEpoch;
+    this.stopVoice();
+    if (!sessionId) return true;
+    const request = Promise.resolve(this.poseRequest).then(async () => {
+      if (sessionId !== this.sessionId || epoch !== this.poseEpoch) return false;
+      const data = await API.session.switchExercise(
+        sessionId, exerciseId, exerciseName, targetReps, currentSet, totalSets, exerciseIndex,
+      );
+      return sessionId === this.sessionId && data;
+    }).catch(() => {
+      if (sessionId === this.sessionId) Toast.error("Không thể đổi bài tập. Hãy thử lại.");
+      return false;
+    }).finally(() => {
+      if (this.poseRequest === request) this.poseRequest = null;
+      if (this.poseSwitchRequest === request) this.poseSwitchRequest = null;
+    });
+    this.poseRequest = this.poseSwitchRequest = request;
+    return request;
+  },
+
   resetPoseFeedback() {
     this.poseEpoch++;
     this.stopVoice();
-    const sessionId = this.sessionId, epoch = this.poseEpoch;
-    if (!sessionId) return;
+    const sessionId = this.sessionId, epoch = this.poseEpoch, currentSet = this.currentSet;
+    if (!sessionId || this.workoutMode !== "ai" || this.sessionClosed) return;
+    const exerciseIndex = this.currentExerciseIdx;
     const request = Promise.resolve(this.poseRequest).then(() => {
       if (sessionId === this.sessionId && epoch === this.poseEpoch) {
-        return API.session.sendAngle(sessionId, null, "knee", true);
+        return API.session.sendAngle(sessionId, null, "knee", true, currentSet, exerciseIndex, ++this.frameId);
       }
     }).then(data => {
       if (data && sessionId === this.sessionId && epoch === this.poseEpoch) {
@@ -2033,6 +2194,28 @@ export const WorkoutView = {
       if (this.poseRequest === request) this.poseRequest = null;
     });
     this.poseRequest = request;
+  },
+
+  queueSessionPause(paused) {
+    const sessionId = this.sessionId;
+    if (!sessionId || this.sessionClosed) return Promise.resolve(false);
+    const request = Promise.resolve(this.poseRequest).then(async () => {
+      const data = await API.session.setPaused(sessionId, paused);
+      if (sessionId !== this.sessionId) return false;
+      if (this.workoutMode === "ai" && data.current_set === this.currentSet &&
+          data.exercise_index === this.currentExerciseIdx) {
+        this.repCount = data.rep_count;
+        this.updateSetsDisplay();
+      }
+      return true;
+    }).catch(() => {
+      if (sessionId === this.sessionId) Toast.error("Không thể cập nhật trạng thái phiên tập. Hãy thử lại.");
+      return false;
+    }).finally(() => {
+      if (this.poseRequest === request) this.poseRequest = null;
+    });
+    this.poseRequest = request;
+    return request;
   },
 
   updateHUDDisplay(angle, state, depthPct, cue) {
@@ -2090,20 +2273,18 @@ export const WorkoutView = {
       }, 250);
     }
 
-    if (this.repCount >= this.targetReps) {
+    if (this.repCount >= this.targetReps && !this.setCompletionTimer) {
       if (this.currentSet < this.totalSets) {
         this.speak(`Tuyệt vời! Đã hoàn thành hiệp ${this.currentSet}. Hãy nghỉ ngơi phục hồi.`);
         Toast.success(`Chúc mừng bạn đã đạt chỉ tiêu hiệp ${this.currentSet}/${this.totalSets}!`);
-        setTimeout(() => {
-          if (!this.isResting) this.completeCurrentSet();
-        }, 1200);
       } else {
         this.speak(`Tuyệt vời! Bạn đã hoàn thành toàn bộ ${this.totalSets} hiệp bài ${this.exerciseName}!`);
         Toast.success(`Chúc mừng bạn đã hoàn thành bài ${this.exerciseName}!`);
-        setTimeout(() => {
-          if (!this.isResting) this.completeCurrentSet();
-        }, 1200);
       }
+      this.setCompletionTimer = setTimeout(() => {
+        this.setCompletionTimer = null;
+        if (!this.isResting && this.isWorkingOut) this.completeCurrentSet();
+      }, 1200);
     }
   },
 
@@ -2140,10 +2321,22 @@ export const WorkoutView = {
 
   leave() {
     this.isWorkingOut = false;
+    this.poseEpoch++;
+    clearTimeout(this.setCompletionTimer);
+    this.setCompletionTimer = null;
+    this.poseSwitchRequest = null;
     clearInterval(this.sessionTimerInterval);
     clearInterval(this.restCountdownTimer);
+    clearInterval(this.restTimerInterval);
+    this.restTimerInterval = null;
     this.stopVoice();
     this.stopVideoSource();
+    const button = document.getElementById("btn-toggle-workout");
+    if (button) {
+      button.innerHTML = "▶️ Tiếp tục tập";
+      button.className = "btn btn-emerald";
+    }
+    return this.queueSessionPause(true);
   },
 
   speak(text) {
@@ -2165,35 +2358,61 @@ export const WorkoutView = {
     }
   },
 
-  async finishWorkout() {
-    clearInterval(this.restTimerInterval);
+  async finishWorkout(outcome = "completed") {
+    if (this.sessionClosing || this.sessionClosed || !this.sessionId) return;
+    const sessionId = this.sessionId;
+    this.sessionClosing = true;
+    try {
+      await this.leave();
+      const elapsed = this.sessionStartTime ? Math.floor((Date.now() - this.sessionStartTime) / 1000) : 0;
+      const reps = this.workoutMode === "ai"
+        ? (await API.session.summary(sessionId)).total_reps
+        : [...this.manualSetReps.values()].reduce((total, count) => total + count, 0);
+      if (sessionId !== this.sessionId) return;
+      this.openRPEEvaluationModal(reps, elapsed, outcome);
+    } catch {
+      Toast.error("Không thể lấy kết quả buổi tập. Hãy thử lại.");
+    } finally {
+      this.sessionClosing = false;
+    }
+  },
+
+  async saveWorkoutResult(reps, durationSeconds, rpe, notes, outcome) {
+    const sessionId = this.sessionId;
+    const result = await API.session.finish({
+      sessionId,
+      exerciseId: this.exerciseId,
+      completedReps: this.workoutMode === "manual" ? reps : undefined,
+      durationSeconds, rpe, notes, day: this.day, outcome,
+    });
+    if (sessionId !== this.sessionId) return result;
+    this.sessionClosed = true;
     this.isResting = false;
     const overlay = document.getElementById("hud-rest-overlay");
     if (overlay) overlay.style.display = "none";
-
-    this.pauseWorkout();
-    this.stopVideoSource();
-    clearInterval(this.restCountdownTimer);
-
-    const elapsed = this.sessionStartTime ? Math.floor((Date.now() - this.sessionStartTime) / 1000) : 60;
-    this.openRPEEvaluationModal(this.repCount, elapsed);
+    Toast.success(outcome === "abandoned" ? "Đã lưu buổi tập với trạng thái bỏ dở." : "Đã ghi nhận buổi tập vào nhật ký!");
+    await window.navigateTo("progress", true);
+    return result;
   },
 
-  openRPEEvaluationModal(reps, durationSec) {
+  openRPEEvaluationModal(reps, durationSec, outcome = "completed") {
+    const sessionId = this.sessionId;
     const modal = document.getElementById("modal-rpe");
     const body = document.getElementById("rpe-modal-body");
     if (!modal || !body) return;
+    const abandoned = outcome === "abandoned";
 
     body.innerHTML = `
       <div style="text-align: center; margin-bottom: 1.5rem;">
-        <div style="font-size: 3rem; margin-bottom: 0.5rem;">🎉</div>
-        <h3 style="font-size: 1.4rem; font-weight: 800; color: var(--text-primary);">Hoàn Thành Bài Tập!</h3>
+        <h3 style="font-size: 1.4rem; font-weight: 800; color: var(--text-primary);">
+          ${abandoned ? "Bỏ dở buổi tập?" : "Hoàn thành buổi tập"}
+        </h3>
         <p style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.2rem;">
           Bạn đã ghi nhận <b>${reps} reps</b> trong <b>${Math.floor(durationSec / 60)}p ${durationSec % 60}s</b>.
         </p>
       </div>
 
-      <div style="margin-bottom: 1.5rem;">
+      ${abandoned ? "" : `<div style="margin-bottom: 1.5rem;">
         <label class="form-label" style="font-size: 0.95rem;">
           Đánh giá mức độ kiệt sức RPE (Rate of Perceived Exertion: 1 - 10):
         </label>
@@ -2211,11 +2430,12 @@ export const WorkoutView = {
       <div class="form-group">
         <label class="form-label">Ghi chú cảm nhận cơ bắp (tùy chọn):</label>
         <textarea class="form-input" id="rpe-notes" rows="2" placeholder="VD: Khớp gối êm, cơ đùi trước căng mỏi tốt..."></textarea>
-      </div>
+      </div>`}
 
       <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+        ${abandoned ? '<button class="btn btn-outline" id="btn-cancel-abandon">Quay lại</button>' : ""}
         <button class="btn btn-emerald" id="btn-submit-rpe" style="width: 100%;">
-          💾 Lưu kết quả & Cập nhật ma trận phục hồi
+          ${abandoned ? "Xác nhận bỏ dở" : "💾 Lưu kết quả & Cập nhật ma trận phục hồi"}
         </button>
       </div>
     `;
@@ -2227,30 +2447,21 @@ export const WorkoutView = {
     slider?.addEventListener("input", (e) => {
       if (valDisp) valDisp.textContent = e.target.value;
     });
+    body.querySelector("#btn-cancel-abandon")?.addEventListener("click", () => modal.classList.remove("active"));
 
     body.querySelector("#btn-submit-rpe")?.addEventListener("click", async () => {
-      const rpeVal = parseInt(slider.value) || 7;
+      if (sessionId !== this.sessionId || this.sessionClosing || this.sessionClosed) return;
+      this.sessionClosing = true;
+      const rpeVal = parseInt(slider?.value) || 7;
       const notes = body.querySelector("#rpe-notes")?.value || "";
 
       try {
-        await API.session.finish({
-          sessionId: this.sessionId || "local-session",
-          exerciseId: this.exerciseId,
-          completedReps: reps,
-          durationSeconds: durationSec,
-          rpe: rpeVal,
-          notes,
-          day: this.day,
-          targetReps: this.targetReps,
-        });
-
+        await this.saveWorkoutResult(reps, durationSec, rpeVal, notes, outcome);
         modal.classList.remove("active");
-        Toast.success("Đã ghi nhận buổi tập thành công vào nhật ký!");
-
-        import("../components/capybara.js").then((m) => m.Capybara.refresh());
-        window.navigateTo("progress");
       } catch (e) {
         Toast.error("Lỗi lưu kết quả: " + e.message);
+      } finally {
+        this.sessionClosing = false;
       }
     });
   },

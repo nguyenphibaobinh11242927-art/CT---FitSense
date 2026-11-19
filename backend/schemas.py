@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -105,20 +105,23 @@ class ExerciseSwapRequest(BaseModel):
 
 class SessionStartRequest(BaseModel):
     exercise_id: str
-    target_reps: int = 10
+    target_reps: int = Field(default=10, ge=1)
     day: Optional[str] = None
     exercise_list: Optional[list[dict[str, Any]]] = None
     total_sets: Optional[int] = 3
     current_set: Optional[int] = 1
+    exercise_index: int = Field(default=0, ge=0)
+    mode: Literal["ai", "manual"] = "ai"
 
 
 class SessionSwitchExerciseRequest(BaseModel):
     session_id: str
     exercise_id: str
     exercise_name: Optional[str] = None
-    target_reps: int = 10
-    current_set: int = 1
-    total_sets: int = 3
+    target_reps: int = Field(default=10, ge=1)
+    current_set: int = Field(default=1, ge=1)
+    total_sets: int = Field(default=3, ge=1)
+    exercise_index: Optional[int] = Field(default=None, ge=0)
 
 
 class FSMRepRequest(BaseModel):
@@ -126,17 +129,26 @@ class FSMRepRequest(BaseModel):
     angle: Optional[float] = None
     landmark_type: str = "knee"  # 'knee' for squat, 'elbow' for pushup
     tracking_interrupted: bool = False
+    current_set: Optional[int] = Field(default=None, ge=1)
+    exercise_index: Optional[int] = Field(default=None, ge=0)
+    frame_id: Optional[int] = Field(default=None, ge=1)
+
+
+class SessionPauseRequest(BaseModel):
+    session_id: str
+    paused: bool
 
 
 class SessionFinishRequest(BaseModel):
     session_id: str
     exercise_id: str
-    completed_reps: int
-    duration_seconds: int
+    completed_reps: int = Field(default=0, ge=0)
+    duration_seconds: int = Field(..., ge=0)
     rpe: int = Field(default=7, ge=1, le=10)
     feedback_notes: Optional[str] = None
     day: Optional[str] = None
     target_reps: Optional[int] = None
+    outcome: Literal["completed", "abandoned"] = "completed"
 
 
 class PlanUploadRequest(BaseModel):

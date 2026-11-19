@@ -440,6 +440,7 @@ export const ProgressView = {
                   <th>Thời gian</th>
                   <th>Bài tập</th>
                   <th>Lịch tuần</th>
+                  <th>Trạng thái</th>
                   <th>Số Reps</th>
                   <th>Thời lượng</th>
                   <th>Calo tiêu hao</th>
@@ -453,19 +454,20 @@ export const ProgressView = {
                     <td><b>${item.timestamp || item.actual_date}</b></td>
                     <td><span style="color: var(--accent-cyan); font-weight: 700;">${item.exercise_name}</span></td>
                     <td><span class="badge badge-beginner">${item.day || "Tập tự do"}</span></td>
+                    <td>${item.status === "abandoned" ? "Bỏ dở" : "Hoàn thành"}</td>
                     <td><strong>${item.reps}</strong> reps</td>
                     <td>${Math.floor((item.duration_sec || 0) / 60)}p ${(item.duration_sec || 0) % 60}s</td>
                     <td><span style="color: var(--accent-emerald); font-weight: 700;">${item.calories || 0} kcal</span></td>
                     <td>
-                      <span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}">
+                      ${item.rpe === null ? "—" : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}">
                         RPE ${item.rpe || 7}/10
-                      </span>
+                      </span>`}
                     </td>
                     <td style="color: var(--text-secondary); font-size: 0.82rem;">${item.notes || "—"}</td>
                   </tr>
                 `).join("") : `
                   <tr>
-                    <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                    <td colspan="9" style="text-align: center; padding: 2rem; color: var(--text-muted);">
                       Chưa có dữ liệu buổi tập nào. Hãy vào phòng tập Live AI để ghi nhận buổi đầu tiên nhé!
                     </td>
                   </tr>
