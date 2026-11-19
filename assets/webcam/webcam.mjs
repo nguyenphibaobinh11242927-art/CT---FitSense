@@ -238,7 +238,7 @@ function drawSkeleton(points) {
     ctx.fillText(text, point.x + 12, point.y - 8);
   }
 }
-function getPoseFeatures(pose, capturedAt = performance.now()) {
+function getPoseFeatures(pose, capturedAt = performance.now(), frameWidth = 1) {
   const nose = pose[0];
   const leftShoulder = pose[11], rightShoulder = pose[12];
   const leftElbow = pose[13], rightElbow = pose[14];
@@ -281,7 +281,7 @@ function getPoseFeatures(pose, capturedAt = performance.now()) {
       Math.abs(leftWrist.x - rightWrist.x) < 0.15 * bodyWidth;
   }
 
-  const diagnostics = getPoseDiagnostics(pose, exerciseType);
+  const diagnostics = getPoseDiagnostics(pose, exerciseType, frameWidth);
   return {
     knee_angle: kneeAngle,
     start_detected: startDetected,
@@ -395,7 +395,7 @@ function draw(now) {
       drawSkeleton(points);
       if (showMetrics) updateAngles(points);
       if (shouldDetect) {
-        const features = getPoseFeatures(points, now);
+        const features = getPoseFeatures(points, now, w);
         const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
         const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
         setStatus(pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.");

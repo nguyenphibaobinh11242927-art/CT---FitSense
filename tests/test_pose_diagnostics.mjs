@@ -44,6 +44,22 @@ test("too-close candidate detects cropped lower body or shoulder span over 40 pe
   assert.equal(getPoseDiagnostics([]).tooCloseCandidate, false);
 });
 
+test("shoulder-width threshold is normalized against the actual frame width", () => {
+  const points = pose().map(point => point && ({
+    ...point,
+    x: point.x * 640,
+    y: point.y * 480,
+  }));
+  points[11].x = 100;
+  points[12].x = 100 + 0.39 * 640;
+  assert.equal(getPoseDiagnostics(points, "squat", 640).tooCloseCandidate, false);
+
+  points[12].x = 100 + 0.41 * 640;
+  assert.equal(getPoseDiagnostics(points, "squat", 640).tooCloseCandidate, true);
+
+  assert.throws(() => getPoseDiagnostics(points, "squat", 0), RangeError);
+});
+
 test("bad-angle flag requires at least one full joint chain on either side", () => {
   const squat = pose();
   for (const index of [23, 24, 25, 26, 27, 28]) squat[index].visibility = 0.49;

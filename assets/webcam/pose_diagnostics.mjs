@@ -12,15 +12,19 @@ function isVisible(pose, index) {
   );
 }
 
-export function getPoseDiagnostics(pose, exerciseType = "squat") {
+export function getPoseDiagnostics(pose, exerciseType = "squat", frameWidth = 1) {
+  if (!Number.isFinite(frameWidth) || frameWidth <= 0) {
+    throw new RangeError("Frame width must be a positive finite number.");
+  }
   const visible = index => isVisible(pose, index);
   const upperBodyVisible = [0, 11, 12].some(visible);
   const lowerBodyVisible = [25, 26, 27, 28].some(visible);
-  const shoulderWidth = visible(11) && visible(12)
+  const shoulderWidthRatio = visible(11) && visible(12)
     ? Math.abs(pose[11].x - pose[12].x)
+      / frameWidth
     : 0;
   const tooCloseCandidate = upperBodyVisible &&
-    (!lowerBodyVisible || shoulderWidth > 0.4);
+    (!lowerBodyVisible || shoulderWidthRatio > 0.4);
 
   const sides = exerciseType === "push_up"
     ? [[11, 13, 15], [12, 14, 16]]
