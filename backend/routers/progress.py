@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from backend.schemas import EvaluationSubmitRequest
+from src.progress_analytics import build_progress_analytics, compute_personal_records
 
 router = APIRouter(prefix="/api/progress", tags=["Progress & Evaluation"])
 
@@ -99,6 +100,10 @@ def get_history():
         "history": WORKOUT_HISTORY,
     }
 
+@router.get("/analytics")
+def get_analytics(timeframe: str = "week"):
+    """SCRUM-21: Dynamic Pandas analytics by timeframe (week | month | all) for Plotly charts."""
+    return build_progress_analytics(WORKOUT_HISTORY, timeframe=timeframe)
 
 @router.get("/stats")
 def get_stats():
@@ -131,7 +136,7 @@ def get_stats():
         "current_streak_days": streak,
         "longest_streak_days": longest,
         "has_worked_out_today": HAS_WORKED_OUT_TODAY,
-        "personal_records": PERSONAL_RECORDS,
+        "personal_records": compute_personal_records(WORKOUT_HISTORY),
         "weekly_volume": WEEKLY_VOLUME,
     }
 

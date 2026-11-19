@@ -172,6 +172,7 @@ export const API = {
     history: () => request("/api/progress/history"),
     stats: () => request("/api/progress/stats"),
     heatmap: () => request("/api/progress/heatmap"),
+    analytics: (timeframe = "week") => request(`/api/progress/analytics?timeframe=${encodeURIComponent(timeframe)}`),
     evaluationMeta: () => request("/api/progress/evaluation-meta"),
     evaluations: () => request("/api/progress/evaluations"),
     submitEvaluation: (data) => request("/api/progress/evaluate", {

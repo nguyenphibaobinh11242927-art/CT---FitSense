@@ -10,6 +10,7 @@ import { Toast } from "../components/toast.js";
 export const ProgressView = {
   evalMeta: null,
   latestEvaluation: null,
+  timeframe: "week",
   lastRenderTime: 0,
 
   async render(forceRefresh = false) {
@@ -22,12 +23,16 @@ export const ProgressView = {
     }
 
     try {
-      const [heatmapData, historyData, statsData, evalMetaData, evalsData] = await Promise.all([
+      const [heatmapData, historyData, statsData, evalMetaData, evalsData, analyticsData] = await Promise.all([
         API.progress.heatmap(),
         API.progress.history(),
         API.progress.stats(),
         API.progress.evaluationMeta(),
         API.progress.evaluations(),
+        API.progress.analytics(this.timeframe).catch((err) => {
+          console.warn("Analytics API failed, falling back gracefully:", err);
+          return { __error: err.message || "Không thể tải dữ liệu biểu đồ." };
+        }),
       ]);
       this.lastRenderTime = Date.now();
 
@@ -144,28 +149,31 @@ export const ProgressView = {
           </div>
         </div>
 
-        <!-- 3. Weekly Volume Chart Section -->
+       <!-- 3. Interactive Plotly Progress Charts (SCRUM-21: Reps & Plank Hold) -->
         <div class="fitsense-card" style="margin-bottom: 2rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
             <div>
-              <h3 style="font-size: 1.15rem; font-weight: 800;">📈 Biểu đồ Khối lượng Rèn luyện theo Tuần</h3>
-              <p style="font-size: 0.82rem; color: var(--text-secondary);">Tăng tiến thể lực theo thời gian (Số Reps & Thời lượng)</p>
+              <h3 style="font-size: 1.15rem; font-weight: 800;">📈 Biểu đồ Thể lực &amp; Tiến bộ (Pandas + Plotly)</h3>
+              <p style="font-size: 0.82rem; color: var(--text-secondary);">
+                Theo dõi số Reps và Thời gian giữ Plank trực quan theo khoảng thời gian
+              </p>
             </div>
-            <span class="badge badge-emerald">Progressive Trend ↗️</span>
+            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;" id="progress-timeframe-filters">
+              <button type="button" class="btn ${this.timeframe === 'week' ? 'btn-primary' : 'btn-outline'}" data-tf="week" style="padding: 0.35rem 0.85rem; font-size: 0.82rem;">7 Ngày (Tuần)</button>
+              <button type="button" class="btn ${this.timeframe === 'month' ? 'btn-primary' : 'btn-outline'}" data-tf="month" style="padding: 0.35rem 0.85rem; font-size: 0.82rem;">30 Ngày (Tháng)</button>
+              <button type="button" class="btn ${this.timeframe === 'all' ? 'btn-primary' : 'btn-outline'}" data-tf="all" style="padding: 0.35rem 0.85rem; font-size: 0.82rem;">Tất cả</button>
+            </div>
           </div>
 
-          <div style="display: flex; align-items: flex-end; gap: 1.5rem; height: 180px; padding: 1rem 0; border-bottom: 1px solid var(--border-subtle); overflow-x: auto;">
-            ${weeklyVolume.map((item) => {
-              const maxReps = 400;
-              const barHeightPct = Math.round((item.reps / maxReps) * 100);
-              return `
-                <div style="flex: 1; min-width: 65px; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end;">
-                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--accent-cyan); margin-bottom: 0.35rem;">${item.reps} rep</span>
-                  <div style="width: 100%; max-width: 44px; height: ${barHeightPct}%; background: linear-gradient(180deg, var(--accent-cyan) 0%, rgba(56, 189, 248, 0.4) 100%); border-radius: 6px 6px 0 0; transition: height 0.4s ease;"></div>
-                  <span style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.5rem;">${item.week}</span>
-                </div>
-              `;
-            }).join("")}
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem;">
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.85rem;">
+              <div style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--accent-cyan);">💪 Tiến bộ Số Reps</div>
+              <div id="plotly-reps-chart" style="width: 100%; height: 240px;"></div>
+            </div>
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.85rem;">
+              <div style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--accent-emerald);">⏱️ Thời gian Giữ Plank (giây)</div>
+              <div id="plotly-plank-chart" style="width: 100%; height: 240px;"></div>
+            </div>
           </div>
         </div>
 
@@ -479,6 +487,8 @@ export const ProgressView = {
       `;
 
       this.bindEvaluationEvents(container);
+      this.renderPlotlyCharts(analyticsData);
+      this.bindTimeframeEvents(container);
     } catch (err) {
       console.error("Progress render error:", err);
       if (container) {
@@ -659,5 +669,94 @@ export const ProgressView = {
         Toast.error("Lỗi gửi đánh giá: " + err.message);
       }
     });
+  },
+
+  bindTimeframeEvents(container) {
+    container.querySelectorAll("#progress-timeframe-filters button[data-tf]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const nextTf = btn.getAttribute("data-tf");
+        if (nextTf && nextTf !== this.timeframe) {
+          this.timeframe = nextTf;
+          await this.render();
+        }
+      });
+    });
+  },
+
+  renderPlotlyCharts(analyticsData) {
+    const repsEl = document.getElementById("plotly-reps-chart");
+    const plankEl = document.getElementById("plotly-plank-chart");
+    if (!repsEl || !plankEl) return;
+
+    if (analyticsData?.__error) {
+      const safeText = "⚠️ Tạm thời chưa tải được dữ liệu biểu đồ. Các mục khác vẫn hoạt động bình thường.";
+      [repsEl, plankEl].forEach((el) => {
+        el.innerHTML = "";
+        const msgDiv = document.createElement("div");
+        msgDiv.style.cssText = "height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-amber); font-size: 0.85rem; text-align: center; padding: 1rem;";
+        msgDiv.textContent = safeText;
+        el.appendChild(msgDiv);
+      });
+      return;
+    }
+
+    const labels = analyticsData?.labels || [];
+    const repsSeries = analyticsData?.reps_series || [];
+    const plankSeries = analyticsData?.plank_series || [];
+
+    if (!window.Plotly) {
+      repsEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Đang tải thư viện Plotly...</div>`;
+      plankEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Đang tải thư viện Plotly...</div>`;
+      return;
+    }
+
+    if (labels.length === 0) {
+      const emptyMsg = `<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.85rem; text-align: center;">Chưa có dữ liệu trong khoảng thời gian này.</div>`;
+      repsEl.innerHTML = emptyMsg;
+      plankEl.innerHTML = emptyMsg;
+      return;
+    }
+
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const textColor = isDark ? "#cbd5e1" : "#334155";
+    const gridColor = isDark ? "rgba(148, 163, 184, 0.15)" : "rgba(15, 23, 42, 0.1)";
+
+    const baseLayout = {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
+      font: { color: textColor, family: "Inter, sans-serif", size: 11 },
+      margin: { t: 16, r: 16, b: 36, l: 42 },
+      xaxis: { gridcolor: gridColor },
+      yaxis: { gridcolor: gridColor, rangemode: "tozero" },
+    };
+
+    window.Plotly.newPlot(
+      repsEl,
+      [{
+        x: labels,
+        y: repsSeries,
+        type: "bar",
+        name: "Reps",
+        marker: { color: "#38bdf8", borderRadius: 4 },
+      }],
+      { ...baseLayout, yaxis: { ...baseLayout.yaxis, title: "Reps" } },
+      { responsive: true, displayModeBar: false }
+    );
+
+    window.Plotly.newPlot(
+      plankEl,
+      [{
+        x: labels,
+        y: plankSeries,
+        type: "scatter",
+        mode: "lines+markers",
+        fill: "tozeroy",
+        name: "Plank (s)",
+        line: { color: "#10b981", width: 2.5 },
+        marker: { size: 7, color: "#34d399" },
+      }],
+      { ...baseLayout, yaxis: { ...baseLayout.yaxis, title: "Giây (s)" } },
+      { responsive: true, displayModeBar: false }
+    );
   },
 };
