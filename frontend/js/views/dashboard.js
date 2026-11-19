@@ -83,7 +83,7 @@ export const DashboardView = {
           <div class="stat-card">
             <div class="stat-icon cyan">🎯</div>
             <div class="stat-info">
-              <span class="stat-label">Tổng số bài tập hoàn thành</span>
+              <span class="stat-label">Tổng số buổi đã ghi nhận</span>
               <span class="stat-value">${stats.total_workouts} buổi</span>
               <span class="stat-sub">${stats.total_reps} reps tích lũy</span>
             </div>
@@ -103,7 +103,7 @@ export const DashboardView = {
             <div class="stat-info">
               <span class="stat-label">Năng lượng tiêu hao</span>
               <span class="stat-value">${stats.total_calories} kcal</span>
-              <span class="stat-sub">${stats.total_workouts > 0 ? `RPE trung bình: ${stats.average_rpe}/10` : "Chưa ghi nhận buổi tập"}</span>
+              <span class="stat-sub">${stats.average_rpe > 0 ? `RPE trung bình: ${stats.average_rpe}/10` : "Chưa có đánh giá RPE"}</span>
             </div>
           </div>
         </div>

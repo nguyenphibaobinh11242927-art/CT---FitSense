@@ -47,7 +47,7 @@ class FitSenseApp {
     this.setupModals();
 
     // Global helper methods for cross-view navigation
-    window.navigateTo = (viewName) => this.switchView(viewName);
+    window.navigateTo = (viewName, forceRefresh = false) => this.switchView(viewName, true, forceRefresh);
     window.startWorkoutSession = (
       exId,
       exName,
@@ -273,19 +273,8 @@ class FitSenseApp {
     });
   }
 
-  async switchView(viewName, updateHash = true) {
+  async switchView(viewName, updateHash = true, forceRefresh = false) {
     if (!VIEWS[viewName]) return;
-
-    // Free up CPU/Camera if leaving workout view
-    if (this.currentView === "workout" && viewName !== "workout") {
-      try {
-        if (typeof WorkoutView.stopVideoSource === "function") {
-          WorkoutView.stopVideoSource();
-        }
-      } catch (e) {
-        console.debug("Could not stop workout stream on leave:", e);
-      }
-    }
 
     if (this.currentView === "workout" && viewName !== "workout") WorkoutView.leave();
     this.currentView = viewName;
@@ -318,7 +307,7 @@ class FitSenseApp {
     }
 
     // Yield one frame so the browser paints the newly switched tab at 0ms before running any render logic
-    if (!isFirstTime) {
+    if (!isFirstTime && !forceRefresh) {
       setTimeout(() => {
         VIEWS[viewName].render(false).catch((err) => {
           console.error(`Error refreshing view ${viewName}:`, err);
@@ -327,6 +316,7 @@ class FitSenseApp {
     } else {
       try {
         await VIEWS[viewName].render(true);
+        if (forceRefresh && viewName === "progress") void Capybara.refresh();
       } catch (err) {
         console.error(`Error rendering view ${viewName}:`, err);
       }

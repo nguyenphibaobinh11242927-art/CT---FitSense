@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from backend.main import app
-from backend.routers import planner, session
+from backend.routers import planner, progress, session
 from src.school_ai import FitAIServiceError
 
 
@@ -279,6 +279,121 @@ class TestBackendAPI(unittest.TestCase):
             for angle in (145, 90, 120):
                 frame(angle)
             self.assertEqual(frame(165)["voice_event"], {"kind": "rep", "count": 1})
+
+    def test_rep_feedback_resets_for_new_sets_and_obeys_the_current_exercise(self):
+        with patch.dict(session.ACTIVE_SESSIONS, {}, clear=True):
+            start = self.client.post("/api/session/start", json={"exercise_id": "squat", "total_sets": 2})
+            session_id = start.json()["session_id"]
+
+            def frame(angle, current_set):
+                return self.client.post("/api/session/fsm-rep", json={
+                    "session_id": session_id, "angle": angle, "current_set": current_set,
+                })
+
+            for current_set in (1, 2):
+                for angle in (170, 145, 90, 120, 165):
+                    response = frame(angle, current_set)
+                    self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["voice_event"], {"kind": "rep", "count": 1})
+            self.assertEqual(frame(145, 1).status_code, 409)
+
+            for exercise_id, cue in (("push_up", None), ("squat", {"kind": "shallow_squat"})):
+                switched = self.client.post("/api/session/switch-exercise", json={
+                    "session_id": session_id, "exercise_id": exercise_id,
+                })
+                self.assertEqual(switched.status_code, 200, switched.text)
+                for angle in (170, 145, 130, 165):
+                    response = frame(angle, 1)
+                self.assertEqual(response.json()["voice_event"], cue)
+
+    def test_ai_workout_summary_uses_all_sets_and_saves_once(self):
+        with (
+            patch.dict(session.ACTIVE_SESSIONS, {}, clear=True),
+            patch.object(progress, "WORKOUT_HISTORY", []),
+            patch.object(progress, "HAS_WORKED_OUT_TODAY", False),
+        ):
+            start = self.client.post("/api/session/start", json={
+                "exercise_id": "squat", "target_reps": 12, "total_sets": 2,
+            })
+            session_id = start.json()["session_id"]
+            frame_id = 0
+            for current_set in (1, 2):
+                for _ in range(12):
+                    for angle in (170, 145, 90, 120, 165):
+                        frame_id += 1
+                        frame = self.client.post("/api/session/fsm-rep", json={
+                            "session_id": session_id, "angle": angle, "current_set": current_set,
+                            "exercise_index": 0, "frame_id": frame_id,
+                        })
+                        self.assertEqual(frame.status_code, 200, frame.text)
+                self.assertEqual(frame.json()["rep_count"], 12)
+
+            summary = self.client.get(f"/api/session/summary/{session_id}").json()
+            self.assertEqual((summary["total_reps"], summary["total_target_reps"]), (24, 24))
+            self.assertEqual([entry["reps"] for entry in summary["sets"]], [12, 12])
+            finish = {"session_id": session_id, "exercise_id": "squat", "completed_reps": 12, "duration_seconds": 180}
+            first = self.client.post("/api/session/finish", json=finish).json()
+            self.assertEqual(first["record"]["reps"], 24)
+            self.assertEqual(first["record"]["status"], "completed")
+            self.assertEqual(first["record"]["mode"], "ai")
+            self.assertEqual(self.client.post("/api/session/finish", json=finish).json(), first)
+            self.assertEqual(len(progress.WORKOUT_HISTORY), 1)
+            self.assertEqual(self.client.post("/api/session/fsm-rep", json={
+                "session_id": session_id, "angle": 170,
+            }).status_code, 409)
+
+    def test_tracking_loss_and_explicit_pause_require_a_fresh_attempt(self):
+        with patch.dict(session.ACTIVE_SESSIONS, {}, clear=True):
+            session_id = self.client.post("/api/session/start", json={"exercise_id": "squat"}).json()["session_id"]
+
+            def frame(angle, **extra):
+                return self.client.post("/api/session/fsm-rep", json={
+                    "session_id": session_id, "angle": angle, **extra,
+                })
+
+            for angle in (170, 145, 85, 120):
+                self.assertEqual(frame(angle).status_code, 200)
+            lost = frame(None, tracking_interrupted=True).json()
+            self.assertEqual((lost["status"], lost["rep_count"]), ("paused", 0))
+            self.assertEqual(frame(120).json()["status"], "paused")
+            restored = frame(170).json()
+            self.assertEqual((restored["status"], restored["rep_count"]), ("active", 0))
+            self.assertFalse(restored["rep_incremented"])
+
+            for paused in (True, False):
+                response = self.client.post("/api/session/pause", json={"session_id": session_id, "paused": paused})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(frame(170).status_code, 409 if paused else 200)
+            self.assertEqual(frame(145, frame_id=10).status_code, 200)
+            self.assertEqual(frame(85, frame_id=10).status_code, 409)
+            for angle in (85, 120):
+                frame(angle)
+            self.assertEqual(frame(170).json()["rep_count"], 1)
+
+    def test_manual_and_abandoned_workouts_keep_their_own_results(self):
+        with (
+            patch.dict(session.ACTIVE_SESSIONS, {}, clear=True),
+            patch.object(progress, "WORKOUT_HISTORY", []),
+            patch.object(progress, "HAS_WORKED_OUT_TODAY", False),
+        ):
+            ai_id = self.client.post("/api/session/start", json={"exercise_id": "squat"}).json()["session_id"]
+            manual_id = self.client.post("/api/session/start", json={"exercise_id": "squat", "mode": "manual"}).json()["session_id"]
+            self.assertEqual(self.client.post("/api/session/fsm-rep", json={
+                "session_id": manual_id, "angle": 170,
+            }).status_code, 409)
+            for angle in (170, 145, 85, 120, 170):
+                self.client.post("/api/session/fsm-rep", json={"session_id": ai_id, "angle": angle})
+            abandoned = self.client.post("/api/session/finish", json={
+                "session_id": ai_id, "exercise_id": "squat", "duration_seconds": 20, "outcome": "abandoned",
+            }).json()["record"]
+            self.assertEqual((abandoned["status"], abandoned["reps"]), ("abandoned", 1))
+            self.assertIsNone(abandoned["rpe"])
+            self.assertFalse(progress.HAS_WORKED_OUT_TODAY)
+            manual = self.client.post("/api/session/finish", json={
+                "session_id": manual_id, "exercise_id": "squat", "duration_seconds": 45, "completed_reps": 6,
+            }).json()["record"]
+            self.assertEqual((manual["status"], manual["mode"], manual["reps"]), ("completed", "manual", 6))
+            self.assertEqual(self.client.get("/api/progress/history").json()["history"], [manual, abandoned])
 
     def test_profile_update_and_auto_realign_restrictions(self):
         # Reset schedule first to ensure standard baseline with squat

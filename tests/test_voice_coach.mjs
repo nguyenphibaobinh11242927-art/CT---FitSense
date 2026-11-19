@@ -144,6 +144,27 @@ test("plays bundled camera warnings twelve seconds apart without cutting current
   assert.equal(played[0].stopped, undefined);
 });
 
+test("plays fresh rep and form feedback without waiting behind long guidance", async () => {
+  const {coach, played, advance, status} = setup();
+  coach.toggle();
+  await flush();
+  played.shift().onended();
+
+  assert.equal(coach.warnPosition("wrong_angle"), true);
+  await flush();
+  advance(100);
+  coach.receive({kind: "rep", count: 2, captured_at: 350});
+  await flush();
+  assert.ok(played[0].stopped);
+  assert.deepEqual(played[1].args.slice(1), VI_CUES[2]);
+  assert.match(status.at(-1), /: 0 ms/);
+
+  coach.receive({kind: "shallow_squat", captured_at: 350});
+  await flush();
+  assert.ok(played[1].stopped);
+  assert.deepEqual(played[2].args.slice(1), VI_CUES[102]);
+});
+
 test("reads the latest completed rep before coaching on a newer attempt in the same batch", async () => {
   const {coach, played, corrections} = setup();
   coach.toggle();
