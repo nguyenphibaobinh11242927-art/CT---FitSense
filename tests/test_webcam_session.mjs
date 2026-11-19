@@ -2,20 +2,32 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
 import {runInNewContext} from "node:vm";
+import {createFrameBatchFilter} from "../assets/webcam/frame_batching.mjs";
+import * as overlay from "../assets/webcam/overlay.mjs";
 
 test("webcam pauses a stalled stream and resumes with the same session sequence", async () => {
-  const messages = [], heard = [];
+  const messages = [], heard = [], canvasCalls = [];
   const parent = {postMessage(message) { messages.push(structuredClone(message)); }};
   const origin = "http://localhost:8501";
-  let renderListener, animation, videoFrame, updateSpeaker, sendCommand, now = 0;
+  let renderListener, animation, videoFrame, updateSpeaker, now = 0;
   const win = {parent, addEventListener(type, listener) {
     if (type === "message") renderListener = listener;
   }};
   const nodes = new Map();
+  const context = new Proxy({}, {
+    get(target, key) {
+      if (key in target) return target[key];
+      return (...args) => canvasCalls.push([key, ...args]);
+    },
+    set(target, key, value) {
+      target[key] = value;
+      return true;
+    },
+  });
   const element = id => {
     if (!nodes.has(id)) nodes.set(id, {
       style: {}, disabled: true, value: "",
-      getContext: () => ({drawImage() {}, clearRect() {}, beginPath() {}, arc() {}, fill() {}}),
+      getContext: () => context,
       appendChild: node => node,
       setAttribute(name, value) { this[name] = value; }, async play() {},
     });
@@ -28,6 +40,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
     cancelVideoFrameCallback() { videoFrame = null; },
   });
   const track = {stop() {}};
+  let detectionCount = 0, detectionDuration = 0, clockOffset = 0, cameraConstraints;
   const landmarks = [];
   landmarks[23] = {x: .5, y: .4, visibility: 1};
   landmarks[25] = {x: .5, y: .6, visibility: 1};
@@ -35,29 +48,34 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   const fakeMediaPipe = {
     FilesetResolver: {async forVisionTasks() {}},
     PoseLandmarker: {POSE_CONNECTIONS: [], async createFromOptions() {
-      return {detectForVideo: () => ({landmarks: [landmarks]}), close() {}};
+      return {detectForVideo: () => {
+        detectionCount++;
+        clockOffset += detectionDuration;
+        return {landmarks: [landmarks]};
+      }, close() {}};
     }},
   };
   // Run the browser entry point against stand-ins for hardware and MediaPipe.
   const source = readFileSync(new URL("../assets/webcam/webcam.mjs", import.meta.url), "utf8")
-    .replace(/^import[^\n]+\n/gm, "")
+    .replace(/^import \{createVoiceCoach\}[^\n]+\n/, "")
+    .replace(/^import \{createFrameBatchFilter\}[^\n]+\n/, "")
+    .replace(/^import \{[\s\S]*?\} from "\.\/overlay\.mjs";\r?\n/m, "")
     .replace('await import("./vendor/mediapipe/vision_bundle.mjs")', "fakeMediaPipe");
   runInNewContext(source, {
     window: win, parent, location: {origin, href: origin}, fakeMediaPipe,
-    navigator: {mediaDevices: {addEventListener() {}, async getUserMedia() {
+    navigator: {mediaDevices: {addEventListener() {}, async getUserMedia(constraints) {
+      cameraConstraints = constraints;
       return {getTracks: () => [track], getVideoTracks: () => [track]};
     }}},
     document: {getElementById: element, createElement: () => ({}), body: {}},
-    createVoiceCommands: ({onCommand}) => {
-      sendCommand = onCommand;
-      return {supported: true};
-    },
     createVoiceCoach: ({onEnabledChange}) => {
       updateSpeaker = onEnabledChange;
       return {supported: true, stop() { heard.push("stop"); }, receiveBatch(events) { heard.push(...events); }};
     },
+    createFrameBatchFilter,
+    ...overlay,
     ResizeObserver: class {observe() {}}, URL, atob, setTimeout, clearTimeout,
-    performance: {now: () => now}, cancelAnimationFrame() {},
+    performance: {now: () => now + clockOffset}, cancelAnimationFrame() {},
     requestAnimationFrame(callback) { animation = callback; return 1; },
   });
   const render = args => renderListener({source: parent, origin,
@@ -72,16 +90,6 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   };
 
   render({model: "dGVzdA==", last_event_id: 8});
-  assert.equal(element("voice-command").disabled, false);
-  sendCommand("start");
-  const command = batches().at(-1);
-  assert.deepEqual(command.voice_command, {id: 1, action: "start"});
-  assert.deepEqual(command.frames, []);
-  assert.equal(command.sequence, 8);
-  sendCommand("pause");
-  assert.equal(batches().length, 1);
-  render({last_event_id: 8, voice_command_feedback: {stream_id: command.stream_id, id: 1, message: "Đã bắt đầu"}});
-  assert.equal(element("command-feedback").textContent, "Đã bắt đầu");
   updateSpeaker(true);
   assert.equal(element("voice-icon").textContent, "🔊");
   assert.equal(element("voice")["aria-pressed"], "true");
@@ -95,6 +103,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(opened.sequence, 9);
   assert.equal(opened.frames[0].knee_angle, null);
   assert.equal(opened.frames[0].tracking_interrupted, true);
+  assert.equal(cameraConstraints.video.frameRate.ideal, 30);
   assert.deepEqual(heard.splice(0), ["stop"]);
   render({last_event_id: 9});
 
@@ -104,6 +113,10 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(frame.frames.length, 1);
   assert.equal(frame.frames[0].knee_angle, 180);
   assert.equal(frame.frames[0].captured_at, 200);
+  assert.equal(detectionCount, 1);
+  assert.ok(canvasCalls.some(([name]) => name === "translate"));
+  assert.ok(canvasCalls.some(([name]) => name === "scale"));
+  assert.ok(canvasCalls.some(([name]) => name === "fillText"));
   const feedback = {...frame, events: [{kind: "rep", count: 1}, {kind: "shallow_squat", frame_sequence: 10}]};
   render({last_event_id: 10, voice_feedback: {...feedback, stream_id: "previous-camera"}});
   assert.equal(heard.length, 0);
@@ -122,6 +135,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
 
   tick(1000, 2);
   const resumed = batches().at(-1);
+  assert.equal(detectionCount, 2);
   assert.equal(resumed.sequence, 12);
   assert.equal(resumed.stream_id, opened.stream_id);
   assert.deepEqual(resumed.frames.map(sample => sample.knee_angle), [null, 180]);
@@ -134,11 +148,92 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.deepEqual(heard, [...feedback.events, "stop", "stop", {kind: "rep", count: 2}]);
 
   tick(1400, 4);
-  assert.equal(batches().at(-1).sequence, 14);
-  assert.deepEqual(batches().at(-1).frames.map(sample => sample.knee_angle), [180, 180]);
+  assert.equal(batches().at(-1).sequence, 12);
+  tick(1900, 5);
+  assert.equal(batches().at(-1).sequence, 12);
+  tick(2000, 6);
+  assert.equal(batches().at(-1).sequence, 13);
+  assert.deepEqual(batches().at(-1).frames.map(sample => sample.knee_angle), [180]);
   await element("camera-toggle").onclick();
-  assert.equal(batches().at(-1).sequence, 15);
+  assert.equal(batches().at(-1).sequence, 14);
   assert.equal(batches().at(-1).frames.at(-1).knee_angle, null);
   assert.equal(batches().at(-1).frames.at(-1).tracking_interrupted, true);
   assert.equal(videoFrame, null);
+});
+
+test("webcam alternates detection frames when inference exceeds its time budget", async () => {
+  const messages = [], parent = {postMessage(message) { messages.push(message); }};
+  const origin = "http://localhost:8501";
+  let renderListener, animation, videoFrame, now = 0, clockOffset = 0, detectionCount = 0;
+  const win = {parent, addEventListener(type, listener) {
+    if (type === "message") renderListener = listener;
+  }};
+  const context = new Proxy({}, {
+    get(target, key) { return key in target ? target[key] : () => {}; },
+    set(target, key, value) { target[key] = value; return true; },
+  });
+  const nodes = new Map();
+  const element = id => {
+    if (!nodes.has(id)) nodes.set(id, {
+      style: {}, disabled: true, value: "",
+      getContext: () => context, appendChild: node => node,
+      setAttribute(name, value) { this[name] = value; }, async play() {},
+    });
+    return nodes.get(id);
+  };
+  const video = element("input");
+  Object.assign(video, {
+    readyState: 2, currentTime: 0, videoWidth: 640, videoHeight: 480,
+    requestVideoFrameCallback(callback) { videoFrame = callback; return 1; },
+    cancelVideoFrameCallback() { videoFrame = null; },
+  });
+  const landmarks = [];
+  landmarks[23] = {x: 0.5, y: 0.4, visibility: 1};
+  landmarks[25] = {x: 0.5, y: 0.6, visibility: 1};
+  landmarks[27] = {x: 0.5, y: 0.8, visibility: 1};
+  const fakeMediaPipe = {
+    FilesetResolver: {async forVisionTasks() {}},
+    PoseLandmarker: {POSE_CONNECTIONS: [], async createFromOptions() {
+      return {detectForVideo: () => {
+        detectionCount++;
+        clockOffset += 30;
+        return {landmarks: [landmarks]};
+      }, close() {}};
+    }},
+  };
+  const source = readFileSync(new URL("../assets/webcam/webcam.mjs", import.meta.url), "utf8")
+    .replace(/^import \{createVoiceCoach\}[^\n]+\n/, "")
+    .replace(/^import \{createFrameBatchFilter\}[^\n]+\n/, "")
+    .replace(/^import \{[\s\S]*?\} from "\.\/overlay\.mjs";\r?\n/m, "")
+    .replace('await import("./vendor/mediapipe/vision_bundle.mjs")', "fakeMediaPipe");
+  runInNewContext(source, {
+    window: win, parent, location: {origin, href: origin}, fakeMediaPipe,
+    navigator: {mediaDevices: {addEventListener() {}, async getUserMedia() {
+      return {getTracks: () => [{stop() {}}], getVideoTracks: () => [{stop() {}}]};
+    }}},
+    document: {getElementById: element, createElement: () => ({}), body: {}},
+    createVoiceCoach: () => ({supported: true, stop() {}, receiveBatch() {}}),
+    createFrameBatchFilter,
+    ...overlay,
+    ResizeObserver: class {observe() {}}, URL, atob, setTimeout, clearTimeout,
+    performance: {now: () => now + clockOffset}, cancelAnimationFrame() {},
+    requestAnimationFrame(callback) { animation = callback; return 1; },
+  });
+  const render = args => renderListener({source: parent, origin,
+    data: {type: "streamlit:render", args: {session_id: "workout", ...args}}});
+  const tick = (at, presentedFrames) => {
+    now = at;
+    video.currentTime = at / 1000;
+    videoFrame(at, {presentedFrames});
+    animation(at);
+  };
+  render({model: "dGVzdA==", last_event_id: 0});
+  await element("camera-toggle").onclick();
+
+  tick(100, 1);
+  assert.equal(detectionCount, 1);
+  tick(133, 2);
+  assert.equal(detectionCount, 1);
+  tick(166, 3);
+  assert.equal(detectionCount, 2);
 });

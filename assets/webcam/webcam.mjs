@@ -1,9 +1,18 @@
-import {createVoiceCoach} from "./voice_coach.mjs";
-import {createVoiceCommands} from "./voice_commands.mjs";
+import {createVoiceCoach} from "./voice_coach.mjs?v=voice-feedback-1";
+import {createFrameBatchFilter} from "./frame_batching.mjs";
+import {
+  boneColor,
+  COLORS,
+  createFpsStats,
+  createLandmarkSmoother,
+  formatFps,
+  jointZone,
+  kneeValgus,
+} from "./overlay.mjs";
 
-const FRAME_BATCH_INTERVAL_MS = 200;
+const MAX_BATCH_SEND_INTERVAL_MS = 200;
 const FRAME_STALL_TIMEOUT_MS = 600;
-const MIN_DETECT_INTERVAL_MS = 50;
+const DETECT_BUDGET_MS = 25;
 const ACK_TIMEOUT_MS = 1200;
 const get = id => document.getElementById(id);
 const setStatus = text => {
@@ -21,15 +30,16 @@ const observesVideoFrames = typeof video.requestVideoFrameCallback === "function
 let sessionId, frameCount, windowStart, lastFrameAt;
 let videoFrameCallback, presentedFrame, lastDrawnFrame;
 let pendingFrames = [], frameSequence = 0, lastBatchAt = 0, cameraRun = 0;
+const frameBatchFilter = createFrameBatchFilter();
+const landmarkSmoother = createLandmarkSmoother({minCutoff: 1.0, beta: 3.0});
+const fpsStats = createFpsStats(10);
 let awaitingAckSequence = null, awaitingAckSince = 0;
-let lastDetectAt = -Infinity, lastPose = [], lastFrameHeight = 0;
+let detectCostMs = 0, skipNextDetection = false, lastPose = [], lastFrameHeight = 0;
 let trackingInterrupted = true;
 const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let lastVoiceSequence = 0;
-let lastCommandId = 0, lastCommandFeedbackId = 0, pendingCommand, commandTimeout, userPaused = false;
 const voiceButton = get("voice");
-const commandButton = get("voice-command");
 const cameraDevice = get("camera-device");
 const mediaDevices = navigator.mediaDevices;
 
@@ -51,21 +61,10 @@ const cameraErrors = {
   NotReadableError: "Không đọc được camera. Hãy kiểm tra kết nối và đóng ứng dụng khác đang dùng camera.",
   OverconstrainedError: "Camera đã chọn không còn khả dụng. Hãy chọn thiết bị khác rồi thử lại.",
 };
-const voiceCommands = createVoiceCommands({
-  SpeechRecognition: window.SpeechRecognition ?? window.webkitSpeechRecognition,
-  onCommand: sendVoiceCommand,
-  onStatus: text => { get("command-status").textContent = text; },
-  onEnabledChange: enabled => commandButton.setAttribute("aria-pressed", String(enabled)),
-});
-commandButton.onclick = () => voiceCommands.toggle();
-if (!voiceCommands.supported) {
-  get("command-status").textContent = "Trình duyệt chưa hỗ trợ khẩu lệnh. Hãy dùng các nút trên HUD.";
-}
 const voiceCoach = createVoiceCoach({
   AudioContext: window.AudioContext ?? window.webkitAudioContext,
   showCue: text => { get("voice-cue").textContent = text; },
   showStatus: text => { get("voice-status").textContent = text; },
-  onPlaybackChange: voiceCommands.setPlaybackActive,
   onEnabledChange: enabled => {
     get("voice-icon").textContent = enabled ? "🔊" : "🔇";
     voiceButton.setAttribute("aria-pressed", String(enabled));
@@ -82,17 +81,6 @@ voiceButton.onclick = () => voiceCoach.toggle();
 
 function send(type, data) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...data}, location.origin);
-}
-
-function sendVoiceCommand(action) {
-  if (!sessionId || pendingCommand) return;
-  pendingCommand = {id: ++lastCommandId, action};
-  get("command-feedback").textContent = "";
-  sendFrameBatch(true);
-  commandTimeout = setTimeout(() => {
-    pendingCommand = undefined;
-    get("command-feedback").textContent = "HUD chưa phản hồi. Hãy kiểm tra trạng thái buổi tập.";
-  }, 3000);
 }
 
 async function refreshCameraDevices() {
@@ -120,17 +108,12 @@ if (window.parent === window) {
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  const {
-    model, session_id: renderSessionId, last_event_id: acknowledged,
-    voice_feedback: feedback, show_metrics: visibleMetrics,
-    user_paused: renderPaused, voice_command_feedback: commandFeedback,
-  } = event.data.args;
+  const {model, session_id: renderSessionId, last_event_id: acknowledged, voice_feedback: feedback, show_metrics: visibleMetrics} = event.data.args;
   applyMetricsVisibility(visibleMetrics);
   if (!encodedModel && model && renderSessionId) {
     encodedModel = model;
     sessionId = renderSessionId;
     frameSequence = acknowledged ?? 0;
-    commandButton.disabled = !voiceCommands.supported;
     clearTimeout(setupTimer);
     if (!mediaDevices?.getUserMedia) {
       get("status").textContent = window.isSecureContext
@@ -145,18 +128,6 @@ window.addEventListener("message", event => {
   }
 
   if (renderSessionId !== sessionId) return;
-  if (renderPaused && !userPaused) {
-    voiceCoach.stop();
-    get("voice-cue").textContent = "";
-  }
-  userPaused = renderPaused === true;
-  if (commandFeedback?.stream_id === streamId && commandFeedback.id === lastCommandId &&
-      commandFeedback.id > lastCommandFeedbackId) {
-    lastCommandFeedbackId = commandFeedback.id;
-    clearTimeout(commandTimeout);
-    pendingCommand = undefined;
-    get("command-feedback").textContent = commandFeedback.message;
-  }
   if (Number.isInteger(acknowledged) && acknowledged <= frameSequence) {
     const received = pendingFrames.length - (frameSequence - acknowledged);
     if (received > 0) pendingFrames.splice(0, received);
@@ -167,7 +138,6 @@ window.addEventListener("message", event => {
   if (!detector || feedback?.session_id !== sessionId || feedback.stream_id !== streamId ||
       feedback.sequence <= lastVoiceSequence) return;
   lastVoiceSequence = feedback.sequence;
-  if (userPaused) return;
   if (feedback.stopped || feedback.interrupted) {
     voiceCoach.stop();
     get("voice-cue").textContent = "";
@@ -205,6 +175,51 @@ function angleAt(a, b, c) {
   const vx = c.x - b.x, vy = c.y - b.y;
   if ((!ux && !uy) || (!vx && !vy)) return null;
   return Math.atan2(Math.abs(ux*vy - uy*vx), ux*vx + uy*vy) * 180 / Math.PI;
+}
+function drawSkeleton(points) {
+  ctx.lineWidth = 3;
+  ctx.lineCap = ctx.lineJoin = "round";
+  for (const {start, end} of connections ?? []) {
+    const first = points[start], second = points[end];
+    if (!first || !second) continue;
+    ctx.strokeStyle = boneColor(start, end);
+    ctx.beginPath();
+    ctx.moveTo(first.x, first.y);
+    ctx.lineTo(second.x, second.y);
+    ctx.stroke();
+  }
+
+  points.forEach((point, index) => {
+    if (!point) return;
+    const side = index < 11 ? "center" : index % 2 ? "left" : "right";
+    ctx.fillStyle = COLORS[side];
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  if (!showMetrics) return;
+  const valgus = kneeValgus(points[25], points[26], points[27], points[28]);
+  ctx.font = "600 14px system-ui, sans-serif";
+  for (const [, first, joint, last] of joints) {
+    const angle = angleAt(points[first], points[joint], points[last]);
+    if (angle === null) continue;
+    const isKnee = joint === 25 || joint === 26;
+    const zone = isKnee && valgus && angle < 150 ? "bad" : jointZone(angle);
+    if (zone === "none") continue;
+    const point = points[joint];
+    ctx.strokeStyle = COLORS[zone];
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 9, 0, Math.PI * 2);
+    ctx.stroke();
+    const text = `${Math.round(angle)}°`;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(0,0,0,.75)";
+    ctx.strokeText(text, point.x + 12, point.y - 8);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(text, point.x + 12, point.y - 8);
+  }
 }
 function getPoseFeatures(pose) {
   const nose = pose[0];
@@ -246,7 +261,7 @@ function getPoseFeatures(pose) {
     xDetected = bodyWidth > 0 &&
       shoulderY < leftWrist.y && leftWrist.y < hipY &&
       shoulderY < rightWrist.y && rightWrist.y < hipY &&
-      Math.abs(leftWrist.x - rightWrist.x) < 0.08 * bodyWidth;
+      Math.abs(leftWrist.x - rightWrist.x) < 0.15 * bodyWidth;
   }
 
   return {
@@ -262,23 +277,24 @@ function queueFrame(frame) {
   frameSequence++;
 }
 function sendFrameBatch(force = false, now = performance.now()) {
-  if (!pendingFrames.length && !pendingCommand) return;
+  if (!pendingFrames.length) return;
   if (!force && awaitingAckSequence !== null && now - awaitingAckSince < ACK_TIMEOUT_MS) return;
   if (!force) {
     awaitingAckSequence = frameSequence;
     awaitingAckSince = now;
   }
   send("streamlit:setComponentValue", {
-    value: {
-      session_id: sessionId, stream_id: streamId, sequence: frameSequence, frames: pendingFrames,
-      ...(pendingCommand ? {voice_command: pendingCommand} : {}),
-    },
+    value: {session_id: sessionId, stream_id: streamId, sequence: frameSequence, frames: pendingFrames},
     dataType: "json"
   });
 }
 function sendTrackingLoss() {
   trackingInterrupted = true;
-  queueFrame({...getPoseFeatures([]), tracking_interrupted: true});
+  landmarkSmoother.reset();
+  lastPose = [];
+  const frame = {...getPoseFeatures([]), tracking_interrupted: true};
+  queueFrame(frame);
+  frameBatchFilter.noteQueued(frame, performance.now());
   lastVoiceSequence = frameSequence;
   voiceCoach.stop();
   get("voice-cue").textContent = "";
@@ -291,8 +307,11 @@ function stopCamera(message = "Đã tắt camera.") {
   else voiceCoach.stop();
   awaitingAckSequence = null;
   awaitingAckSince = 0;
-  lastDetectAt = -Infinity;
   lastPose = [];
+  landmarkSmoother.reset();
+  detectCostMs = 0;
+  skipNextDetection = false;
+  fpsStats.reset();
   cancelAnimationFrame(animation);
   if (videoFrameCallback !== undefined) video.cancelVideoFrameCallback(videoFrameCallback);
   videoFrameCallback = undefined;
@@ -323,48 +342,58 @@ function draw(now) {
       lastDrawnFrame = frame;
       lastFrameAt = now;
       trackingInterrupted = false;
-      const shouldDetect = now - lastDetectAt >= MIN_DETECT_INTERVAL_MS;
+      const shouldDetect = detectCostMs <= DETECT_BUDGET_MS || !skipNextDetection;
+      skipNextDetection = !skipNextDetection;
       if (shouldDetect) {
-        lastDetectAt = now;
-        lastPose = detector.detectForVideo(video, now).landmarks[0] ?? [];
+        const detectStartedAt = performance.now();
+        const rawPose = detector.detectForVideo(video, now).landmarks[0] ?? [];
+        const currentDetectCost = performance.now() - detectStartedAt;
+        detectCostMs = detectCostMs === 0
+          ? currentDetectCost
+          : 0.9 * detectCostMs + 0.1 * currentDetectCost;
+        if (rawPose.length) {
+          lastPose = landmarkSmoother.smooth(rawPose, now / 1000);
+        } else {
+          landmarkSmoother.reset();
+          lastPose = [];
+        }
       }
       const pose = lastPose;
       const w = video.videoWidth, h = video.videoHeight;
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w; canvas.height = h;
       }
+      ctx.save();
+      ctx.translate(w, 0);
+      ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0, w, h);
-      const points = pose.map(p => p.visibility >= 0.5 ? {x:p.x*w, y:p.y*h} : null);
-      if (connections.length) {
-        ctx.strokeStyle = "#60ed86"; ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (const {start, end} of connections) {
-          const a = points[start], b = points[end];
-          if (!a || !b) continue;
-          ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-        }
-        ctx.stroke();
-      }
-      ctx.fillStyle = "#ffbe36";
-      for (const p of points.filter(Boolean)) {
-        ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill();
-      }
+      ctx.restore();
+      const points = pose.map(point => point && point.visibility >= 0.5
+        ? {x: (1 - point.x) * w, y: point.y * h}
+        : null);
+      drawSkeleton(points);
+      if (showMetrics) updateAngles(points);
       if (shouldDetect) {
-        if (showMetrics) updateAngles(points);
         const features = getPoseFeatures(points);
         const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
         const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
         setStatus(pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.");
-        queueFrame({...features, captured_at: now});
+        if (frameBatchFilter.shouldQueue(features, now)) {
+          const batchFrame = {...features, captured_at: now};
+          queueFrame(batchFrame);
+          frameBatchFilter.noteQueued(features, now);
+        }
       }
-      if (now - lastBatchAt >= FRAME_BATCH_INTERVAL_MS) {
+      if (pendingFrames.length && now - lastBatchAt >= MAX_BATCH_SEND_INTERVAL_MS) {
         lastBatchAt = now;
         sendFrameBatch(false, now);
       }
       frameCount++;
       if (now - windowStart >= 1000) {
+        const elapsed = now - windowStart;
+        fpsStats.add(1000 * frameCount / elapsed);
         if (showMetrics) {
-          get("fps").textContent = "FPS: " + (1000*frameCount/(now-windowStart)).toFixed(1);
+          get("fps").textContent = formatFps(fpsStats, detectCostMs);
         }
         frameCount = 0; windowStart = now;
       }
@@ -372,8 +401,6 @@ function draw(now) {
     animation = requestAnimationFrame(draw);
   } catch (err) { stopCamera("Lỗi xử lý hình: " + err.message); }
 }
-// Luôn lật gương mặc định 1 lần (đã bỏ nút chuyển chế độ gương thủ công)
-canvas.style.transform = "scaleX(-1)";
 get("camera-toggle").onclick = async () => {
   if (stream || isStarting) {
     stopCamera();
@@ -387,7 +414,11 @@ get("camera-toggle").onclick = async () => {
   cameraDevice.disabled = true;
   setStatus("Đang mở camera và nạp model…");
   try {
-    const constraints = {width: {ideal: 640}, height: {ideal: 480}, frameRate: {ideal: 20}};
+    const constraints = {
+      width: {ideal: 640},
+      height: {ideal: 480},
+      frameRate: {ideal: 30},
+    };
     if (cameraDevice.value) constraints.deviceId = {exact: cameraDevice.value};
     const openedStream = await mediaDevices.getUserMedia({video: constraints, audio: false});
     if (run !== cameraRun) {
@@ -428,8 +459,12 @@ get("camera-toggle").onclick = async () => {
     presentedFrame = lastDrawnFrame = undefined;
     awaitingAckSequence = null;
     awaitingAckSince = 0;
-    lastDetectAt = -Infinity;
+    detectCostMs = 0;
+    skipNextDetection = false;
+    landmarkSmoother.reset();
+    fpsStats.reset();
     lastPose = [];
+    frameBatchFilter.reset();
     windowStart = performance.now();
     lastFrameAt = lastBatchAt = windowStart;
     sendTrackingLoss();
@@ -443,10 +478,5 @@ get("camera-toggle").onclick = async () => {
     void refreshCameraDevices();
   }
 };
-window.addEventListener("pagehide", () => {
-  clearTimeout(commandTimeout);
-  pendingCommand = undefined;
-  voiceCommands.stop();
-  stopCamera();
-});
+window.addEventListener("pagehide", () => stopCamera());
 updateAngles([]);

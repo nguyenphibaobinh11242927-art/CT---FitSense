@@ -56,6 +56,10 @@ render_planner_view()
             self.assertNotIn("incline_push_up", eligible)
             self.assertIn("dead_bug", eligible)
 
+            if getattr(app, "segmented_control", None):
+                next(c for c in app.segmented_control if c.key == "weekly_planner_day_selected").set_value("Thứ 2").run()
+            elif getattr(app, "radio", None):
+                next(r for r in app.radio if r.key == "weekly_planner_day_selected").set_value("Thứ 2").run()
             next(button for button in app.button if button.key == "apply_swap_0_0").click().run()
             schedule = app.session_state["weekly_schedule"]
             exercise = schedule[0]["exercises"][0]

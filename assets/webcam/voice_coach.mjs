@@ -1,11 +1,14 @@
-import {VI_CUES} from "./voice/vi_cues.mjs";
+import {VI_CUES} from "./voice/vi_cues.mjs?v=mai-anh-2";
 
 const MAX_RECORDED_REP = 100;
 const ENABLE_CUE = MAX_RECORDED_REP + 1;
 const SHALLOW_SQUAT_CUE = ENABLE_CUE + 1;
-const VOICE_URL = new URL("./voice/vi.mp3", import.meta.url);
+const POSITION_CUES = {too_close: 103, wrong_angle: 104, incomplete: 105};
+const POSITION_COOLDOWN_MS = 12000;
+const VOICE_URL = new URL("./voice/vi-mai-anh.mp3?v=mai-anh-2", import.meta.url);
 const CORRECTION_COOLDOWN_MS = 3500;
 const CORRECTION_MAX_AGE_MS = 1000;
+const PLAYBACK_BUDGET_MS = 250;
 
 function isRep(event) {
   return event?.kind === "rep" && Number.isSafeInteger(event.count) && event.count > 0;
@@ -19,17 +22,18 @@ export function createVoiceCoach({
   let enabled = false;
   let context, audioBuffer;
   let current, pendingRep, pendingCorrection;
-  let playing = false;
+  let playbackActive = false;
   let lastCorrectionAt = -Infinity;
+  let lastPositionAt = -Infinity;
 
   function setEnabled(value) {
     enabled = value;
     onEnabledChange(enabled);
   }
 
-  function setPlaybackActive(active) {
-    if (playing === active) return;
-    playing = active;
+  function notifyPlayback(active) {
+    if (active === playbackActive) return;
+    playbackActive = active;
     onPlaybackChange(active);
   }
 
@@ -38,14 +42,14 @@ export function createVoiceCoach({
     if (pendingCorrection) onCorrection(pendingCorrection.event, "stopped");
     current = pendingRep = pendingCorrection = null;
     for (const source of playback?.sources ?? []) source.stop();
-    setPlaybackActive(false);
+    notifyPlayback(false);
   }
 
-  async function play(cueIds, capturedAt) {
-    const playback = {sources: new Set()};
+  async function play(cueIds, capturedAt, kind = "notice") {
+    const playback = {sources: new Set(), kind};
     current = playback;
     try {
-      setPlaybackActive(true);
+      notifyPlayback(true);
       context ??= new AudioContext();
       // Call resume before awaiting so the Voice Coach click can unlock playback.
       const ready = context.state === "running" ? undefined : context.resume();
@@ -79,12 +83,13 @@ export function createVoiceCoach({
             pendingCorrection = null;
             scheduleCorrection(next);
           }
-          if (!current) setPlaybackActive(false);
+          if (!current) notifyPlayback(false);
         };
         source.start(when, offset, duration);
         playback.sources.add(source);
         when += duration;
       }
+      playback.endsAt = now() + (when - context.currentTime) * 1000;
       const elapsed = Number.isFinite(capturedAt) ? now() - capturedAt : -1;
       showStatus(elapsed >= 0
         ? `Từ khung hình đến lúc lên lịch phát: ${Math.round(elapsed)} ms.`
@@ -101,16 +106,24 @@ export function createVoiceCoach({
 
   function playRep({count, captured_at: capturedAt}) {
     const cues = count <= MAX_RECORDED_REP ? [count] : Array.from(String(count), Number);
-    return play(cues, capturedAt);
+    return play(cues, capturedAt, "rep");
   }
 
   async function playCorrection(event) {
     showCue("Hạ thấp hơn nếu thấy thoải mái.");
-    if (await play([SHALLOW_SQUAT_CUE], event.captured_at)) {
+    if (await play([SHALLOW_SQUAT_CUE], event.captured_at, "correction")) {
       lastCorrectionAt = now();
       onCorrection(event, "scheduled");
     } else {
       onCorrection(event, "not-played");
+    }
+  }
+
+  function interruptIfTooSlow(capturedAt) {
+    if (!current) return;
+    if (current.kind === "notice" ||
+        (Number.isFinite(capturedAt) && current.endsAt > capturedAt + PLAYBACK_BUDGET_MS)) {
+      stop();
     }
   }
 
@@ -123,12 +136,15 @@ export function createVoiceCoach({
       onCorrection(event, "expired");
     } else if (timestamp - lastCorrectionAt < CORRECTION_COOLDOWN_MS) {
       onCorrection(event, "cooldown");
-    } else if (current) {
-      if (pendingCorrection) onCorrection(pendingCorrection.event, "replaced");
-      pendingCorrection = request;
-      onCorrection(event, "waiting");
     } else {
-      void playCorrection(event);
+      interruptIfTooSlow(event.captured_at);
+      if (current) {
+        if (pendingCorrection) onCorrection(pendingCorrection.event, "replaced");
+        pendingCorrection = request;
+        onCorrection(event, "waiting");
+      } else {
+        void playCorrection(event);
+      }
     }
   }
 
@@ -147,6 +163,7 @@ export function createVoiceCoach({
       if (pendingCorrection) onCorrection(pendingCorrection.event, "rep-completed");
       pendingCorrection = null;
       showCue("");
+      interruptIfTooSlow(event.captured_at);
       // Keep the latest rep while a clip finishes, without building up a queue.
       if (current) pendingRep = event;
       else void playRep(event);
@@ -156,6 +173,14 @@ export function createVoiceCoach({
   return {
     supported,
     get enabled() { return enabled; },
+    get busy() { return current !== null && current !== undefined; },
+    warnPosition(kind) {
+      const cueId = POSITION_CUES[kind];
+      if (!enabled || current || cueId === undefined || now() - lastPositionAt < POSITION_COOLDOWN_MS) return false;
+      lastPositionAt = now();
+      void play([cueId]);
+      return true;
+    },
     toggle() {
       if (!supported) return;
       setEnabled(!enabled);

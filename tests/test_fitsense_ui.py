@@ -342,6 +342,7 @@ class TestFitSenseUIModules(unittest.TestCase):
 
         html_src = Path("assets/webcam/test_webcam_live.html").read_text(encoding="utf-8")
         js_src = Path("assets/webcam/webcam.mjs").read_text(encoding="utf-8")
+        session_src = Path("src/session_view.py").read_text(encoding="utf-8")
 
         self.assertIn('id="camera-toggle"', html_src)
         self.assertIn('id="voice"', html_src)
@@ -350,9 +351,19 @@ class TestFitSenseUIModules(unittest.TestCase):
         self.assertNotIn('id="start"', html_src)
         self.assertNotIn('id="stop"', html_src)
 
-        self.assertIn('canvas.style.transform = "scaleX(-1)"', js_src)
+        self.assertNotIn('canvas.style.transform = "scaleX(-1)"', js_src)
+        self.assertIn("frameRate: {ideal: 30}", js_src)
+        self.assertIn("DETECT_BUDGET_MS = 25", js_src)
+        self.assertIn("drawSkeleton(points)", js_src)
+        self.assertIn("ctx.translate(w, 0)", js_src)
+        self.assertIn("createLandmarkSmoother", js_src)
+        self.assertIn("formatFps(fpsStats, detectCostMs)", js_src)
         self.assertIn("show_metrics", js_src)
         self.assertIn("createVoiceCoach", js_src)
+        self.assertIn("frameBatchFilter.shouldQueue(features, now)", js_src)
+        self.assertIn("MAX_BATCH_SEND_INTERVAL_MS", js_src)
+        self.assertIn("0.15 * bodyWidth", js_src)
+        self.assertIn("st.checkbox(", session_src)
         self.assertNotIn('get("mirror")', js_src)
 
     def test_apptest_full_navigation_and_ui_flows(self):
@@ -463,6 +474,8 @@ class TestFitSenseUIModules(unittest.TestCase):
             self.assertIn('[data-testid="stDialog"] > div', light_css)
             self.assertIn('[data-testid="stDialog"] [role="dialog"]', light_css)
             self.assertIn("background-color: #FFFFFF !important;", light_css)
+            self.assertIn('div[data-testid="stButtonGroup"] button[data-variant="segmented_control"]', dark_css)
+            self.assertIn('div[data-testid="stButtonGroup"] button[data-variant="segmented_control"]', light_css)
         finally:
             st.markdown = orig_md
 
@@ -472,7 +485,8 @@ class TestFitSenseUIModules(unittest.TestCase):
         import inspect
 
         js_src = Path("assets/webcam/webcam.mjs").read_text(encoding="utf-8")
-        self.assertIn("MIN_DETECT_INTERVAL_MS", js_src)
+        self.assertIn("DETECT_BUDGET_MS", js_src)
+        self.assertIn("frameBatchFilter.shouldQueue(features, now)", js_src)
         self.assertIn("awaitingAckSequence", js_src)
         self.assertIn('delegate:"GPU"', js_src)
         self.assertIn("lastFrameHeight", js_src)

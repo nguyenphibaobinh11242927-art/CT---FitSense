@@ -1,75 +1,84 @@
-"""Module Phòng tập Rảnh tay & Điều hành Phiên tập Thời gian thực (Session HUD View).
+"""Module Phòng tập Rảnh tay & Điều hành Phiên tập Thời gian thực (Session HUD View - SCRUM-19).
 
-Quản lý chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ kép) và Chế độ Tự do Không Camera.
+Quản lý giao diện HUD điều khiển phiên tập, đồng hồ đếm ngược thời gian nghỉ giữa hiệp (Rest Timer)
+kèm âm thanh / giọng nói nhắc nhở, và danh sách bài tập kế tiếp (Up Next List).
+Hỗ trợ cả Chế độ Camera AI Vision (MediaPipe, đếm reps FSM, cử chỉ kép) và Chế độ Tự do Không Camera.
 """
 
 import base64
-from datetime import datetime
+from datetime import datetime, date
 import logging
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
+import time
 
 import streamlit as st
 import streamlit.components.v1 as components
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 from src.fsm_rep_counter import RepCounterFSM
+from src.squat_correction import SquatCorrection
 from src.planner_view import (
     count_day_target_reps,
     get_next_active_schedule_day,
     get_today_schedule_day,
 )
 from src.workout_session import WorkoutSession, finish_session, start_session
+from src.weekly_plan_sync import finish_planned_day
+from src.adaptive_weekly_plan import add_workout_event
+from src.weekly_plan_storage import save_week_state
 
 
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
-SHALLOW_ATTEMPT_ANGLE = 135
-SHALLOW_TRACKING_GRACE_FRAMES = 2
 logger = logging.getLogger(__name__)
+
+# Danh mục bài tập chuẩn hóa mặc định cho buổi tập khi chưa có giáo án tuần
+DEFAULT_SESSION_EXERCISES = [
+    {
+        "name": "Squat Thể dục (Bodyweight)",
+        "sets": 3,
+        "reps": 12,
+        "rest_sec": 60,
+        "primary_muscle": "Đùi trước & Mông",
+        "secondary_muscle": "Core",
+        "equipment": "Bodyweight",
+        "difficulty": "Beginner",
+        "substitute": "Wall Squat (Tựa tường)",
+        "form_tip": "Giữ lưng thẳng, hạ đùi song song sàn, gối không chụm vào trong.",
+    },
+    {
+        "name": "Chống đẩy (Push-up)",
+        "sets": 3,
+        "reps": 10,
+        "rest_sec": 60,
+        "primary_muscle": "Ngực & Tay sau",
+        "secondary_muscle": "Cơ vai",
+        "equipment": "Bodyweight",
+        "difficulty": "Beginner",
+        "substitute": "Knee Push-up (Chống đẩy quỳ gối)",
+        "form_tip": "Thân người tạo thành một đường thẳng, siết chặt cơ bụng và mông.",
+    },
+    {
+        "name": "Plank Tĩnh (Core Plank)",
+        "sets": 3,
+        "reps": 30,
+        "rest_sec": 45,
+        "primary_muscle": "Cơ bụng & Lõi (Core)",
+        "secondary_muscle": "Cơ vai",
+        "equipment": "Bodyweight",
+        "difficulty": "Beginner",
+        "substitute": "Knee Plank (Plank quỳ gối)",
+        "form_tip": "Khuỷu tay vuông góc dưới vai, không võng thắt lưng hoặc nhô mông.",
+    },
+]
 
 
 @st.cache_data
 def webcam_model():
     model = ROOT / "models" / "pose_landmarker_lite.task"
     return base64.b64encode(model.read_bytes()).decode("ascii")
-
-
-@dataclass
-class SquatCorrection:
-    deepest_angle: float | None = None
-    missing_frames: int = 0
-
-    @property
-    def tracking_lost(self) -> bool:
-        return self.missing_frames > SHALLOW_TRACKING_GRACE_FRAMES
-
-    def interrupt_tracking(self) -> None:
-        self.deepest_angle = None
-        self.missing_frames = SHALLOW_TRACKING_GRACE_FRAMES + 1
-
-    def update(self, angle: float | None, rep_fsm: RepCounterFSM) -> bool:
-        if angle is None:
-            if not self.tracking_lost:
-                self.missing_frames += 1
-                if self.tracking_lost:
-                    self.interrupt_tracking()
-            return False
-
-        self.missing_frames = 0
-        if angle >= rep_fsm.up_thresh:
-            deepest_angle = self.deepest_angle
-            self.deepest_angle = None
-            return deepest_angle is not None and rep_fsm.down_thresh < deepest_angle <= SHALLOW_ATTEMPT_ANGLE
-
-        # The rep FSM waits for an upright frame after tracking loss. Keep the
-        # depth of an ongoing attempt through brief gaps for form feedback.
-        if self.deepest_angle is not None:
-            self.deepest_angle = min(self.deepest_angle, angle)
-        elif rep_fsm.state == RepCounterFSM.STATE_GOING_DOWN:
-            self.deepest_angle = angle
-        return False
 
 
 def process_pose_frames(
@@ -81,6 +90,7 @@ def process_pose_frames(
     *,
     voice_events: list[dict] | None = None,
     correction: SquatCorrection | None = None,
+    start_events: list[dict] | None = None,
 ) -> bool:
     """Apply a webcam batch to the FSMs and return the updated session status."""
     for frame in frames:
@@ -91,6 +101,7 @@ def process_pose_frames(
         x_detected = frame.get("x_detected")
         head_detected = frame.get("head_detected")
         knee_angle = frame.get("knee_angle")
+        captured_at = frame.get("captured_at")
         if (
             type(start_detected) is not bool
             or type(x_detected) is not bool
@@ -104,14 +115,23 @@ def process_pose_frames(
             or not 0 <= knee_angle <= 180
         ):
             raise ValueError("Góc gối phải nằm trong khoảng 0 đến 180 độ.")
+        if captured_at is not None and (
+            isinstance(captured_at, bool)
+            or not isinstance(captured_at, (int, float))
+            or not math.isfinite(captured_at)
+            or captured_at < 0
+        ):
+            raise ValueError("Thời điểm khung hình phải là số mili-giây hợp lệ.")
 
         if not session_started:
-            start_result = start_fsm.update(start_detected)
+            start_result = start_fsm.update(start_detected, captured_at)
             if start_result["triggered"]:
                 session_started = True
+                if start_events is not None:
+                    start_events.append({"captured_at": captured_at})
             continue
 
-        stop_result = stop_fsm.update(x_detected, head_detected)
+        stop_result = stop_fsm.update(x_detected, head_detected, captured_at)
         if not stop_result["is_rep_locked"]:
             result = rep_fsm.update(knee_angle)
             if voice_events is None:
@@ -140,8 +160,9 @@ class PoseSession:
     stream_id: str | None = None
     retired_streams: set[str] = field(default_factory=set)
     voice_feedback: dict | None = None
-    voice_command_feedback: dict | None = None
-    voice_command_ids: dict[str, int] = field(default_factory=dict)
+    start_triggered: bool = False
+    start_rep_count: int = 0
+    set_completion_reps: int | None = None
 
     def interrupt_tracking(self) -> None:
         self.rep.update(None)
@@ -149,7 +170,23 @@ class PoseSession:
         self.start.update(False)
         self.stop.update(False, False)
 
-    def consume(self, session: WorkoutSession, batch, *, user_paused: bool = False) -> None:
+    def prepare_next_set(self) -> None:
+        self.started = False
+        self.rep.update(None)
+        self.correction.interrupt_tracking()
+        self.start.reset()
+        self.stop.reset()
+
+    def consume(
+        self,
+        session: WorkoutSession,
+        batch,
+        *,
+        user_paused: bool = False,
+        resting: bool = False,
+    ) -> None:
+        self.start_triggered = False
+        self.set_completion_reps = None
         if not isinstance(batch, dict) or batch.get("session_id") != session.session_id:
             return
         if session.status in ("completed", "abandoned") or session.mode != "ai":
@@ -187,7 +224,36 @@ class PoseSession:
             self.interrupt_tracking()
             session.status = "paused"
 
+        if resting:
+            self.started = False
+            start_events = []
+            for seq, frame in enumerate(frames, first):
+                if seq <= session.last_event_id:
+                    continue
+                self.started = process_pose_frames(
+                    [frame], self.rep, self.start, self.stop, False,
+                    start_events=start_events,
+                )
+                session.last_event_id = seq
+                if start_events:
+                    self.start_triggered = True
+                    self.start_rep_count = session.ai_reps
+                    session.status = "active"
+                    break
+                self.started = False
+            session.last_event_id = end
+            self.voice_feedback = {
+                "session_id": session.session_id,
+                "stream_id": stream_id,
+                "sequence": end,
+                "events": [],
+                "stopped": True,
+                "interrupted": interrupted,
+            }
+            return
+
         voice_events = []
+        audio_paused = False
         for seq, frame in enumerate(frames, first):
             if seq <= session.last_event_id:
                 continue
@@ -195,21 +261,38 @@ class PoseSession:
                 self.correction.interrupt_tracking()
                 interrupted = True
             previous_event_count = len(voice_events)
+            was_started = self.started
+            was_rep_locked = self.stop.is_rep_locked
+            start_events = []
             self.started = process_pose_frames(
                 [frame], self.rep, self.start, self.stop, self.started,
                 voice_events=voice_events, correction=self.correction,
+                start_events=start_events,
             )
+            if start_events and not was_started:
+                self.start_triggered = True
+                self.start_rep_count = session.ai_reps
             if len(voice_events) > previous_event_count and voice_events[-1]["kind"] == "shallow_squat":
                 event = voice_events[-1]
                 event["frame_sequence"] = seq
                 logger.debug("Detected shallow squat at frame %s (%s ms)", seq, event.get("captured_at"))
             session.ai_reps = self.rep.rep_count
+            if not was_rep_locked and self.stop.is_rep_locked:
+                self.set_completion_reps = self.rep.rep_count
+                self.started = False
+                session.status = "paused"
+                session.last_event_id = end
+                break
             tracking = frame.get("knee_angle") is not None
             audio_paused = not tracking and self.started and self.correction.tracking_lost
             if audio_paused:
                 interrupted = True
                 voice_events.clear()
-            session.status = "active" if tracking and self.started and not self.stop.is_rep_locked else "paused"
+            session.status = (
+                "active"
+                if (tracking or start_events) and self.started and not self.stop.is_rep_locked
+                else "paused"
+            )
             session.last_event_id = seq
 
         self.voice_feedback = {
@@ -224,9 +307,6 @@ class PoseSession:
 
 def _resolve_plan_day() -> dict | None:
     """Tìm buổi tập đang kích hoạt, buổi được chọn, hoặc tự khớp theo Thứ hôm nay trên máy tính."""
-    active = st.session_state.get("active_workout")
-    if isinstance(active, dict):
-        return active
     schedule = st.session_state.get("weekly_schedule")
     if isinstance(schedule, list):
         selected_day = st.session_state.get("selected_session_day")
@@ -238,7 +318,238 @@ def _resolve_plan_day() -> dict | None:
         if today_day is not None:
             return today_day
         return get_next_active_schedule_day(schedule)
-    return None
+    active = st.session_state.get("active_workout")
+    return active if isinstance(active, dict) else None
+
+
+def _get_session_exercises() -> list[dict]:
+    """Lấy danh sách bài tập cho buổi tập hiện tại (từ giáo án hoặc danh sách mặc định)."""
+    custom = st.session_state.get("hud_custom_exercises")
+    if isinstance(custom, list) and custom:
+        return custom
+    plan_day = _resolve_plan_day()
+    if plan_day and isinstance(plan_day.get("exercises"), list) and plan_day["exercises"]:
+        clean = []
+        for ex in plan_day["exercises"]:
+            if isinstance(ex, dict) and ex.get("name"):
+                sets_v = ex.get("sets", 3)
+                reps_v = ex.get("reps", 12)
+                rest_v = ex.get("rest_sec", 60)
+                clean.append({
+                    "name": str(ex["name"]).strip(),
+                    "sets": int(sets_v) if str(sets_v).isdigit() else 3,
+                    "reps": reps_v,
+                    "rest_sec": int(rest_v) if str(rest_v).isdigit() else 60,
+                    "primary_muscle": str(ex.get("primary_muscle", "Toàn thân")),
+                    "secondary_muscle": str(ex.get("secondary_muscle", "Core")),
+                    "equipment": str(ex.get("equipment", "Bodyweight")),
+                    "difficulty": str(ex.get("difficulty", "Beginner")),
+                    "substitute": str(ex.get("substitute", "Wall Squat (Tựa tường)")),
+                    "form_tip": str(ex.get("form_tip", "Giữ đúng kỹ thuật chuẩn, kiểm soát nhịp thở.")),
+                })
+        if clean:
+            return clean
+    return [dict(e) for e in DEFAULT_SESSION_EXERCISES]
+
+
+def _init_hud_state(force: bool = False):
+    """Khởi tạo trạng thái bộ điều hành HUD, đồng hồ nghỉ và tiến trình hiệp."""
+    if force:
+        st.session_state["hud_current_ex_idx"] = 0
+        st.session_state["hud_current_set"] = 1
+        st.session_state["hud_is_resting"] = False
+        st.session_state["hud_rest_duration"] = 60
+        st.session_state["hud_rest_remaining"] = 60
+        st.session_state["hud_rest_start_time"] = None
+        st.session_state["hud_rest_paused"] = False
+        st.session_state["hud_rest_paused_at"] = None
+        st.session_state["hud_completed_sets"] = {}
+        st.session_state["hud_completed_set_reps"] = {}
+        st.session_state["hud_set_started"] = False
+        st.session_state["hud_set_rep_start"] = 0
+        st.session_state["hud_custom_rest_sec"] = None
+        st.session_state["hud_all_completed"] = False
+        st.session_state.pop("hud_next_target", None)
+        return
+
+    if "hud_current_ex_idx" not in st.session_state:
+        st.session_state["hud_current_ex_idx"] = 0
+    if "hud_current_set" not in st.session_state:
+        st.session_state["hud_current_set"] = 1
+    if "hud_is_resting" not in st.session_state:
+        st.session_state["hud_is_resting"] = False
+    if "hud_rest_duration" not in st.session_state:
+        st.session_state["hud_rest_duration"] = 60
+    if "hud_rest_start_time" not in st.session_state:
+        st.session_state["hud_rest_start_time"] = None
+    if "hud_rest_remaining" not in st.session_state:
+        st.session_state["hud_rest_remaining"] = 60
+    if "hud_rest_paused" not in st.session_state:
+        st.session_state["hud_rest_paused"] = False
+    if "hud_rest_paused_at" not in st.session_state:
+        st.session_state["hud_rest_paused_at"] = None
+    if "hud_completed_sets" not in st.session_state:
+        st.session_state["hud_completed_sets"] = {}
+    if "hud_completed_set_reps" not in st.session_state:
+        st.session_state["hud_completed_set_reps"] = {}
+    if "hud_set_started" not in st.session_state:
+        st.session_state["hud_set_started"] = False
+    if "hud_set_rep_start" not in st.session_state:
+        st.session_state["hud_set_rep_start"] = 0
+    if "hud_custom_rest_sec" not in st.session_state:
+        st.session_state["hud_custom_rest_sec"] = None
+    if "hud_all_completed" not in st.session_state:
+        st.session_state["hud_all_completed"] = False
+
+
+def _adjust_rest_timer(delta_sec: int):
+    """Điều chỉnh thời gian nghỉ (+/- delta_sec) và cập nhật start_time tương ứng."""
+    cur_dur = st.session_state.get("hud_rest_duration", 60)
+    cur_rem = st.session_state.get("hud_rest_remaining", cur_dur)
+    new_dur = max(10, cur_dur + delta_sec)
+    new_rem = max(0, cur_rem + delta_sec)
+    st.session_state["hud_rest_duration"] = new_dur
+    st.session_state["hud_rest_remaining"] = new_rem
+    if st.session_state.get("hud_rest_start_time") is not None:
+        st.session_state["hud_rest_start_time"] = time.time() - (new_dur - new_rem)
+
+
+def _check_auto_advance_rest_timer(
+    exercises: list[dict],
+    pose_session: PoseSession | None = None,
+) -> bool:
+    """Kiểm tra thời gian nghỉ theo wall-clock; tự động chuyển hiệp/bài khi hết giờ."""
+    if not st.session_state.get("hud_is_resting", False):
+        return False
+    if st.session_state.get("session_user_paused", False) or st.session_state.get("hud_rest_paused", False):
+        return False
+    start_t = st.session_state.get("hud_rest_start_time")
+    if start_t is None:
+        return False
+    duration = int(st.session_state.get("hud_rest_duration", 60))
+    elapsed = time.time() - start_t
+    remaining = max(0, duration - int(elapsed))
+    st.session_state["hud_rest_remaining"] = remaining
+    if remaining == 0:
+        _finish_rest_period(exercises, pose_session)
+        return True
+    return False
+
+
+@st.fragment(run_every=1.0)
+def _run_rest_timer_tick(
+    exercises: list[dict],
+    pose_session: PoseSession | None = None,
+) -> None:
+    """Keep the HUD timer advancing independently of camera or user events."""
+    if _check_auto_advance_rest_timer(exercises, pose_session):
+        st.toast("Hết giờ nghỉ — đã tự động chuyển sang mục tiêu kế tiếp!", icon="🔥")
+        st.rerun()
+
+
+def _advance_hud_set(
+    exercises: list[dict],
+    *,
+    completed_reps: int | None = None,
+    pose_session: PoseSession | None = None,
+):
+    """Hoàn thành hiệp hiện tại, kích hoạt đồng hồ nghỉ giữa hiệp hoặc chuyển bài mới."""
+    cur_idx = st.session_state.get("hud_current_ex_idx", 0)
+    cur_set = st.session_state.get("hud_current_set", 1)
+    if cur_idx >= len(exercises):
+        return
+
+    cur_ex = exercises[cur_idx]
+    total_sets = cur_ex.get("sets", 3)
+    custom_rest = st.session_state.get("hud_custom_rest_sec")
+    rest_time = custom_rest if custom_rest is not None else cur_ex.get("rest_sec", 60)
+
+    # Đánh dấu hoàn thành hiệp này
+    set_key = f"{cur_idx}_{cur_set}"
+    st.session_state["hud_completed_sets"][set_key] = True
+    if completed_reps is None:
+        completed_reps = 0
+    st.session_state["hud_completed_set_reps"][set_key] = max(0, completed_reps)
+    st.session_state["hud_set_started"] = False
+    st.session_state["hud_set_rep_start"] = 0
+    if pose_session is not None:
+        pose_session.prepare_next_set()
+
+    if cur_set < total_sets:
+        # Sang hiệp tiếp theo trong cùng bài
+        st.session_state["hud_is_resting"] = True
+        st.session_state["hud_rest_duration"] = rest_time
+        st.session_state["hud_rest_remaining"] = rest_time
+        st.session_state["hud_rest_start_time"] = time.time()
+        st.session_state["hud_rest_paused"] = False
+        st.session_state["hud_next_target"] = f"Hiệp {cur_set + 1}/{total_sets} — {cur_ex['name']}"
+    else:
+        # Đã hoàn thành tất cả các hiệp của bài hiện tại
+        if cur_idx + 1 < len(exercises):
+            next_ex = exercises[cur_idx + 1]
+            st.session_state["hud_is_resting"] = True
+            st.session_state["hud_rest_duration"] = rest_time
+            st.session_state["hud_rest_remaining"] = rest_time
+            st.session_state["hud_rest_start_time"] = time.time()
+            st.session_state["hud_rest_paused"] = False
+            st.session_state["hud_next_target"] = f"Bài tiếp theo: {next_ex['name']} (Hiệp 1/{next_ex.get('sets', 3)})"
+        else:
+            # Đã hoàn thành toàn bộ bài tập trong buổi!
+            st.session_state["hud_is_resting"] = False
+            st.session_state["hud_all_completed"] = True
+
+
+def _clear_rest_timer() -> None:
+    """Clear the active rest timer and its pending target."""
+    st.session_state["hud_is_resting"] = False
+    st.session_state["hud_rest_duration"] = 60
+    st.session_state["hud_rest_remaining"] = 0
+    st.session_state["hud_rest_start_time"] = None
+    st.session_state["hud_rest_paused"] = False
+    st.session_state["hud_rest_paused_at"] = None
+    st.session_state.pop("hud_next_target", None)
+
+
+def _finish_rest_period(
+    exercises: list[dict],
+    pose_session: PoseSession | None = None,
+):
+    """Kết thúc thời gian nghỉ, vào hiệp mới hoặc bài tập mới."""
+    _clear_rest_timer()
+    cur_idx = st.session_state.get("hud_current_ex_idx", 0)
+    cur_set = st.session_state.get("hud_current_set", 1)
+    if cur_idx < len(exercises):
+        total_sets = exercises[cur_idx].get("sets", 3)
+        if cur_set < total_sets:
+            st.session_state["hud_current_set"] = cur_set + 1
+        else:
+            if cur_idx + 1 < len(exercises):
+                st.session_state["hud_current_ex_idx"] = cur_idx + 1
+                st.session_state["hud_current_set"] = 1
+    st.session_state["hud_set_started"] = False
+    st.session_state["hud_set_rep_start"] = 0
+    if pose_session is not None:
+        pose_session.prepare_next_set()
+
+
+def _skip_to_next_exercise(
+    exercises: list[dict],
+    pose_session: PoseSession | None = None,
+):
+    """Bỏ qua bài tập hiện tại và chuyển sang bài tiếp theo trong Up Next list."""
+    cur_idx = st.session_state.get("hud_current_ex_idx", 0)
+    _clear_rest_timer()
+
+    if cur_idx + 1 < len(exercises):
+        st.session_state["hud_current_ex_idx"] = cur_idx + 1
+        st.session_state["hud_current_set"] = 1
+        st.session_state["hud_all_completed"] = False
+    else:
+        st.session_state["hud_all_completed"] = True
+    st.session_state["hud_set_started"] = False
+    st.session_state["hud_set_rep_start"] = 0
+    if pose_session is not None:
+        pose_session.prepare_next_set()
 
 
 def _compute_target_reps_from_active() -> tuple[str, int]:
@@ -260,75 +571,44 @@ def _format_hold_time(active_frames: int, required_frames: int, fps: float = 30.
     return f"{elapsed_sec:.1f}s / {total_sec:.1f}s"
 
 
-def _apply_hud_command(session: WorkoutSession, pose: PoseSession, action: str) -> str:
-    if action == "rest":
-        return "Đã nhận lệnh Nghỉ hiệp. Đồng hồ nghỉ chưa sẵn sàng."
-    if action == "next":
-        return "Đã nhận lệnh Bài tiếp theo. Tính năng chuyển bài chưa sẵn sàng."
-    if pose.stop.is_rep_locked:
-        return "Buổi tập đã dừng và khóa rep. Bạn có thể bấm Kết thúc để lưu."
-
-    paused = st.session_state.get("session_user_paused", False)
-    if action == "pause":
-        if paused:
-            return "Buổi tập đang tạm ngưng."
-        pose.interrupt_tracking()
-        session.status = "paused"
-        session_name, _ = _compute_target_reps_from_active()
-        st.session_state["session_user_paused"] = True
-        st.session_state["paused_progress"] = {
-            "reps": session.ai_reps,
-            "paused_at": datetime.now().strftime("%H:%M:%S"),
-            "session_name": session_name,
-        }
-        return "Đã tạm ngưng buổi tập và giữ số rep."
-
-    if pose.started and not paused:
-        return "Buổi tập đã bắt đầu."
-    if paused:
-        st.session_state["session_user_paused"] = False
-        st.session_state.pop("paused_progress", None)
-    if pose.started:
-        session.status = "active"
-        return "Đã tiếp tục ghi nhận buổi tập."
-    pose.started = True
-    pose.interrupt_tracking()
-    return "Đã bắt đầu buổi tập."
-
-
-def _consume_voice_command(session: WorkoutSession, pose: PoseSession, batch) -> None:
-    if not isinstance(batch, dict) or batch.get("session_id") != session.session_id:
-        return
-    if session.mode != "ai" or session.status in ("completed", "abandoned"):
-        return
-    stream_id, command = batch.get("stream_id"), batch.get("voice_command")
-    if not isinstance(stream_id, str) or not stream_id or stream_id in pose.retired_streams:
-        return
-    if not isinstance(command, dict):
-        return
-    command_id, action = command.get("id"), command.get("action")
-    if type(command_id) is not int or command_id <= pose.voice_command_ids.get(stream_id, 0):
-        return
-    if action not in ("start", "pause", "rest", "next"):
-        return
-
-    message = _apply_hud_command(session, pose, action)
-    pose.voice_command_ids[stream_id] = command_id
-    pose.voice_command_feedback = {"stream_id": stream_id, "id": command_id, "message": message}
-
-
 def _on_webcam_change(key: str) -> None:
     session = st.session_state.get("workout_session")
     pose = st.session_state.get("pose_session")
     if session is None or pose is None:
         return
     try:
-        batch = st.session_state.get(key)
         pose.consume(
-            session, batch,
+            session,
+            st.session_state.get(key),
             user_paused=bool(st.session_state.get("session_user_paused", False)),
+            resting=bool(st.session_state.get("hud_is_resting", False)),
         )
-        _consume_voice_command(session, pose, batch)
+        exercises = _get_session_exercises()
+        if pose.set_completion_reps is not None:
+            rep_start = st.session_state.get("hud_set_rep_start", 0)
+            if pose.start_triggered:
+                rep_start = pose.start_rep_count
+            _advance_hud_set(
+                exercises,
+                completed_reps=max(0, pose.set_completion_reps - rep_start),
+                pose_session=pose,
+            )
+            if st.session_state.get("hud_is_resting"):
+                st.toast("Đã ghi nhận hiệp — bắt đầu nghỉ theo giáo án.", icon="⏱️")
+            elif st.session_state.get("hud_all_completed"):
+                st.toast("Đã hoàn thành tất cả các hiệp của buổi tập!", icon="🏆")
+        elif pose.start_triggered:
+            was_resting = bool(st.session_state.get("hud_is_resting", False))
+            rep_start = pose.start_rep_count
+            if was_resting:
+                _finish_rest_period(exercises, pose)
+            pose.started = True
+            pose.start_rep_count = rep_start
+            st.session_state["hud_set_started"] = True
+            st.session_state["hud_set_rep_start"] = rep_start
+            session.status = "active"
+            if was_resting:
+                st.toast("Đã kết thúc nghỉ sớm — bắt đầu hiệp mới!", icon="🔥")
         # Widget đã mount và có sẵn model trong iframe; tránh gửi lại 7.5MB base64 mỗi 200ms.
         st.session_state["_webcam_batch_rerun_key"] = key
     except ValueError as error:
@@ -339,7 +619,13 @@ def save_result(session, outcome, manual=None):
     finish_session(session, outcome)
     session_name, target_reps = _compute_target_reps_from_active()
     finished_at = datetime.now().strftime("%H:%M %d/%m/%Y")
-    reps_done = session.ai_reps if manual is None else manual["squat"] + manual["pushup"]
+    if manual is None:
+        reps_done = session.ai_reps
+    else:
+        if "squat" in manual and "pushup" in manual:
+            reps_done = manual["squat"] + manual["pushup"]
+        else:
+            reps_done = sum(v for k, v in manual.items() if isinstance(v, (int, float)) and k != "plank_seconds")
     effective_target = max(1, target_reps if manual is None else max(target_reps, 66))
     results = st.session_state.setdefault("workout_results", {})
     results.setdefault(session.session_id, {
@@ -350,6 +636,8 @@ def save_result(session, outcome, manual=None):
         "session_name": session_name,
         "finished_at": finished_at,
         "manual": manual,
+        "completed_sets": st.session_state.get("hud_completed_sets", {}),
+        "completed_set_reps": st.session_state.get("hud_completed_set_reps", {}),
     })
     st.session_state["last_session_summary"] = {
         "session_name": session_name,
@@ -358,8 +646,36 @@ def save_result(session, outcome, manual=None):
         "target_reps": target_reps,
         "finished_at": finished_at,
     }
+    selected_workout = st.session_state.get("active_workout") or {}
+    actual_date_value = st.session_state.get("selected_session_actual_date")
+    try:
+        actual_day = date.fromisoformat(actual_date_value) if actual_date_value else date.today()
+    except (TypeError, ValueError):
+        actual_day = date.today()
+    event_history = st.session_state.get("workout_event_history", [])
+    st.session_state["workout_event_history"] = add_workout_event(
+        event_history, session_id=str(session.session_id), actual_date=actual_day,
+        workout=selected_workout, reps=reps_done, status=session.status,
+        finished_at=finished_at,
+    )
+    st.session_state["session_history"] = list(st.session_state["workout_event_history"])
+    weekly_schedule = st.session_state.get("weekly_schedule")
+    if isinstance(weekly_schedule, list):
+        day_name = st.session_state.get("selected_session_day")
+        updated = finish_planned_day(
+            weekly_schedule, day_name,
+            completed=session.status == "completed",
+            actual_reps=reps_done, finished_at=finished_at,
+        )
+        st.session_state["weekly_schedule"] = updated
+        st.session_state["active_workout"] = next(
+            (day for day in updated if isinstance(day, dict) and day.get("day") == day_name),
+            st.session_state.get("active_workout"),
+        )
+    save_week_state(st.session_state)
     st.session_state["session_user_paused"] = False
     st.session_state.pop("paused_progress", None)
+    _init_hud_state(force=True)
     st.session_state["review_session_id"] = session.session_id
     if session.status == "completed":
         st.session_state["has_worked_out_today"] = True
@@ -371,13 +687,321 @@ def save_result(session, outcome, manual=None):
         st.rerun()
 
 
+def _render_rest_timer_widget(
+    remaining_seconds: int,
+    total_seconds: int,
+    is_paused: bool = False,
+    next_info: str = "",
+) -> None:
+    """Widget đồng hồ đếm ngược nghỉ ngơi thời gian thực với Web Audio & giọng nói nhắc nhở."""
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <style>
+      * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+      body {{
+        background: transparent;
+        color: #f8fafc;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 10px;
+      }}
+      .timer-card {{
+        width: 100%;
+        background: linear-gradient(135deg, rgba(16, 29, 49, 0.95), rgba(30, 41, 59, 0.95));
+        border: 1px solid #38bdf8;
+        box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
+        border-radius: 12px;
+        padding: 14px 18px;
+        text-align: center;
+      }}
+      .timer-title {{
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #94a3b8;
+        margin-bottom: 4px;
+        font-weight: 700;
+      }}
+      .timer-display {{
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 44px;
+        font-weight: 900;
+        color: #38bdf8;
+        line-height: 1.1;
+        letter-spacing: 2px;
+        text-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+      }}
+      .progress-bg {{
+        width: 100%;
+        height: 8px;
+        background: #0f172a;
+        border-radius: 999px;
+        margin: 10px 0 8px;
+        overflow: hidden;
+        border: 1px solid #334155;
+      }}
+      .progress-bar {{
+        height: 100%;
+        width: {(remaining_seconds / max(1, total_seconds)) * 100}%;
+        background: linear-gradient(90deg, #38bdf8, #22c55e);
+        border-radius: 999px;
+        transition: width 0.25s ease-out;
+      }}
+      .next-info {{
+        font-size: 13px;
+        color: #e2e8f0;
+        font-weight: 600;
+        margin-top: 2px;
+      }}
+      .sound-note {{
+        font-size: 11px;
+        color: #94a3b8;
+        margin-top: 4px;
+      }}
+      .finished-alert {{
+        display: none;
+        background: #22c55e;
+        color: #0f172a;
+        font-weight: 800;
+        padding: 6px;
+        border-radius: 6px;
+        margin-top: 8px;
+        font-size: 13px;
+      }}
+    </style>
+    </head>
+    <body>
+      <div class="timer-card">
+        <div class="timer-title">⏱️ ĐỒNG HỒ NGHỈ GIỮA HIỆP (REST TIMER)</div>
+        <div id="countdown" class="timer-display">
+          {remaining_seconds // 60:02d}:{remaining_seconds % 60:02d}
+        </div>
+        <div class="progress-bg">
+          <div id="p-bar" class="progress-bar"></div>
+        </div>
+        <div class="next-info">
+          🎯 {next_info or "Chuẩn bị cho hiệp tiếp theo"}
+        </div>
+        <div class="sound-note">
+          🔊 Âm thanh đếm ngược 3... 2... 1... và chuông báo khi hết giờ
+        </div>
+        <div id="fin-alert" class="finished-alert">
+          🔔 HẾT GIỜ NGHỈ! Hãy sẵn sàng bắt đầu hiệp mới!
+        </div>
+      </div>
+
+      <script>
+        let total = {total_seconds};
+        let rem = {remaining_seconds};
+        let isPaused = {str(is_paused).lower()};
+        const elTimer = document.getElementById("countdown");
+        const elBar = document.getElementById("p-bar");
+        const elAlert = document.getElementById("fin-alert");
+
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+        function getAudio() {{
+          if (!audioCtx && AudioCtx) audioCtx = new AudioCtx();
+          if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+          return audioCtx;
+        }}
+
+        function beep(freq, duration, type='sine') {{
+          try {{
+            const ctx = getAudio();
+            if (!ctx) return;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, ctx.currentTime);
+            gain.gain.setValueAtTime(0.25, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + duration);
+          }} catch(e) {{}}
+        }}
+
+        function chime() {{
+          try {{
+            [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {{
+              setTimeout(() => beep(f, 0.4, 'triangle'), i * 110);
+            }});
+          }} catch(e) {{}}
+        }}
+
+        function speak(text) {{
+          if ('speechSynthesis' in window) {{
+            try {{
+              const u = new SpeechSynthesisUtterance(text);
+              u.lang = 'vi-VN';
+              u.rate = 1.05;
+              window.speechSynthesis.speak(u);
+            }} catch(e) {{}}
+          }}
+        }}
+
+        function format(s) {{
+          const m = Math.floor(s / 60);
+          const sec = s % 60;
+          return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+        }}
+
+        let soundPlayed = {{ 3: false, 2: false, 1: false, 0: false }};
+
+        const interval = setInterval(() => {{
+          if (isPaused) return;
+          rem = Math.max(0, rem - 1);
+          elTimer.textContent = format(rem);
+          const pct = Math.max(0, Math.min(100, (rem / Math.max(1, total)) * 100));
+          elBar.style.width = pct + '%';
+
+          if (rem <= 5) {{
+            elBar.style.background = 'linear-gradient(90deg, #f59e0b, #ef4444)';
+            elTimer.style.color = '#f87171';
+          }}
+
+          if (rem === 3 && !soundPlayed[3]) {{
+            soundPlayed[3] = true;
+            beep(587, 0.2);
+            speak("Ba");
+          }} else if (rem === 2 && !soundPlayed[2]) {{
+            soundPlayed[2] = true;
+            beep(659, 0.2);
+            speak("Hai");
+          }} else if (rem === 1 && !soundPlayed[1]) {{
+            soundPlayed[1] = true;
+            beep(880, 0.25);
+            speak("Một");
+          }} else if (rem === 0 && !soundPlayed[0]) {{
+            soundPlayed[0] = true;
+            chime();
+            speak("Hết giờ nghỉ! Vào hiệp mới nào!");
+            elAlert.style.display = 'block';
+            clearInterval(interval);
+          }}
+        }}, 1000);
+      </script>
+    </body>
+    </html>
+    """
+    components.html(html_code, height=195, scrolling=False)
+
+
+def _render_up_next_list(
+    exercises: list[dict],
+    cur_idx: int,
+    cur_set: int,
+    is_rest_plan: bool,
+    plan_day: dict | None,
+):
+    """Hiển thị danh sách thứ tự bài tập của buổi hôm nay (Up Next List)."""
+    with st.container(border=True):
+        st.markdown("### 📋 Danh sách Bài tập Hôm nay (Up Next List)")
+        if is_rest_plan and plan_day is not None:
+            st.success("🌱 Hôm nay là Ngày Nghỉ Phục Hồi theo lịch tuần trên máy.")
+            st.write("- Gợi ý: Đi bộ nhẹ nhàng 20 phút, giãn cơ hoặc bật camera tập thêm tùy chọn.")
+            if st.button("📋 Chọn buổi tập bù từ Kế hoạch", key="hud_open_planner_rest_btn", use_container_width=True):
+                st.session_state["pending_navigation"] = "📋 Kế hoạch Tập luyện Tuần"
+                st.session_state["nav_selection"] = "📋 Kế hoạch Tập luyện Tuần"
+                try:
+                    st.rerun(scope="app")
+                except TypeError:
+                    st.rerun()
+            return
+
+        for idx, ex in enumerate(exercises, 1):
+            ex_idx = idx - 1
+            reps_label = ex.get("reps")
+            unit = "" if isinstance(reps_label, str) and not str(reps_label).isdigit() else " reps"
+            total_sets = ex.get("sets", 3)
+            rest_sec = ex.get("rest_sec", 60)
+            primary = ex.get("primary_muscle", "Toàn thân")
+
+            if ex_idx < cur_idx:
+                # Bài đã hoàn thành
+                with st.container(border=False):
+                    st.markdown(
+                        f"<div style='padding: 8px 12px; background: rgba(34, 197, 94, 0.08); border-left: 4px solid #22c55e; border-radius: 6px; margin-bottom: 6px;'>"
+                        f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
+                        f"<span style='font-weight: 700; color: #22c55e;'>✅ {idx}. {ex.get('name')}</span>"
+                        f"<span style='font-size: 11px; background: #22c55e; color: #0f172a; font-weight: 800; padding: 2px 8px; border-radius: 10px;'>ĐÃ HOÀN THÀNH</span>"
+                        f"</div>"
+                        f"<div style='font-size: 12px; opacity: 0.8; margin-top: 2px;'>{total_sets}/{total_sets} sets · {reps_label}{unit} · {primary}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+            elif ex_idx == cur_idx:
+                # Bài đang tập
+                with st.container(border=False):
+                    st.markdown(
+                        f"<div style='padding: 10px 14px; background: rgba(56, 189, 248, 0.12); border-left: 4px solid #38bdf8; border-radius: 8px; margin-bottom: 8px; box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);'>"
+                        f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
+                        f"<span style='font-weight: 800; font-size: 15px; color: #38bdf8;'>🎯 {idx}. {ex.get('name')}</span>"
+                        f"<span style='font-size: 11px; background: #38bdf8; color: #0f172a; font-weight: 800; padding: 2px 8px; border-radius: 10px;'>ĐANG TẬP</span>"
+                        f"</div>"
+                        f"<div style='font-size: 13px; font-weight: 600; margin-top: 4px; color: #f8fafc;'>"
+                        f"Tiến độ: Hiệp {cur_set}/{total_sets} · Mục tiêu: {reps_label}{unit} · Nghỉ giữa hiệp: {rest_sec}s"
+                        f"</div>"
+                        f"<div style='font-size: 12px; opacity: 0.85; margin-top: 2px;'>Nhóm cơ: {primary} · {ex.get('difficulty', 'Beginner')}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                # Bài sắp tới (Up Next)
+                with st.container(border=False):
+                    c_up1, c_up2 = st.columns([3, 1])
+                    with c_up1:
+                        st.markdown(
+                            f"<div style='padding: 8px 12px; background: rgba(148, 163, 184, 0.06); border-left: 4px solid #64748b; border-radius: 6px; margin-bottom: 6px;'>"
+                            f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
+                            f"<span style='font-weight: 600; opacity: 0.9;'>⏳ {idx}. {ex.get('name')}</span>"
+                            f"<span style='font-size: 11px; background: #334155; color: #cbd5e1; font-weight: 600; padding: 2px 6px; border-radius: 10px;'>SẮP TỚI</span>"
+                            f"</div>"
+                            f"<div style='font-size: 12px; opacity: 0.75; margin-top: 2px;'>{total_sets} sets × {reps_label}{unit} · Nghỉ: {rest_sec}s · {primary}</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                    with c_up2:
+                        if st.button("Tập ngay", key=f"hud_jump_btn_{ex_idx}", help=f"Chuyển ngay sang bài {ex.get('name')}", use_container_width=True):
+                            st.session_state["hud_current_ex_idx"] = ex_idx
+                            st.session_state["hud_current_set"] = 1
+                            _clear_rest_timer()
+                            st.session_state["hud_set_started"] = False
+                            st.session_state["hud_set_rep_start"] = 0
+                            st.session_state["hud_all_completed"] = False
+                            pose = st.session_state.get("pose_session")
+                            if pose is not None:
+                                pose.prepare_next_set()
+                            st.toast(f"Đã chuyển sang bài: {ex.get('name')}!", icon="🎯")
+                            st.rerun()
+
+
 @st.fragment
 def _render_ai_vision_hud_fragment() -> None:
     """Cô lập vùng Camera AI + HUD để khi camera gửi batch không làm cả trang web bị rerun/nhấp nháy."""
     session = st.session_state["workout_session"]
     pose = st.session_state["pose_session"]
     user_paused = bool(st.session_state.get("session_user_paused", False))
+    _init_hud_state()
+
+    exercises = _get_session_exercises()
+    cur_idx = min(st.session_state.get("hud_current_ex_idx", 0), max(0, len(exercises) - 1))
+    cur_set = st.session_state.get("hud_current_set", 1)
+    is_resting = bool(st.session_state.get("hud_is_resting", False))
+    current_ex = exercises[cur_idx] if exercises else DEFAULT_SESSION_EXERCISES[0]
+    total_sets = current_ex.get("sets", 3)
+
     session_name, target_reps = _compute_target_reps_from_active()
+    plan_day = _resolve_plan_day()
+    is_rest_plan = bool(plan_day and (plan_day.get("is_rest") or not plan_day.get("exercises")))
 
     col_left, col_right = st.columns([1.6, 1], gap="medium")
 
@@ -386,7 +1010,7 @@ def _render_ai_vision_hud_fragment() -> None:
         with h_col1:
             st.subheader("Màn hình Giám sát Chuyển động AI (Live Feed)")
         with h_col2:
-            show_metrics = st.toggle(
+            show_metrics = st.checkbox(
                 "⚙️ Hiện thông số kỹ thuật",
                 key="hud_show_metrics",
                 help="Bật/tắt hiển thị FPS và các góc khớp thời gian thực bên dưới khung hình.",
@@ -398,12 +1022,20 @@ def _render_ai_vision_hud_fragment() -> None:
             session_id=session.session_id,
             last_event_id=session.last_event_id,
             voice_feedback=pose.voice_feedback,
-            voice_command_feedback=pose.voice_command_feedback,
-            user_paused=user_paused,
             show_metrics=show_metrics,
             key=widget_key,
             on_change=lambda: _on_webcam_change(widget_key),
         )
+
+        with st.container(border=True):
+            st.markdown(
+                "<div style='font-size: 13px; line-height: 1.6;'>"
+                "<b>💡 Hướng dẫn Cử chỉ Rảnh tay:</b><br>"
+                "• 🙋 <b>Giơ một tay cao hơn đầu:</b> Bắt đầu hiệp hiện tại; trong giờ nghỉ, cử chỉ này kết thúc nghỉ sớm và bắt đầu hiệp kế tiếp.<br>"
+                "• 🙅 <b>Bắt chéo hai tay chữ X trước ngực:</b> Kết thúc hiệp đang tập, lưu số reps của hiệp và tự động chạy nghỉ theo giáo án. Hết giờ nghỉ, giơ tay để bắt đầu hiệp tiếp theo."
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
     with col_right:
         st.subheader("Bảng Điều hành Phiên tập (HUD)")
@@ -414,21 +1046,112 @@ def _render_ai_vision_hud_fragment() -> None:
                 f"⏸️ Buổi tập đang tạm ngưng — Đã lưu tiến trình **{paused_info.get('reps', session.ai_reps)} Reps**."
             )
 
+        # Tính toán thời gian nghỉ nếu đang nghỉ
+        custom_rest = st.session_state.get("hud_custom_rest_sec")
+        rest_total = custom_rest if custom_rest is not None else current_ex.get("rest_sec", 60)
+        if is_resting:
+            rest_total = int(st.session_state.get("hud_rest_duration", rest_total))
+
+        if is_resting:
+            if user_paused or st.session_state.get("hud_rest_paused", False):
+                rem = st.session_state.get("hud_rest_remaining", rest_total)
+            else:
+                start_t = st.session_state.get("hud_rest_start_time")
+                if start_t is None:
+                    start_t = time.time()
+                    st.session_state["hud_rest_start_time"] = start_t
+                _run_rest_timer_tick(exercises, pose)
+                rem = st.session_state.get("hud_rest_remaining", rest_total)
+
+            with st.container(border=True):
+                st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
+                next_target_label = st.session_state.get(
+                    "hud_next_target",
+                    f"Hiệp {cur_set + 1}/{total_sets} — {current_ex['name']}"
+                )
+                _render_rest_timer_widget(
+                    remaining_seconds=rem,
+                    total_seconds=rest_total,
+                    is_paused=user_paused or st.session_state.get("hud_rest_paused", False),
+                    next_info=next_target_label,
+                )
+                st.caption("💧 **Mẹo phục hồi:** Hít sâu bằng mũi, thở chậm bằng miệng, uống từng ngụm nước nhỏ.")
+
+                c_r1, c_r2, c_r3 = st.columns([1.6, 1, 1])
+                with c_r1:
+                    if st.button("⏭️ Vào hiệp ngay", key="hud_skip_rest_btn", type="primary", use_container_width=True):
+                        _finish_rest_period(exercises, pose)
+                        st.toast("Đã kết thúc nghỉ — giơ tay để bắt đầu hiệp mới!", icon="🔥")
+                        st.rerun()
+                with c_r2:
+                    if st.button("+15s Nghỉ", key="hud_rest_plus15", use_container_width=True):
+                        _adjust_rest_timer(15)
+                        st.rerun()
+                with c_r3:
+                    if st.button("-15s Nghỉ", key="hud_rest_minus15", use_container_width=True):
+                        _adjust_rest_timer(-15)
+                        st.rerun()
+        else:
+            with st.container(border=True):
+                st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
+                st.progress(60 / 60, text=f"Thời gian nghỉ: {rest_total}s còn lại")
+                st.caption("🔊 Trợ lý Giọng nói sẽ đếm ngược 3... 2... 1... khi sắp hết giờ nghỉ!")
+
+                st.markdown("<div style='font-size: 13px; font-weight: 600; margin-bottom: 4px;'>Tùy chỉnh thời gian nghỉ theo thể trạng:</div>", unsafe_allow_html=True)
+                p_cols = st.columns(5)
+                for p_col, dur in zip(p_cols, [30, 45, 60, 90, 120]):
+                    with p_col:
+                        is_active = (rest_total == dur)
+                        label = f"⭐ {dur}s" if is_active else f"{dur}s"
+                        if st.button(label, key=f"hud_preset_{dur}", use_container_width=True):
+                            st.session_state["hud_custom_rest_sec"] = dur
+                            st.rerun()
+
+                if st.button(
+                    "⏱️ Bắt đầu nghỉ giữa hiệp ngay",
+                    key="hud_manual_start_rest_btn",
+                    use_container_width=True,
+                    disabled=not st.session_state.get("hud_set_started", False)
+                    or st.session_state.get("hud_all_completed", False),
+                ):
+                    _advance_hud_set(
+                        exercises,
+                        completed_reps=max(
+                            0,
+                            session.ai_reps - st.session_state.get("hud_set_rep_start", 0),
+                        ),
+                        pose_session=pose,
+                    )
+                    st.rerun()
+
+        # Thẻ thông tin bài tập hiện tại & bộ đếm
         with st.container(border=True):
-            st.markdown(f"### Bài tập Hiện tại: **{session_name}**")
-            plan_day = _resolve_plan_day()
-            is_rest_plan = bool(plan_day and (plan_day.get("is_rest") or not plan_day.get("exercises")))
+            st.markdown(f"### Bài tập Hiện tại: **{current_ex['name']}**")
             if is_rest_plan:
                 st.caption("Mục tiêu buổi tập: **0 Reps (Ngày Nghỉ Phục Hồi)**")
             else:
-                st.caption(f"Mục tiêu buổi tập: **{target_reps} Reps**")
+                st.caption(f"Mục tiêu buổi tập: **{target_reps} Reps** · Tiến độ: **Hiệp {cur_set}/{total_sets}**")
+
+            st.markdown(
+                f"<div style='font-size: 13px; margin-bottom: 8px;'>"
+                f"<span style='background: #1e293b; color: #38bdf8; padding: 2px 8px; border-radius: 6px; font-weight: 600; margin-right: 6px;'>🎯 {current_ex.get('primary_muscle', 'Toàn thân')}</span>"
+                f"<span style='background: #1e293b; color: #94a3b8; padding: 2px 8px; border-radius: 6px; font-weight: 600; margin-right: 6px;'>⚡ {current_ex.get('difficulty', 'Beginner')}</span>"
+                f"<span style='background: #1e293b; color: #94a3b8; padding: 2px 8px; border-radius: 6px; font-weight: 600;'>🏋️ {current_ex.get('equipment', 'Bodyweight')}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.info(f"💡 **Mẹo kỹ thuật:** {current_ex.get('form_tip', 'Kiểm soát nhịp thở, giữ đúng biên độ.')}")
 
             c1, c2 = st.columns([1.15, 1])
             with c1:
                 status_badge = (
                     "⏸️ Tạm ngưng"
                     if user_paused
-                    else ("🔥 Đang tập" if session.status == "active" else "⏳ Chờ bắt đầu")
+                    else (
+                        "⏱️ Đang nghỉ"
+                        if is_resting
+                        else ("🔥 Đang tập" if session.status == "active" else "⏳ Chờ bắt đầu")
+                    )
                 )
                 st.markdown(
                     "<div style='font-size: 14px; opacity: 0.78; margin-bottom: 4px;'>Trạng thái</div>"
@@ -438,61 +1161,107 @@ def _render_ai_vision_hud_fragment() -> None:
             with c2:
                 st.metric(label="Số Reps AI đếm", value=f"{session.ai_reps} Reps")
 
-            if pose.started:
-                st.success("Đã bắt đầu buổi tập.")
+            # Hiển thị các chấm tiến độ hiệp
+            set_badges = []
+            completed_sets = st.session_state.get("hud_completed_sets", {})
+            completed_set_reps = st.session_state.get("hud_completed_set_reps", {})
+            for s_num in range(1, total_sets + 1):
+                set_key = f"{cur_idx}_{s_num}"
+                if completed_sets.get(set_key):
+                    reps = completed_set_reps.get(set_key, 0)
+                    set_badges.append(f"✅ Hiệp {s_num} ({reps} reps)")
+                elif s_num == cur_set:
+                    set_badges.append(f"🔥 Hiệp {s_num} (Đang tập)")
+                else:
+                    set_badges.append(f"⏳ Hiệp {s_num}")
+            st.markdown(
+                f"<div style='font-size: 13px; color: #cbd5e1; margin-bottom: 8px;'>"
+                f"<b>Tiến trình hiệp:</b> {' &nbsp;|&nbsp; '.join(set_badges)}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Thanh tiến trình tổng thể buổi tập
+            rep_pct = min(1.0, session.ai_reps / max(1, target_reps))
+            st.progress(rep_pct, text=f"Tổng tiến độ buổi tập: {session.ai_reps}/{target_reps} Reps ({int(rep_pct * 100)}%)")
+
+            if st.session_state.get("hud_all_completed", False):
+                st.success("Đã hoàn thành tất cả các hiệp trong buổi tập.")
+            elif is_resting:
+                st.info("Đang nghỉ. Hết giờ nghỉ, giơ một tay cao hơn đầu để bắt đầu hiệp kế tiếp.")
+            elif pose.started and st.session_state.get("hud_set_started", False):
+                current_set_reps = max(
+                    0,
+                    session.ai_reps - st.session_state.get("hud_set_rep_start", 0),
+                )
+                st.success(f"Hiệp {cur_set} đang tập — đã đếm {current_set_reps} reps. Giữ chữ X để kết thúc hiệp.")
             else:
                 st.info(
-                    "Giơ một tay cao hơn đầu để bắt đầu "
+                    f"Giơ một tay cao hơn đầu để bắt đầu hiệp {cur_set} "
                     f"({_format_hold_time(pose.start.active_frames, pose.start.required_frames)})."
                 )
-                if not user_paused and st.button("▶️ Bắt đầu", key="hud_start_btn"):
-                    st.toast(_apply_hud_command(session, pose, "start"))
-                    st.rerun()
             st.progress(
                 pose.stop.active_frames / pose.stop.required_frames,
                 text=(
-                    "Giữ hai tay thành chữ X để dừng: "
+                    "Giữ hai tay thành chữ X để kết thúc hiệp: "
                     f"{_format_hold_time(pose.stop.active_frames, pose.stop.required_frames)}"
                 ),
             )
             if pose.stop.is_rep_locked:
                 st.warning("Đã xác nhận dừng; số reps đã được khóa.")
-        with st.container(border=True):
-            st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
-            st.progress(60 / 60, text="Thời gian nghỉ: 60s còn lại")
-            st.caption("🔊 Trợ lý Giọng nói sẽ đếm ngược 3... 2... 1... khi sắp hết giờ nghỉ!")
 
-        with st.container(border=True):
-            st.markdown("### 📋 Danh sách Bài tập Hôm nay")
-            exercises = plan_day.get("exercises", []) if plan_day else []
-            if is_rest_plan and plan_day is not None:
-                st.success("🌱 Hôm nay là Ngày Nghỉ Phục Hồi theo lịch tuần trên máy.")
-                st.write("- Gợi ý: Đi bộ nhẹ nhàng 20 phút, giãn cơ hoặc bật camera tập thêm tùy chọn.")
-                if st.button("📋 Chọn buổi tập bù từ Kế hoạch", key="hud_open_planner_rest_btn", use_container_width=True):
-                    st.session_state["pending_navigation"] = "📋 Kế hoạch Tập luyện Tuần"
-                    st.session_state["nav_selection"] = "📋 Kế hoạch Tập luyện Tuần"
-                    try:
-                        st.rerun(scope="app")
-                    except TypeError:
-                        st.rerun()
-            elif exercises:
-                for idx, ex in enumerate(exercises, 1):
-                    reps_label = ex.get("reps")
-                    unit = "" if isinstance(reps_label, str) and not reps_label.isdigit() else " reps"
-                    st.write(f"{idx}. **{ex.get('name')}** — {ex.get('sets')} sets × {reps_label}{unit}")
-            else:
-                st.write("1. **Squat Thể dục (Bodyweight)** — 3 sets × 12 reps")
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                if st.button(
+                    "✅ Hoàn thành hiệp",
+                    key="hud_complete_set_btn",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=is_resting or not st.session_state.get("hud_set_started", False)
+                    or st.session_state.get("hud_all_completed", False),
+                ):
+                    _advance_hud_set(
+                        exercises,
+                        completed_reps=max(
+                            0,
+                            session.ai_reps - st.session_state.get("hud_set_rep_start", 0),
+                        ),
+                        pose_session=pose,
+                    )
+                    st.rerun()
+            with col_s2:
+                if st.button("⏭️ Bỏ qua bài này", key="hud_skip_exercise_btn", use_container_width=True):
+                    _skip_to_next_exercise(exercises, pose)
+                    st.rerun()
+
+        # Danh sách bài tập hôm nay & Up Next List
+        _render_up_next_list(exercises, cur_idx, cur_set, is_rest_plan, plan_day)
 
         st.markdown("---")
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1:
             if not user_paused:
                 if st.button("⏸️ Tạm ngưng", key="hud_pause_btn", use_container_width=True):
-                    st.toast(_apply_hud_command(session, pose, "pause"), icon="⏸️")
+                    st.session_state["session_user_paused"] = True
+                    pose.interrupt_tracking()
+                    session.status = "paused"
+                    st.session_state["paused_progress"] = {
+                        "reps": session.ai_reps,
+                        "paused_at": datetime.now().strftime("%H:%M:%S"),
+                        "session_name": session_name,
+                    }
+                    st.toast("Đã tạm ngưng buổi tập và lưu tiến trình!", icon="⏸️")
                     st.rerun()
             else:
                 if st.button("▶️ Tiếp tục", key="hud_resume_btn", type="primary", use_container_width=True):
-                    st.toast(_apply_hud_command(session, pose, "start"), icon="▶️")
+                    st.session_state["session_user_paused"] = False
+                    if pose.started and not pose.stop.is_rep_locked:
+                        session.status = "active"
+                    if st.session_state.get("hud_is_resting"):
+                        dur = st.session_state.get("hud_rest_duration", 60)
+                        rem = st.session_state.get("hud_rest_remaining", dur)
+                        st.session_state["hud_rest_start_time"] = time.time() - (dur - rem)
+                    st.toast("Tiếp tục ghi nhận buổi tập!", icon="▶️")
                     st.rerun()
 
         with btn_col2:
@@ -504,13 +1273,14 @@ def render_session_view():
     """Hiển thị HUD điều hành buổi tập trực tiếp rảnh tay hoặc tự nhập sau khi tập."""
     if "workout_session" not in st.session_state:
         session = start_session(mode="ai")
-        session.status = "paused"  # Chờ camera nhìn thấy người lần đầu.
+        session.status = "paused"
         st.session_state["workout_session"] = session
         st.session_state["pose_session"] = PoseSession()
     if "session_user_paused" not in st.session_state:
         st.session_state["session_user_paused"] = False
     if "hud_show_metrics" not in st.session_state:
         st.session_state["hud_show_metrics"] = True
+    _init_hud_state()
 
     session = st.session_state["workout_session"]
     st.header("⚡ Phòng tập Trực tiếp (Workout HUD)")
@@ -531,8 +1301,12 @@ def render_session_view():
             st.info("Phiên tập đã kết thúc.")
             if st.button("Bắt đầu buổi mới"):
                 del st.session_state["workout_session"]
+                st.session_state.pop("pose_session", None)
                 st.session_state["session_user_paused"] = False
                 st.session_state.pop("paused_progress", None)
+                for k in list(st.session_state.keys()):
+                    if k.startswith("hud_"):
+                        st.session_state.pop(k, None)
                 try:
                     st.rerun(scope="app")
                 except TypeError:
@@ -542,16 +1316,27 @@ def render_session_view():
 
     else:
         col_left, col_right = st.columns([1.6, 1], gap="medium")
-        # Chế độ Tự do Không Camera
+        exercises = _get_session_exercises()
+        cur_idx = min(st.session_state.get("hud_current_ex_idx", 0), max(0, len(exercises) - 1))
+        cur_set = st.session_state.get("hud_current_set", 1)
+        plan_day = _resolve_plan_day()
+        is_rest_plan = bool(plan_day and (plan_day.get("is_rest") or not plan_day.get("exercises")))
+
         with col_left:
             st.subheader("Ghi nhận Kết quả Buổi tập (Không Camera)")
             st.success("🌱 Bạn đang ở Chế độ Tự do: Thoải mái tập luyện ngoài công viên hoặc không gian riêng tư mà không cần bật webcam.")
 
             with st.form("manual_session_form"):
                 st.markdown("#### Nhập kết quả thực tế từng bài:")
-                squat = st.number_input("1. Squat Thể dục — Số reps hoàn thành:", min_value=0, max_value=100, value=36)
-                pushup = st.number_input("2. Push-up — Số reps hoàn thành:", min_value=0, max_value=100, value=30)
-                plank = st.number_input("3. Plank tĩnh — Tổng giây giữ được:", min_value=0, max_value=300, value=120)
+                inputs = {}
+                for idx, ex in enumerate(exercises, 1):
+                    reps_def = ex.get("reps", 12)
+                    default_val = int(reps_def) if str(reps_def).isdigit() else 12
+                    inputs[ex.get("name", f"Bài {idx}")] = st.number_input(
+                        f"{idx}. {ex.get('name')} — Số reps hoàn thành:",
+                        min_value=0, max_value=300, value=default_val * ex.get("sets", 3),
+                        key=f"manual_input_{idx}",
+                    )
 
                 submitted = st.form_submit_button("🏁 Kết thúc & Lưu Buổi tập", type="primary")
                 if submitted:
@@ -559,9 +1344,37 @@ def render_session_view():
                     save_result(
                         manual_session,
                         "completed",
-                        {"squat": squat, "pushup": pushup, "plank_seconds": plank},
+                        inputs,
                     )
 
         with col_right:
-            st.subheader("Hướng dẫn buổi tập")
-            st.info("Hãy hoàn thành bài tập theo khả năng của bạn. Nếu mệt giữa chừng, bạn có thể nghỉ sớm; AI sẽ dựa vào tỉ lệ hoàn thành thực tế để điều chỉnh kế hoạch tiếp theo.")
+            st.subheader("Bảng Theo dõi & Đồng hồ Nghỉ (Manual HUD)")
+            is_resting = bool(st.session_state.get("hud_is_resting", False))
+            current_ex = exercises[cur_idx] if exercises else DEFAULT_SESSION_EXERCISES[0]
+            rest_total = current_ex.get("rest_sec", 60)
+
+            if is_resting:
+                rest_total = int(st.session_state.get("hud_rest_duration", rest_total))
+                _run_rest_timer_tick(exercises)
+                rem = st.session_state.get("hud_rest_remaining", rest_total)
+                _render_rest_timer_widget(
+                    remaining_seconds=rem,
+                    total_seconds=rest_total,
+                    is_paused=False,
+                    next_info=f"Hiệp {cur_set}/{current_ex.get('sets', 3)} — {current_ex['name']}",
+                )
+                if st.button("⏭️ Vào hiệp tiếp theo", key="manual_skip_rest_btn", type="primary", use_container_width=True):
+                    _finish_rest_period(exercises)
+                    st.rerun()
+            else:
+                with st.container(border=True):
+                    st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp")
+                    st.progress(60 / 60, text=f"Thời gian nghỉ: {rest_total}s còn lại")
+                    if st.button("⏱️ Bắt đầu đếm thời gian nghỉ giữa hiệp", key="manual_start_rest_btn", use_container_width=True):
+                        st.session_state["hud_is_resting"] = True
+                        st.session_state["hud_rest_duration"] = rest_total
+                        st.session_state["hud_rest_remaining"] = rest_total
+                        st.session_state["hud_rest_start_time"] = time.time()
+                        st.rerun()
+
+            _render_up_next_list(exercises, cur_idx, cur_set, is_rest_plan, plan_day)
