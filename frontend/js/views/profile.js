@@ -8,9 +8,13 @@ import { Toast } from "../components/toast.js";
 export const ProfileView = {
   profileData: null,
 
-  async render() {
+  async render(forceRefresh = false) {
     const container = document.getElementById("view-profile");
     if (!container) return;
+
+    if (!forceRefresh && this.profileData && container.children.length > 0) {
+      return;
+    }
 
     try {
       this.profileData = await API.profile.get();

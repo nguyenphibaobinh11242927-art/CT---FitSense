@@ -10,10 +10,16 @@ import { Toast } from "../components/toast.js";
 export const ProgressView = {
   evalMeta: null,
   latestEvaluation: null,
+  lastRenderTime: 0,
 
-  async render() {
+  async render(forceRefresh = false) {
     const container = document.getElementById("view-progress");
     if (!container) return;
+
+    const now = Date.now();
+    if (!forceRefresh && container.children.length > 0 && (now - this.lastRenderTime < 30000)) {
+      return;
+    }
 
     try {
       const [heatmapData, historyData, statsData, evalMetaData, evalsData] = await Promise.all([
@@ -23,6 +29,7 @@ export const ProgressView = {
         API.progress.evaluationMeta(),
         API.progress.evaluations(),
       ]);
+      this.lastRenderTime = Date.now();
 
       this.evalMeta = evalMetaData;
       const muscles = heatmapData.muscles || [];

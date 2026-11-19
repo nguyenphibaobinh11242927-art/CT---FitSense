@@ -107,6 +107,18 @@ class SessionStartRequest(BaseModel):
     exercise_id: str
     target_reps: int = 10
     day: Optional[str] = None
+    exercise_list: Optional[list[dict[str, Any]]] = None
+    total_sets: Optional[int] = 3
+    current_set: Optional[int] = 1
+
+
+class SessionSwitchExerciseRequest(BaseModel):
+    session_id: str
+    exercise_id: str
+    exercise_name: Optional[str] = None
+    target_reps: int = 10
+    current_set: int = 1
+    total_sets: int = 3
 
 
 class FSMRepRequest(BaseModel):

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <linearGradient id="bgGlow2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="c2Pink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="100%" stop-color="#fb7185" />
+    </linearGradient>
+    <linearGradient id="c2Blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+    <filter id="shadow2" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="512" height="512" rx="48" fill="url(#bgGlow2)" />
+  <rect x="2" y="2" width="508" height="508" rx="46" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+
+  <!-- Title Badge -->
+  <text x="256" y="58" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="16" font-weight="700" fill="#94a3b8" letter-spacing="3">Ý TƯỞNG 2: VŨ ĐIỆU VƯƠN MÌNH &amp; NHỊP SÓNG</text>
+
+  <!-- Graphic Container -->
+  <g filter="url(#shadow2)">
+    <!-- Pastel Blue Ambient Spiral Flow (Left Ascent) -->
+    <path d="M110 380 C80 300 110 200 170 150 C210 115 250 120 240 140 C230 160 180 170 150 220 C120 270 125 330 165 375 C190 405 130 420 110 380 Z" fill="url(#c2Blue)" opacity="0.85" />
+
+    <!-- Pastel Pink Pulse Wave (Right Harmony) -->
+    <path d="M260 390 C320 400 390 360 410 290 C425 230 380 180 340 185 C320 188 330 210 350 215 C375 220 395 255 380 295 C360 345 305 370 255 365 C240 363 245 388 260 390 Z" fill="url(#c2Pink)" />
+    <!-- Pink Dynamic Heartbeat accent line -->
+    <path d="M280 260 L305 230 L325 280 L345 250 L370 260" stroke="#f472b6" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.9" />
+
+    <!-- PURE WHITE SOARING ATHLETE (Center Victory Stretch) -->
+    <!-- Head -->
+    <circle cx="260" cy="115" r="26" fill="#ffffff" />
+    
+    <!-- Upward Reaching Right Arm (Reaching for Goal/Sky) -->
+    <path d="M265 140 C280 110 305 80 335 60 C345 53 355 65 345 75 C320 100 295 135 280 160 Z" fill="#ffffff" />
+    
+    <!-- Balanced Left Arm -->
+    <path d="M245 155 C210 170 175 195 150 225 C140 235 130 220 140 210 C170 180 210 150 245 140 Z" fill="#ffffff" />
+
+    <!-- S-Curve Graceful Torso and Leaping Legs -->
+    <path d="M250 145 C270 180 280 225 270 270 C260 310 235 345 210 380 C200 395 190 385 195 370 C220 335 240 300 245 265 C255 220 240 180 230 150 Z" fill="#ffffff" />
+    
+    <!-- Free Trailing Leg (Bent in flight) -->
+    <path d="M265 270 C290 295 315 320 330 350 C338 365 325 375 315 360 C300 335 280 310 255 285 Z" fill="#ffffff" />
+  </g>
+
+  <!-- Caption -->
+  <text x="256" y="475" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="14" font-weight="600" fill="#cbd5e1">Đường nét S-Curve vươn cao · Năng lượng chuyển động &amp; Nhịp đập</text>
+</svg>

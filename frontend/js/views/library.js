@@ -18,9 +18,13 @@ export const LibraryView = {
   },
   debounceTimer: null,
 
-  async render() {
+  async render(forceRefresh = false) {
     const container = document.getElementById("view-library");
     if (!container) return;
+
+    if (!forceRefresh && this.catalog && this.catalog.length > 0 && container.children.length > 0) {
+      return;
+    }
 
     try {
       const [metaData, listData] = await Promise.all([

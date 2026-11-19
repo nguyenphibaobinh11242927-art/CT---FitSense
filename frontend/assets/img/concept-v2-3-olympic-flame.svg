@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    
+    <linearGradient id="bgLinear3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#111827" />
+    </linearGradient>
+    <linearGradient id="pinkGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="100%" stop-color="#fb7185" />
+    </linearGradient>
+    <linearGradient id="blueGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+    <linearGradient id="textGrad3" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="48%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+    <filter id="shadow3" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.4" />
+    </filter>
+
+  </defs>
+  <rect width="512" height="512" rx="48" fill="url(#bgLinear3)" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+  <text x="256" y="56" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="15" font-weight="700" fill="#94a3b8" letter-spacing="3">Ý TƯỞNG 3: NGỌN LỬA TINH THẦN SINH HỌC</text>
+  
+  <g filter="url(#shadow3)" transform="translate(140, 85)">
+    <!-- Left Wing Flame (Pastel Pink) - Embracing arm gesture -->
+    <path d="M60 260 C30 220 25 150 65 95 C75 80 85 92 80 105 C60 145 65 195 95 235 C110 255 80 280 60 260 Z" fill="url(#pinkGrad3)" />
+
+    <!-- Right Wing Flame (Pastel Blue) - Soaring wing curve -->
+    <path d="M170 260 C200 220 205 150 165 95 C155 80 145 92 150 105 C170 145 165 195 135 235 C120 255 150 280 170 260 Z" fill="url(#blueGrad3)" />
+
+    <!-- Center Spire (Pure White) - Standing proud, upright spine of victory -->
+    <path d="M115 285 C100 230 105 150 115 55 C117 40 123 40 125 55 C135 150 140 230 125 285 C123 292 117 292 115 285 Z" fill="#ffffff" />
+    
+    <!-- Base Foundation Pedestal Ring -->
+    <path d="M70 285 C95 305 145 305 170 285 C160 292 100 300 70 285 Z" fill="#ffffff" opacity="0.85" />
+    
+    <!-- Flame Spark -->
+    <circle cx="120" cy="30" r="5.5" fill="#ffffff" />
+  </g>
+
+  <text x="256" y="470" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="14" font-weight="600" fill="#cbd5e1">Đài lửa Olympic sinh học · Ý chí vươn thẳng &amp; sải cánh che chở</text>
+</svg>

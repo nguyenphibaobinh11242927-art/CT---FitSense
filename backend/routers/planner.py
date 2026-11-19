@@ -407,13 +407,39 @@ def update_single_day(payload: DayUpdateRequest):
             
     if target_idx is None:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy ngày {payload.day}")
+
+    # Ensure all exercises have a valid id, auto-matching catalog if needed
+    catalog = get_catalog()
+    cleaned_exercises = []
+    for ex in payload.exercises:
+        ex_id = ex.get("id")
+        ex_name = (ex.get("name") or "").strip().lower()
+        
+        # If ID is missing or marked custom, try fuzzy/name matching against catalog
+        if not ex_id or ex_id == "custom":
+            matched = next(
+                (c for c in catalog if 
+                 c["name"].lower() == ex_name or 
+                 c.get("name_en", "").lower() == ex_name or 
+                 c["id"].lower() == ex_name or
+                 c["name"].lower() in ex_name or
+                 (len(ex_name) > 3 and ex_name in c["name"].lower())),
+                None
+            )
+            if matched:
+                ex["id"] = matched["id"]
+                if not ex.get("primary_muscle"):
+                    ex["primary_muscle"] = matched.get("primary_muscles", ["Toàn thân"])[0]
+            else:
+                ex["id"] = "custom"
+        cleaned_exercises.append(ex)
         
     schedule[target_idx] = {
         "day": payload.day,
         "focus": payload.focus or ("Nghỉ ngơi phục hồi" if payload.is_rest else "Buổi tập tùy chỉnh"),
         "is_rest": payload.is_rest,
         "ai_reason": "Chỉnh sửa thủ công bởi người dùng.",
-        "exercises": [] if payload.is_rest else payload.exercises,
+        "exercises": [] if payload.is_rest else cleaned_exercises,
     }
     
     return {
