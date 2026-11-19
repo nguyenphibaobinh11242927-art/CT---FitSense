@@ -6,6 +6,8 @@ from unittest.mock import patch
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+from src.fsm_gestures import StartGestureFSM, StopGestureFSM
+from src.session_view import PoseSession
 import src.session_view as session_view
 from src.workout_session import start_session
 
@@ -74,6 +76,75 @@ class Scrum19SessionHudTests(unittest.TestCase):
         self.assertFalse(st.session_state["hud_is_resting"])
         self.assertEqual(st.session_state["hud_current_set"], 2)
         self.assertEqual(st.session_state["hud_current_ex_idx"], 0)
+
+    def test_x_ends_set_records_reps_and_hand_starts_next_set(self):
+        exercises = [
+            {"name": "Squat", "sets": 2, "reps": 12, "rest_sec": 45},
+        ]
+        session = start_session()
+        pose = PoseSession(
+            start=StartGestureFSM(required_frames=1),
+            stop=StopGestureFSM(required_frames=1),
+        )
+        st.session_state["workout_session"] = session
+        st.session_state["pose_session"] = pose
+        st.session_state["hud_custom_exercises"] = exercises
+        st.session_state["camera_batch"] = {
+            "session_id": session.session_id,
+            "stream_id": "test-camera",
+            "sequence": 7,
+            "frames": [
+                {"start_detected": True, "x_detected": False, "head_detected": True, "knee_angle": None},
+                *[
+                    {"start_detected": False, "x_detected": False, "head_detected": True, "knee_angle": angle}
+                    for angle in (165, 145, 90, 120, 165)
+                ],
+                {"start_detected": False, "x_detected": True, "head_detected": True, "knee_angle": None},
+            ],
+        }
+
+        session_view._on_webcam_change("camera_batch")
+
+        self.assertTrue(st.session_state["hud_is_resting"])
+        self.assertEqual(st.session_state["hud_completed_set_reps"]["0_1"], 1)
+        self.assertFalse(st.session_state["hud_set_started"])
+        self.assertFalse(pose.started)
+        self.assertEqual(session.ai_reps, 1)
+
+        # A duplicate batch must not record or advance this set a second time.
+        session_view._on_webcam_change("camera_batch")
+        self.assertEqual(st.session_state["hud_completed_set_reps"], {"0_1": 1})
+        self.assertEqual(st.session_state["hud_current_set"], 1)
+
+        st.session_state["camera_batch"] = {
+            "session_id": session.session_id,
+            "stream_id": "test-camera",
+            "sequence": 8,
+            "frames": [
+                {"start_detected": True, "x_detected": False, "head_detected": True, "knee_angle": None},
+            ],
+        }
+        session_view._on_webcam_change("camera_batch")
+
+        self.assertFalse(st.session_state["hud_is_resting"])
+        self.assertEqual(st.session_state["hud_current_set"], 2)
+        self.assertTrue(st.session_state["hud_set_started"])
+        self.assertTrue(pose.started)
+        self.assertEqual(st.session_state["hud_set_rep_start"], 1)
+
+    def test_rest_timer_expiry_waits_for_hand_gesture(self):
+        exercises = [{"name": "Squat", "sets": 2, "reps": 12, "rest_sec": 1}]
+        session_view._advance_hud_set(exercises)
+        pose = PoseSession(start=StartGestureFSM(required_frames=1))
+        st.session_state["hud_rest_duration"] = 1
+        st.session_state["hud_rest_start_time"] = 90
+
+        with patch("src.session_view.time.time", return_value=92):
+            self.assertTrue(session_view._check_auto_advance_rest_timer(exercises, pose))
+
+        self.assertEqual(st.session_state["hud_current_set"], 2)
+        self.assertFalse(st.session_state["hud_is_resting"])
+        self.assertFalse(st.session_state["hud_set_started"])
 
     def test_advance_to_next_exercise_after_final_set(self):
         """Khi hoàn thành hiệp cuối cùng (3/3) của bài 1, HUD kích hoạt nghỉ chuyển bài sang bài 2."""
