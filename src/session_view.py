@@ -7,6 +7,7 @@ import base64
 from datetime import datetime, date
 import logging
 import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -56,12 +57,16 @@ def process_pose_frames(
         start_detected = frame.get("start_detected")
         x_detected = frame.get("x_detected")
         head_detected = frame.get("head_detected")
+        is_too_close = frame.get("is_too_close", False)
+        is_bad_angle = frame.get("is_bad_angle", False)
         knee_angle = frame.get("knee_angle")
         captured_at = frame.get("captured_at")
         if (
             type(start_detected) is not bool
             or type(x_detected) is not bool
             or type(head_detected) is not bool
+            or type(is_too_close) is not bool
+            or type(is_bad_angle) is not bool
         ):
             raise ValueError("Trạng thái cử chỉ phải là kiểu đúng/sai.")
         if knee_angle is not None and (
@@ -114,12 +119,16 @@ class PoseSession:
     stream_id: str | None = None
     retired_streams: set[str] = field(default_factory=set)
     voice_feedback: dict | None = None
+    is_too_close: bool = False
+    is_bad_angle: bool = False
 
     def interrupt_tracking(self) -> None:
         self.rep.update(None)
         self.correction.interrupt_tracking()
         self.start.update(False)
         self.stop.update(False, False)
+        self.is_too_close = False
+        self.is_bad_angle = False
 
     def consume(self, session: WorkoutSession, batch, *, user_paused: bool = False) -> None:
         if not isinstance(batch, dict) or batch.get("session_id") != session.session_id:
@@ -171,6 +180,11 @@ class PoseSession:
                 [frame], self.rep, self.start, self.stop, self.started,
                 voice_events=voice_events, correction=self.correction,
             )
+            tracking_interrupted = (
+                isinstance(frame, dict) and frame.get("tracking_interrupted") is True
+            )
+            self.is_too_close = not tracking_interrupted and frame.get("is_too_close", False)
+            self.is_bad_angle = not tracking_interrupted and frame.get("is_bad_angle", False)
             if len(voice_events) > previous_event_count and voice_events[-1]["kind"] == "shallow_squat":
                 event = voice_events[-1]
                 event["frame_sequence"] = seq
@@ -223,6 +237,23 @@ def _compute_target_reps_from_active() -> tuple[str, int]:
         total = count_day_target_reps(plan_day)
         return session_name, total if total > 0 else 36
     return "Squat Thể dục (Bodyweight)", 36
+
+
+def _pose_exercise_type() -> str:
+    """Resolve the first planned exercise to the supported pose-check type."""
+    plan_day = _resolve_plan_day()
+    exercises = plan_day.get("exercises", []) if plan_day else []
+    if not exercises or not isinstance(exercises[0], dict):
+        return "squat"
+    exercise = exercises[0]
+    identity = " ".join(
+        str(exercise.get(key, ""))
+        for key in ("exercise_id", "id", "name")
+    ).casefold()
+    normalized = re.sub(r"[\s-]+", "_", identity)
+    return "push_up" if any(
+        marker in normalized for marker in ("push_up", "pushup", "hit_dat", "hít_đất")
+    ) else "squat"
 
 
 def _format_hold_time(active_frames: int, required_frames: int, fps: float = 30.0) -> str:
@@ -343,12 +374,21 @@ def _render_ai_vision_hud_fragment() -> None:
             last_event_id=session.last_event_id,
             voice_feedback=pose.voice_feedback,
             show_metrics=show_metrics,
+            exercise_type=_pose_exercise_type(),
             key=widget_key,
             on_change=lambda: _on_webcam_change(widget_key),
         )
 
     with col_right:
         st.subheader("Bảng Điều hành Phiên tập (HUD)")
+
+        if pose.is_too_close:
+            st.warning("Bạn đang đứng quá gần. Hãy lùi lại để camera thấy rõ cơ thể.")
+        if pose.is_bad_angle:
+            st.warning(
+                "Camera chưa thấy đủ bộ khớp chính của bài tập ở cả hai bên. "
+                "Hãy chỉnh lại góc hoặc vị trí camera."
+            )
 
         if user_paused:
             paused_info = st.session_state.get("paused_progress", {})

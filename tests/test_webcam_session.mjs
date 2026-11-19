@@ -4,6 +4,7 @@ import test from "node:test";
 import {runInNewContext} from "node:vm";
 import {createFrameBatchFilter} from "../assets/webcam/frame_batching.mjs";
 import * as overlay from "../assets/webcam/overlay.mjs";
+import * as poseDiagnostics from "../assets/webcam/pose_diagnostics.mjs";
 
 test("webcam pauses a stalled stream and resumes with the same session sequence", async () => {
   const messages = [], heard = [], canvasCalls = [];
@@ -60,6 +61,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
     .replace(/^import \{createVoiceCoach\}[^\n]+\n/, "")
     .replace(/^import \{createFrameBatchFilter\}[^\n]+\n/, "")
     .replace(/^import \{[\s\S]*?\} from "\.\/overlay\.mjs";\r?\n/m, "")
+    .replace(/^import \{[\s\S]*?\} from "\.\/pose_diagnostics\.mjs";\r?\n/m, "")
     .replace('await import("./vendor/mediapipe/vision_bundle.mjs")', "fakeMediaPipe");
   runInNewContext(source, {
     window: win, parent, location: {origin, href: origin}, fakeMediaPipe,
@@ -74,6 +76,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
     },
     createFrameBatchFilter,
     ...overlay,
+    ...poseDiagnostics,
     ResizeObserver: class {observe() {}}, URL, atob, setTimeout, clearTimeout,
     performance: {now: () => now + clockOffset}, cancelAnimationFrame() {},
     requestAnimationFrame(callback) { animation = callback; return 1; },
@@ -89,7 +92,7 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
     animation(at);
   };
 
-  render({model: "dGVzdA==", last_event_id: 8});
+  render({model: "dGVzdA==", last_event_id: 8, exercise_type: "squat"});
   updateSpeaker(true);
   assert.equal(element("voice-icon").textContent, "🔊");
   assert.equal(element("voice")["aria-pressed"], "true");
@@ -113,6 +116,8 @@ test("webcam pauses a stalled stream and resumes with the same session sequence"
   assert.equal(frame.frames.length, 1);
   assert.equal(frame.frames[0].knee_angle, 180);
   assert.equal(frame.frames[0].captured_at, 200);
+  assert.equal(frame.frames[0].is_too_close, false);
+  assert.equal(frame.frames[0].is_bad_angle, false);
   assert.equal(detectionCount, 1);
   assert.ok(canvasCalls.some(([name]) => name === "translate"));
   assert.ok(canvasCalls.some(([name]) => name === "scale"));
@@ -205,6 +210,7 @@ test("webcam alternates detection frames when inference exceeds its time budget"
     .replace(/^import \{createVoiceCoach\}[^\n]+\n/, "")
     .replace(/^import \{createFrameBatchFilter\}[^\n]+\n/, "")
     .replace(/^import \{[\s\S]*?\} from "\.\/overlay\.mjs";\r?\n/m, "")
+    .replace(/^import \{[\s\S]*?\} from "\.\/pose_diagnostics\.mjs";\r?\n/m, "")
     .replace('await import("./vendor/mediapipe/vision_bundle.mjs")', "fakeMediaPipe");
   runInNewContext(source, {
     window: win, parent, location: {origin, href: origin}, fakeMediaPipe,
@@ -215,6 +221,7 @@ test("webcam alternates detection frames when inference exceeds its time budget"
     createVoiceCoach: () => ({supported: true, stop() {}, receiveBatch() {}}),
     createFrameBatchFilter,
     ...overlay,
+    ...poseDiagnostics,
     ResizeObserver: class {observe() {}}, URL, atob, setTimeout, clearTimeout,
     performance: {now: () => now + clockOffset}, cancelAnimationFrame() {},
     requestAnimationFrame(callback) { animation = callback; return 1; },

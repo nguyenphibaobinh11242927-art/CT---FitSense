@@ -1,12 +1,13 @@
 import json
 import unittest
+from unittest.mock import patch
 
 from streamlit.proto.WidgetStates_pb2 import WidgetStates
 from streamlit.testing.v1 import AppTest
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 from src.fsm_rep_counter import RepCounterFSM
-from src.session_view import PoseSession, process_pose_frames
+from src.session_view import PoseSession, _pose_exercise_type, process_pose_frames
 from src.workout_session import start_session
 
 class SessionFsmIntegrationTests(unittest.TestCase):
@@ -19,7 +20,7 @@ class SessionFsmIntegrationTests(unittest.TestCase):
     @staticmethod
     def frame(
         knee_angle=None, start_detected=False, x_detected=False, head_detected=True,
-        captured_at=None,
+        captured_at=None, is_too_close=False, is_bad_angle=False,
     ):
         """Tạo một mẫu dữ liệu khung hình."""
         return {
@@ -28,6 +29,8 @@ class SessionFsmIntegrationTests(unittest.TestCase):
             "x_detected": x_detected,
             "head_detected": head_detected,
             "captured_at": captured_at,
+            "is_too_close": is_too_close,
+            "is_bad_angle": is_bad_angle,
         }
 
     def process(self, frames, session_started = False):
@@ -84,6 +87,45 @@ class SessionFsmIntegrationTests(unittest.TestCase):
                 "x_detected": False,
                 "head_detected": True,
             }])
+        with self.assertRaises(ValueError):
+            self.process([self.frame(is_too_close=1)])
+        with self.assertRaises(ValueError):
+            self.process([self.frame(is_bad_angle=None)])
+
+    def test_pose_diagnostics_are_retained_and_cleared_on_tracking_loss(self):
+        session = start_session()
+        pose = PoseSession(started=True)
+        pose.consume(session, {
+            "session_id": session.session_id,
+            "stream_id": "camera",
+            "sequence": 1,
+            "frames": [self.frame(170, is_too_close=True, is_bad_angle=True)],
+        })
+        self.assertTrue(pose.is_too_close)
+        self.assertTrue(pose.is_bad_angle)
+
+        pose.consume(session, {
+            "session_id": session.session_id,
+            "stream_id": "camera",
+            "sequence": 2,
+            "frames": [self.frame(
+                head_detected=False, is_too_close=True, is_bad_angle=True,
+            ) | {"tracking_interrupted": True}],
+        })
+        self.assertFalse(pose.is_too_close)
+        self.assertFalse(pose.is_bad_angle)
+
+    def test_pose_diagnostics_use_the_planned_squat_or_pushup_chain(self):
+        with patch(
+            "src.session_view._resolve_plan_day",
+            return_value={"exercises": [{"exercise_id": "push_up"}]},
+        ):
+            self.assertEqual(_pose_exercise_type(), "push_up")
+        with patch(
+            "src.session_view._resolve_plan_day",
+            return_value={"exercises": [{"name": "Bodyweight Squat"}]},
+        ):
+            self.assertEqual(_pose_exercise_type(), "squat")
 
     def test_no_head_detected(self):
         """Không thấy đầu thì cử chỉ chữ X không dừng buổi tập."""
@@ -144,7 +186,9 @@ if "workout_session" not in st.session_state:
 render_session_view()
 """).run()
         initial_component = app.get("component_instance")[0].proto
-        self.assertTrue(json.loads(initial_component.json_args)["model"])
+        initial_args = json.loads(initial_component.json_args)
+        self.assertTrue(initial_args["model"])
+        self.assertIn(initial_args["exercise_type"], ("squat", "push_up"))
         component_id = initial_component.id
         session = app.session_state["workout_session"]
 

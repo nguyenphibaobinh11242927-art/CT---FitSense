@@ -7,6 +7,8 @@ export function createFrameBatchFilter() {
   let lastKneeAngle = null;
   let lastGestureActive = false;
   let lastTracked = false;
+  let lastTooClose = false;
+  let lastBadAngle = false;
 
   return {
     shouldQueue(frame, now) {
@@ -23,12 +25,15 @@ export function createFrameBatchFilter() {
         Math.abs(frame.knee_angle - lastKneeAngle) > KNEE_CHANGE_THRESHOLD_DEGREES;
       const angleTrackingChanged =
         Number.isFinite(frame.knee_angle) !== Number.isFinite(lastKneeAngle);
+      const tooCloseChanged = (frame.is_too_close === true) !== lastTooClose;
+      const badAngleChanged = (frame.is_bad_angle === true) !== lastBadAngle;
       const gestureNeedsSample = gestureActive &&
         now - lastQueuedAt >= GESTURE_SAMPLE_INTERVAL_MS;
       const heartbeatDue = now - lastQueuedAt >= POSE_HEARTBEAT_INTERVAL_MS;
 
       return gestureChanged || trackingChanged || angleChanged ||
-        angleTrackingChanged || gestureNeedsSample || heartbeatDue;
+        angleTrackingChanged || tooCloseChanged || badAngleChanged ||
+        gestureNeedsSample || heartbeatDue;
     },
 
     noteQueued(frame, now) {
@@ -36,6 +41,8 @@ export function createFrameBatchFilter() {
       lastKneeAngle = Number.isFinite(frame.knee_angle) ? frame.knee_angle : null;
       lastGestureActive = frame.start_detected === true || frame.x_detected === true;
       lastTracked = frame.head_detected === true && Number.isFinite(frame.knee_angle);
+      lastTooClose = frame.is_too_close === true;
+      lastBadAngle = frame.is_bad_angle === true;
     },
 
     reset() {
@@ -43,6 +50,8 @@ export function createFrameBatchFilter() {
       lastKneeAngle = null;
       lastGestureActive = false;
       lastTracked = false;
+      lastTooClose = false;
+      lastBadAngle = false;
     },
   };
 }
