@@ -191,6 +191,40 @@ class TestProgressAnalytics(unittest.TestCase):
         self.assertEqual(res["plank_series"], [85])     # max(50, 85)
         self.assertEqual(res["summary"]["best_plank_sec"], 85)
 
+def test_personal_records_ignore_invalid_and_future_dates(self):
+        future_date = (self.ref_date + timedelta(days=5)).isoformat()
+        history = [
+            {
+                "id": "valid-1",
+                "exercise_id": "squat",
+                "actual_date": self.ref_date.isoformat(),
+                "reps": 20,
+                "duration_sec": 60,
+            },
+            {
+                "id": "future-1",
+                "exercise_id": "squat",
+                "actual_date": future_date,
+                "reps": 99,
+                "duration_sec": 120,
+            },
+            {
+                "id": "invalid-1",
+                "exercise_id": "plank",
+                "actual_date": "invalid-date",
+                "reps": 0,
+                "duration_sec": 300,
+            },
+        ]
+        res = build_progress_analytics(history, timeframe="week", reference_date=self.ref_date)
+        self.assertEqual(res["personal_records"]["Squat Thể dục"], "20 reps")
+        self.assertEqual(res["personal_records"]["Plank Tĩnh"], "Chưa ghi nhận")
+
+def test_personal_records_span_all_valid_history_regardless_of_timeframe(self):
+    # Record from 45 days ago should still count toward PRs even when timeframe="week"
+    res_week = build_progress_analytics(self.sample_history, timeframe="week", reference_date=self.ref_date)
+    self.assertEqual(res_week["personal_records"]["Standard Push-up"], "18 reps")
+    self.assertEqual(res_week["personal_records"]["Plank Tĩnh"], "1p 15s")
 
 if __name__ == "__main__":
     unittest.main()

@@ -680,12 +680,17 @@ export const ProgressView = {
     if (!repsEl || !plankEl) return;
 
     if (analyticsData?.__error) {
-      const errMsg = `<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-amber); font-size: 0.85rem; text-align: center; padding: 1rem;">⚠️ Tạm thời chưa tải được biểu đồ (${analyticsData.__error}). Các mục khác vẫn hoạt động bình thường.</div>`;
-      repsEl.innerHTML = errMsg;
-      plankEl.innerHTML = errMsg;
+      const safeText = "⚠️ Tạm thời chưa tải được dữ liệu biểu đồ. Các mục khác vẫn hoạt động bình thường.";
+      [repsEl, plankEl].forEach((el) => {
+        el.innerHTML = "";
+        const msgDiv = document.createElement("div");
+        msgDiv.style.cssText = "height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-amber); font-size: 0.85rem; text-align: center; padding: 1rem;";
+        msgDiv.textContent = safeText;
+        el.appendChild(msgDiv);
+      });
       return;
     }
-    
+
     const labels = analyticsData?.labels || [];
     const repsSeries = analyticsData?.reps_series || [];
     const plankSeries = analyticsData?.plank_series || [];

@@ -57,8 +57,11 @@ def _count_unique_sessions(df: pd.DataFrame) -> int:
     return len(set(effective_keys))
 
 
-def compute_personal_records(history: list[dict[str, Any]]) -> dict[str, str]:
-    """Compute genuine Personal Records (PRs) from workout history using Pandas."""
+def compute_personal_records(
+    history: list[dict[str, Any]],
+    reference_date: date | None = None,
+) -> dict[str, str]:
+    """Compute genuine Personal Records (PRs) from valid, non-future workout history."""
     default_prs = {
         "Squat Thể dục": "Chưa ghi nhận",
         "Standard Push-up": "Chưa ghi nhận",
@@ -68,7 +71,19 @@ def compute_personal_records(history: list[dict[str, Any]]) -> dict[str, str]:
     if not history:
         return default_prs
 
+    today = reference_date or date.today()
     df = pd.DataFrame(history)
+    if df.empty:
+        return default_prs
+
+    # Only include records with valid dates <= today
+    parsed_ts = pd.to_datetime(_get_series(df, "actual_date", None), errors="coerce")
+    df = df[parsed_ts.notna()].copy()
+    if df.empty:
+        return default_prs
+
+    df["parsed_date"] = parsed_ts[parsed_ts.notna()].dt.date
+    df = df[df["parsed_date"] <= today].copy()
     if df.empty:
         return default_prs
 
@@ -103,7 +118,6 @@ def compute_personal_records(history: list[dict[str, Any]]) -> dict[str, str]:
 
     return default_prs
 
-
 def build_progress_analytics(
     history: list[dict[str, Any]],
     timeframe: str = "week",
@@ -118,7 +132,7 @@ def build_progress_analytics(
     """
     tf = timeframe if timeframe in {"week", "month", "all"} else "week"
     today = reference_date or date.today()
-    prs = compute_personal_records(history)
+    prs = compute_personal_records(history, reference_date=today)
 
     def _empty_result(invalid_count: int = 0) -> dict[str, Any]:
         return {
