@@ -222,9 +222,9 @@ class TestProgressAnalytics(unittest.TestCase):
 
     def test_personal_records_span_all_valid_history_regardless_of_timeframe(self):
     # Record from 45 days ago should still count toward PRs even when timeframe="week"
-    res_week = build_progress_analytics(self.sample_history, timeframe="week", reference_date=self.ref_date)
-    self.assertEqual(res_week["personal_records"]["Standard Push-up"], "18 reps")
-    self.assertEqual(res_week["personal_records"]["Plank Tĩnh"], "1p 15s")
+        res_week = build_progress_analytics(self.sample_history, timeframe="week", reference_date=self.ref_date)
+        self.assertEqual(res_week["personal_records"]["Standard Push-up"], "18 reps")
+        self.assertEqual(res_week["personal_records"]["Plank Tĩnh"], "1p 15s")
 
 if __name__ == "__main__":
     unittest.main()
