@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {existsSync} from "node:fs";
 import test from "node:test";
 import {createVoiceCoach} from "../assets/webcam/voice_coach.mjs";
 import {VI_CUES} from "../assets/webcam/voice/vi_cues.mjs";
@@ -23,7 +24,8 @@ function setup(response) {
       }
     },
     fetchAudio: async url => {
-      assert.match(url.pathname, /\/voice\/vi\.mp3$/);
+      assert.match(url.pathname, /\/voice\/vi-mai-anh\.mp3$/);
+      assert.ok(existsSync(url), "the Voice Coach MP3 exists at the configured URL");
       calls.push("fetch");
       return response?.() ?? {ok: true, arrayBuffer: () => new ArrayBuffer(1)};
     },
