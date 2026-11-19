@@ -11,10 +11,14 @@ FITAI_CHAT_URL = "https://api-fit.hcmus.edu.vn/v1/chat/completions"
 FITAI_MODEL = "Qwen-27B"
 
 
+class FitAIServiceError(WorkoutPlanError):
+    """FIT-AI could not return a complete response."""
+
+
 def complete_with_school_ai(prompt: str) -> str:
     key = os.getenv("FITAI_API_KEY", "").strip()
     if not key:
-        raise WorkoutPlanError("Máy chủ FitSense chưa cấu hình FITAI_API_KEY.")
+        raise FitAIServiceError("Máy chủ FitSense chưa cấu hình FITAI_API_KEY.")
 
     try:
         response = requests.post(
@@ -31,21 +35,24 @@ def complete_with_school_ai(prompt: str) -> str:
             allow_redirects=False,
         )
     except requests.Timeout:
-        raise WorkoutPlanError("API AI phản hồi quá chậm. Bạn có thể thử lại.") from None
+        raise FitAIServiceError("API AI phản hồi quá chậm. Bạn có thể thử lại.") from None
     except requests.RequestException:
-        raise WorkoutPlanError("Không kết nối được với API AI. Bạn có thể thử lại.") from None
+        raise FitAIServiceError("Không kết nối được với API AI. Bạn có thể thử lại.") from None
 
     if response.status_code in (401, 403):
-        raise WorkoutPlanError("API AI từ chối truy cập. Hãy kiểm tra API key và quyền dùng model.")
+        raise FitAIServiceError("API AI từ chối truy cập. Hãy kiểm tra API key và quyền dùng model.")
     if response.status_code == 429:
-        raise WorkoutPlanError("API AI đang giới hạn lượt gọi. Bạn có thể thử lại sau.")
+        raise FitAIServiceError("API AI đang giới hạn lượt gọi. Bạn có thể thử lại sau.")
     if not 200 <= response.status_code < 300:
-        raise WorkoutPlanError(f"API AI trả lỗi HTTP {response.status_code}.")
+        raise FitAIServiceError(f"API AI trả lỗi HTTP {response.status_code}.")
 
     try:
-        content = response.json()["choices"][0]["message"]["content"]
+        choice = response.json()["choices"][0]
+        content = choice["message"]["content"]
     except (ValueError, IndexError, KeyError, TypeError):
-        raise WorkoutPlanError("API AI trả về phản hồi không đúng định dạng.") from None
+        raise FitAIServiceError("API AI trả về phản hồi không đúng định dạng.") from None
+    if choice.get("finish_reason") in ("length", "content_filter"):
+        raise FitAIServiceError("API AI chưa trả về giáo án đầy đủ. Bạn có thể thử lại.")
     if not isinstance(content, str) or not content.strip():
-        raise WorkoutPlanError("API AI không trả về nội dung giáo án.")
+        raise FitAIServiceError("API AI không trả về nội dung giáo án.")
     return content

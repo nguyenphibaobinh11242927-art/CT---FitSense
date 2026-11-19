@@ -26,9 +26,7 @@ def profile_goal_id(label: str) -> str | None:
     return _PROFILE_GOALS.get(label.split(" & ", 1)[0], label if label in GOALS else None)
 
 
-def generate_ai_schedule(
-    profile: dict, goal: str, library: list[dict], complete: Callable[[str], str],
-) -> list[dict]:
+def planner_profile_filters(profile: dict) -> tuple[set[str], set[str]]:
     injuries = set()
     for restriction in profile.get("restrictions", []):
         if restriction == NO_RESTRICTIONS:
@@ -38,7 +36,14 @@ def generate_ai_schedule(
             raise WorkoutPlanError("Thư viện AI chưa lọc được mọi hạn chế vận động trong hồ sơ của bạn.")
         injuries.add(injury)
 
-    equipment = [_PROFILE_EQUIPMENT[item] for item in profile.get("equipment", []) if item in _PROFILE_EQUIPMENT]
+    equipment = {_PROFILE_EQUIPMENT[item] for item in profile.get("equipment", []) if item in _PROFILE_EQUIPMENT}
+    return equipment, injuries
+
+
+def generate_ai_schedule(
+    profile: dict, goal: str, library: list[dict], complete: Callable[[str], str],
+) -> list[dict]:
+    equipment, injuries = planner_profile_filters(profile)
     by_id = {item["id"]: item for item in library}
     plan = generate_workout_plan(
         goal=goal,
@@ -73,6 +78,7 @@ def generate_ai_schedule(
 def _schedule_exercise(prescription: dict, library: dict[str, dict]) -> dict:
     item = library[prescription["exercise_id"]]
     return {
+        "id": item["id"],
         "name": item["name"],
         "sets": prescription["sets"],
         "reps": prescription["reps"],

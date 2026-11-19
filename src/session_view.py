@@ -18,6 +18,7 @@ import streamlit.components.v1 as components
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 from src.fsm_rep_counter import RepCounterFSM
+from src.squat_correction import SquatCorrection
 from src.planner_view import (
     count_day_target_reps,
     get_next_active_schedule_day,
@@ -31,8 +32,6 @@ from src.weekly_plan_storage import save_week_state
 
 ROOT = Path(__file__).resolve().parents[1]
 webcam = components.declare_component("fitsense_webcam", path=str(ROOT / "assets" / "webcam"))
-SHALLOW_ATTEMPT_ANGLE = 135
-SHALLOW_TRACKING_GRACE_FRAMES = 2
 logger = logging.getLogger(__name__)
 
 # Danh mục bài tập chuẩn hóa mặc định cho buổi tập khi chưa có giáo án tuần
@@ -80,40 +79,6 @@ DEFAULT_SESSION_EXERCISES = [
 def webcam_model():
     model = ROOT / "models" / "pose_landmarker_lite.task"
     return base64.b64encode(model.read_bytes()).decode("ascii")
-
-
-@dataclass
-class SquatCorrection:
-    deepest_angle: float | None = None
-    missing_frames: int = 0
-
-    @property
-    def tracking_lost(self) -> bool:
-        return self.missing_frames > SHALLOW_TRACKING_GRACE_FRAMES
-
-    def interrupt_tracking(self) -> None:
-        self.deepest_angle = None
-        self.missing_frames = SHALLOW_TRACKING_GRACE_FRAMES + 1
-
-    def update(self, angle: float | None, rep_fsm: RepCounterFSM) -> bool:
-        if angle is None:
-            if not self.tracking_lost:
-                self.missing_frames += 1
-                if self.tracking_lost:
-                    self.interrupt_tracking()
-            return False
-
-        self.missing_frames = 0
-        if angle >= rep_fsm.up_thresh:
-            deepest_angle = self.deepest_angle
-            self.deepest_angle = None
-            return deepest_angle is not None and rep_fsm.down_thresh < deepest_angle <= SHALLOW_ATTEMPT_ANGLE
-
-        if self.deepest_angle is not None:
-            self.deepest_angle = min(self.deepest_angle, angle)
-        elif rep_fsm.state == RepCounterFSM.STATE_GOING_DOWN:
-            self.deepest_angle = angle
-        return False
 
 
 def process_pose_frames(
@@ -321,7 +286,7 @@ def _get_session_exercises() -> list[dict]:
 
 def _init_hud_state(force: bool = False):
     """Khởi tạo trạng thái bộ điều hành HUD, đồng hồ nghỉ và tiến trình hiệp."""
-    if force or st.session_state.get("hud_all_completed", False):
+    if force:
         st.session_state["hud_current_ex_idx"] = 0
         st.session_state["hud_current_set"] = 1
         st.session_state["hud_is_resting"] = False
@@ -329,6 +294,7 @@ def _init_hud_state(force: bool = False):
         st.session_state["hud_rest_remaining"] = 60
         st.session_state["hud_rest_start_time"] = None
         st.session_state["hud_rest_paused"] = False
+        st.session_state["hud_rest_paused_at"] = None
         st.session_state["hud_completed_sets"] = {}
         st.session_state["hud_custom_rest_sec"] = None
         st.session_state["hud_all_completed"] = False
@@ -349,6 +315,8 @@ def _init_hud_state(force: bool = False):
         st.session_state["hud_rest_remaining"] = 60
     if "hud_rest_paused" not in st.session_state:
         st.session_state["hud_rest_paused"] = False
+    if "hud_rest_paused_at" not in st.session_state:
+        st.session_state["hud_rest_paused_at"] = None
     if "hud_completed_sets" not in st.session_state:
         st.session_state["hud_completed_sets"] = {}
     if "hud_custom_rest_sec" not in st.session_state:
@@ -378,12 +346,27 @@ def _check_auto_advance_rest_timer(exercises: list[dict]) -> bool:
     start_t = st.session_state.get("hud_rest_start_time")
     if start_t is None:
         return False
-    duration = st.session_state.get("hud_rest_duration", 60)
+    duration = int(st.session_state.get("hud_rest_duration", 60))
     elapsed = time.time() - start_t
-    if elapsed >= duration:
+    remaining = max(0, duration - int(elapsed))
+    st.session_state["hud_rest_remaining"] = remaining
+    if remaining == 0:
         _finish_rest_period(exercises)
         return True
     return False
+
+
+@st.fragment(run_every=1.0)
+def _run_rest_timer_tick(
+    exercises: list[dict],
+    stop_fsm: StopGestureFSM | None = None,
+) -> None:
+    """Keep the HUD timer advancing independently of camera or user events."""
+    if _check_auto_advance_rest_timer(exercises):
+        if stop_fsm is not None and stop_fsm.is_rep_locked:
+            stop_fsm.reset()
+        st.toast("Hết giờ nghỉ — đã tự động chuyển sang mục tiêu kế tiếp!", icon="🔥")
+        st.rerun()
 
 
 def _advance_hud_set(exercises: list[dict]):
@@ -425,10 +408,20 @@ def _advance_hud_set(exercises: list[dict]):
             st.session_state["hud_all_completed"] = True
 
 
+def _clear_rest_timer() -> None:
+    """Clear the active rest timer and its pending target."""
+    st.session_state["hud_is_resting"] = False
+    st.session_state["hud_rest_duration"] = 60
+    st.session_state["hud_rest_remaining"] = 0
+    st.session_state["hud_rest_start_time"] = None
+    st.session_state["hud_rest_paused"] = False
+    st.session_state["hud_rest_paused_at"] = None
+    st.session_state.pop("hud_next_target", None)
+
+
 def _finish_rest_period(exercises: list[dict]):
     """Kết thúc thời gian nghỉ, vào hiệp mới hoặc bài tập mới."""
-    st.session_state["hud_is_resting"] = False
-    st.session_state["hud_rest_start_time"] = None
+    _clear_rest_timer()
     cur_idx = st.session_state.get("hud_current_ex_idx", 0)
     cur_set = st.session_state.get("hud_current_set", 1)
     if cur_idx < len(exercises):
@@ -444,14 +437,12 @@ def _finish_rest_period(exercises: list[dict]):
 def _skip_to_next_exercise(exercises: list[dict]):
     """Bỏ qua bài tập hiện tại và chuyển sang bài tiếp theo trong Up Next list."""
     cur_idx = st.session_state.get("hud_current_ex_idx", 0)
-    # Luôn dừng và hủy trạng thái nghỉ khi bỏ qua bài
-    st.session_state["hud_is_resting"] = False
-    st.session_state["hud_rest_start_time"] = None
-    st.session_state["hud_rest_paused"] = False
+    _clear_rest_timer()
 
     if cur_idx + 1 < len(exercises):
         st.session_state["hud_current_ex_idx"] = cur_idx + 1
         st.session_state["hud_current_set"] = 1
+        st.session_state["hud_all_completed"] = False
     else:
         st.session_state["hud_all_completed"] = True
 
@@ -919,6 +910,8 @@ def _render_ai_vision_hud_fragment() -> None:
         # Tính toán thời gian nghỉ nếu đang nghỉ
         custom_rest = st.session_state.get("hud_custom_rest_sec")
         rest_total = custom_rest if custom_rest is not None else current_ex.get("rest_sec", 60)
+        if is_resting:
+            rest_total = int(st.session_state.get("hud_rest_duration", rest_total))
 
         if is_resting:
             if user_paused or st.session_state.get("hud_rest_paused", False):
@@ -928,21 +921,8 @@ def _render_ai_vision_hud_fragment() -> None:
                 if start_t is None:
                     start_t = time.time()
                     st.session_state["hud_rest_start_time"] = start_t
-                elapsed = time.time() - start_t
-                rem = max(0, int(rest_total - elapsed))
-                st.session_state["hud_rest_remaining"] = rem
-
-                # Tự động chuyển hiệp khi wall-clock đếm về 0
-                if rem <= 0:
-                    _finish_rest_period(exercises)
-                    if pose.stop.is_rep_locked:
-                        pose.stop.reset()
-                    is_resting = False
-                    st.toast("🔔 Hết giờ nghỉ! Tự động vào hiệp mới!", icon="🔥")
-                    try:
-                        st.rerun(scope="fragment")
-                    except Exception:
-                        st.rerun()
+                _run_rest_timer_tick(exercises, pose.stop)
+                rem = st.session_state.get("hud_rest_remaining", rest_total)
 
             with st.container(border=True):
                 st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
@@ -1197,6 +1177,8 @@ def render_session_view():
             rest_total = current_ex.get("rest_sec", 60)
 
             if is_resting:
+                rest_total = int(st.session_state.get("hud_rest_duration", rest_total))
+                _run_rest_timer_tick(exercises)
                 rem = st.session_state.get("hud_rest_remaining", rest_total)
                 _render_rest_timer_widget(
                     remaining_seconds=rem,

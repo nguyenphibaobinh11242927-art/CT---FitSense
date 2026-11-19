@@ -1,8 +1,12 @@
 """Comprehensive Unit Tests for FitSense REST API (FastAPI Backend)."""
 
 import unittest
+import json
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from backend.main import app
+from backend.routers import planner, session
+from src.school_ai import FitAIServiceError
 
 
 class TestBackendAPI(unittest.TestCase):
@@ -170,10 +174,6 @@ class TestBackendAPI(unittest.TestCase):
         self.assertEqual(len(data["schedule"]), 7)
         self.assertIn("today_name", data)
 
-        res_gen = self.client.post("/api/planner/generate", json={"goal": "Sức bền", "use_ai": True})
-        self.assertEqual(res_gen.status_code, 200)
-        self.assertTrue(res_gen.json()["success"])
-
         res_reset = self.client.post("/api/planner/reset")
         self.assertEqual(res_reset.status_code, 200)
         self.assertEqual(len(res_reset.json()["schedule"]), 7)
@@ -211,6 +211,74 @@ class TestBackendAPI(unittest.TestCase):
         self.assertIn("schedule", data_day)
         self.assertIn("active_workout", data_day)
         self.assertIn("replan_method", data_day)
+
+    def test_fastapi_plan_preserves_saved_schedule_on_error_and_keeps_catalog_ids(self):
+        email = "planner-audit@example.invalid"
+        saved = [{"day": "Thứ 2", "focus": "Lịch đã lưu", "exercises": []}]
+        profile = {
+            "goal": "Sức bền & Tim mạch", "fitness_level": "Beginner",
+            "restrictions": ["Khớp gối yếu"], "equipment": [],
+        }
+        candidate = {
+            "exercise_id": "wall_push_up", "sets": 2, "reps": 8, "hold_seconds": 3, "rest_seconds": 0,
+            "alternative": {"exercise_id": "push_up", "sets": 1, "reps": 5, "hold_seconds": 2, "rest_seconds": 30},
+        }
+        output = {"goal": "endurance", "days": [
+            {"day": day, "exercises": [candidate, candidate] if day == 1 else []}
+            for day in range(1, 8)
+        ]}
+        with (
+            patch.dict(planner.CURRENT_SESSION, {"user_email": email}),
+            patch.dict(planner.USER_SCHEDULES, {email: saved}),
+            patch.object(planner, "load_profile", return_value=profile),
+            patch.object(planner, "complete_with_school_ai", side_effect=[
+                FitAIServiceError("FIT-AI mất kết nối"), "{}", json.dumps(output),
+            ]),
+        ):
+            for status in (503, 422):
+                rejected = self.client.post("/api/planner/generate", json={})
+                self.assertEqual(rejected.status_code, status)
+                self.assertIs(planner.USER_SCHEDULES[email], saved)
+            generated = self.client.post("/api/planner/generate", json={})
+            self.assertEqual(generated.status_code, 200, generated.text)
+            exercise = generated.json()["schedule"][0]["exercises"][0]
+            self.assertEqual((exercise["id"], exercise["hold_seconds"], exercise["rest_sec"]), ("wall_push_up", 3, 0))
+            self.assertEqual(exercise["ai_alternative"]["id"], "push_up")
+            self.assertEqual(self.client.get("/api/planner/week").json()["schedule"][0]["exercises"][1]["id"],
+                             "wall_push_up")
+
+            swap = {"day": "Thứ 2", "current_exercise_id": "wall_push_up", "exercise_index": 1}
+            for excluded in ("squat", "incline_push_up"):
+                response = self.client.post("/api/planner/swap", json={**swap, "new_exercise_id": excluded})
+                self.assertEqual(response.status_code, 422, response.text)
+            response = self.client.post("/api/planner/swap", json={**swap, "new_exercise_id": "push_up"})
+            self.assertEqual(response.status_code, 200, response.text)
+            first, second = response.json()["day"]["exercises"]
+            self.assertEqual(first["id"], "wall_push_up")
+            self.assertEqual((second["id"], second["sets"], second["hold_seconds"]), ("push_up", 1, 2))
+
+    def test_fastapi_voice_events_use_completed_attempts_and_tracking_grace(self):
+        with patch.dict(session.ACTIVE_SESSIONS, {}, clear=True):
+            session_id = self.client.post("/api/session/start", json={"exercise_id": "squat"}).json()["session_id"]
+
+            def frame(angle, **extra):
+                response = self.client.post("/api/session/fsm-rep", json={"session_id": session_id, "angle": angle, **extra})
+                self.assertEqual(response.status_code, 200, response.text)
+                return response.json()
+
+            frame(145)
+            self.assertIsNone(frame(130)["voice_event"])
+            self.assertFalse(frame(None)["tracking_lost"])
+            self.assertFalse(frame(None)["tracking_lost"])
+            self.assertEqual(frame(165)["voice_event"], {"kind": "shallow_squat"})
+            self.assertIsNone(frame(170)["voice_event"])
+            for angle in (145, 130):
+                frame(angle)
+            self.assertTrue(frame(None, tracking_interrupted=True)["tracking_lost"])
+            self.assertIsNone(frame(165)["voice_event"])
+            for angle in (145, 90, 120):
+                frame(angle)
+            self.assertEqual(frame(165)["voice_event"], {"kind": "rep", "count": 1})
 
     def test_profile_update_and_auto_realign_restrictions(self):
         # Reset schedule first to ensure standard baseline with squat

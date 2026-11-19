@@ -132,7 +132,7 @@ export const DashboardView = {
           ${todaySchedule.exercises && todaySchedule.exercises.length > 0 
             ? `
               <div class="planner-exercise-grid">
-                ${todaySchedule.exercises.map((ex) => `
+                ${todaySchedule.exercises.map((ex, index) => `
                   <div class="planner-ex-card">
                     <div class="ex-card-top">
                       <div>
@@ -147,7 +147,8 @@ export const DashboardView = {
                     <div class="ex-card-metrics">
                       <span class="ex-metric">🔢 <strong>${ex.sets}</strong> hiệp</span>
                       <span class="ex-metric">🎯 <strong>${ex.reps}</strong> reps</span>
-                      <span class="ex-metric">⏱️ Nghỉ <strong>${ex.rest_sec || 60}s</strong></span>
+                      ${ex.hold_seconds > 0 ? `<span class="ex-metric">Giữ <strong>${ex.hold_seconds}s</strong> mỗi rep</span>` : ""}
+                      <span class="ex-metric">⏱️ Nghỉ <strong>${ex.rest_sec ?? 60}s</strong></span>
                     </div>
 
                     <div class="ex-card-muscles">
@@ -156,7 +157,7 @@ export const DashboardView = {
                     </div>
 
                     <div class="ex-card-actions">
-                      <button class="btn btn-outline btn-sm btn-dash-start-single" data-id="${ex.id || 'squat'}" data-name="${ex.name}">
+                      <button class="btn btn-outline btn-sm btn-dash-start-single" data-ex-index="${index}" ${ex.id ? "" : "disabled"}>
                         ▶️ Tập bài này
                       </button>
                     </div>
@@ -220,9 +221,10 @@ export const DashboardView = {
           window.startWorkoutSession(
             firstEx.id || "squat",
             firstEx.name,
-            parseInt(firstEx.reps) || 12,
+            parseInt(firstEx.reps, 10) || 12,
             todaySchedule.day,
-            todaySchedule.exercises || []
+            todaySchedule.exercises || [],
+            firstEx
           );
         } else {
           window.navigateTo("workout");
@@ -231,9 +233,16 @@ export const DashboardView = {
 
       container.querySelectorAll(".btn-dash-start-single").forEach((btn) => {
         btn.addEventListener("click", () => {
-          const exId = btn.getAttribute("data-id");
-          const exName = btn.getAttribute("data-name");
-          window.startWorkoutSession(exId, exName, 12, todaySchedule.day, todaySchedule.exercises || []);
+          const exercise = todaySchedule.exercises[Number(btn.dataset.exIndex)];
+          if (!exercise) return;
+          window.startWorkoutSession(
+            exercise.id || "custom",
+            exercise.name,
+            parseInt(exercise.reps, 10) || 12,
+            todaySchedule.day,
+            [exercise, ...(todaySchedule.exercises || []).slice(Number(btn.dataset.exIndex) + 1)],
+            exercise
+          );
         });
       });
 

@@ -15,8 +15,8 @@ from backend.schemas import (
 from backend.routers.auth import CURRENT_SESSION
 from backend.routers.exercises import get_catalog
 from src.profile import load_profile
-from src.planner_generation import DEFAULT_DAYS, generate_ai_schedule, profile_goal_id
-from src.school_ai import complete_with_school_ai
+from src.planner_generation import DEFAULT_DAYS, generate_ai_schedule, planner_profile_filters, profile_goal_id
+from src.school_ai import FitAIServiceError, complete_with_school_ai
 from src.adaptive_weekly_plan import DAYS, recovery_warnings, start_actual_workout
 from src.exercise_library import compatible_replacements, resolve_exercise
 from src.planner_view import parse_uploaded_plan
@@ -217,10 +217,21 @@ def get_user_schedule(email: str) -> list[dict[str, Any]]:
     return USER_SCHEDULES[email]
 
 
+def _catalog_exercise(exercise: dict, catalog: list[dict]) -> dict | None:
+    identified = next((entry for entry in catalog if entry["id"] == exercise.get("id")), None)
+    return identified or resolve_exercise(exercise.get("name", ""), catalog)
+
+
+def _add_catalog_ids(day: dict, catalog: list[dict]) -> None:
+    for exercise in day["exercises"]:
+        entry = _catalog_exercise(exercise, catalog)
+        exercise["id"] = entry["id"] if entry else None
+
+
 @router.get("/week")
 def get_week():
     email = CURRENT_SESSION.get("user_email") or "guest"
-    schedule = get_user_schedule(email)
+    schedule = deepcopy(get_user_schedule(email))
     
     today_weekday_idx = datetime.now().weekday()
     today_name = DEFAULT_DAYS[today_weekday_idx]
@@ -228,6 +239,8 @@ def get_week():
     # Calculate warnings
     warnings_by_day = {}
     catalog = get_catalog()
+    for day in schedule:
+        _add_catalog_ids(day, catalog)
     today_date = date.today()
     from backend.routers.progress import WORKOUT_HISTORY
     
@@ -249,14 +262,18 @@ def get_week():
 def generate_schedule(payload: PlanGenerationRequest):
     email = CURRENT_SESSION.get("user_email") or "guest"
     profile = (load_profile(email) if email != "guest" else None) or {
-        "goal": "Tăng cơ & Sức mạnh",
+        "goal": "Sức bền",
         "fitness_level": "Beginner (Người mới bắt đầu)",
         "restrictions": ["Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"],
         "equipment": ["Không có dụng cụ (Chỉ tập Bodyweight)"],
     }
     
+    if not payload.use_ai:
+        raise HTTPException(status_code=400, detail="Chọn Tạo giáo án AI hoặc dùng nút đặt lại lịch mẫu.")
     goal_label = payload.goal or profile.get("goal", "Sức bền")
-    goal_key = profile_goal_id(goal_label) or "endurance"
+    goal_key = profile_goal_id(goal_label)
+    if goal_key is None:
+        raise HTTPException(status_code=422, detail="Hãy chọn mục tiêu Sức bền, Dẻo dai hoặc Đốt mỡ.")
     catalog = get_catalog()
     
     try:
@@ -266,22 +283,16 @@ def generate_schedule(payload: PlanGenerationRequest):
             library=catalog,
             complete=complete_with_school_ai,
         )
-        if new_plan and len(new_plan) == 7:
-            USER_SCHEDULES[email] = new_plan
-            return {
-                "success": True,
-                "message": "AI đã tạo thành công giáo án tuần cá nhân hóa!",
-                "schedule": new_plan,
-            }
-    except Exception as exc:
-        pass  # Fall back to adaptive default
-    
-    # If generation failed or offline, return styled default plan
-    USER_SCHEDULES[email] = deepcopy(DEFAULT_WEEKLY_SCHEDULE)
+    except FitAIServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except WorkoutPlanError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    USER_SCHEDULES[email] = new_plan
     return {
         "success": True,
-        "message": "Đã tạo giáo án chuẩn tối ưu theo thể trạng của bạn!",
-        "schedule": USER_SCHEDULES[email],
+        "message": "AI đã tạo thành công giáo án tuần cá nhân hóa!",
+        "schedule": new_plan,
     }
 
 
@@ -299,29 +310,43 @@ def swap_exercise(payload: ExerciseSwapRequest):
     if not new_ex:
         raise HTTPException(status_code=404, detail="Không tìm thấy bài tập mới trong thư viện.")
     
-    # Perform swap
-    swapped = False
-    for i, ex in enumerate(target_day.get("exercises", [])):
-        curr_id = ex.get("id") or ex.get("name", "").lower()
-        if payload.current_exercise_id in curr_id:
-            target_day["exercises"][i] = {
-                "id": new_ex["id"],
-                "name": f"{new_ex['name']} ({new_ex['name_en']})",
-                "sets": ex.get("sets", 3),
-                "reps": ex.get("reps", 12),
-                "rest_sec": ex.get("rest_sec", 60),
-                "primary_muscle": ", ".join(new_ex.get("primary_muscles", [])),
-                "secondary_muscle": ", ".join(new_ex.get("secondary_muscles", [])),
-                "equipment": ", ".join(new_ex.get("equipment", [])) or "Bodyweight",
-                "difficulty": new_ex.get("difficulty", "Beginner"),
-                "substitute": ex.get("name"),
-            }
-            swapped = True
-            break
-            
-    if not swapped:
+    exercises = target_day.get("exercises", [])
+    index = payload.exercise_index
+    candidates = range(len(exercises)) if index is None else [index]
+    match = next((i for i in candidates if i < len(exercises) and
+                  (_catalog_exercise(exercises[i], catalog) or {}).get("id") == payload.current_exercise_id), None)
+    if match is None:
         raise HTTPException(status_code=400, detail="Không tìm thấy bài tập cần đổi trong ngày này.")
-    
+
+    profile = (load_profile(email) if email != "guest" else None) or {}
+    try:
+        equipment, injuries = planner_profile_filters(profile)
+    except WorkoutPlanError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if (new_ex["id"] == payload.current_exercise_id or injuries.intersection(new_ex["avoid_if"])
+            or not equipment.issuperset(new_ex["equipment"])):
+        raise HTTPException(status_code=422, detail="Bài thay thế không phù hợp với giới hạn hoặc dụng cụ hiện có.")
+
+    current = exercises[match]
+    prescribed = current.get("ai_alternative")
+    if isinstance(prescribed, dict) and (_catalog_exercise(prescribed, catalog) or {}).get("id") == new_ex["id"]:
+        previous = {key: value for key, value in current.items() if key != "ai_alternative"}
+        previous["id"] = payload.current_exercise_id
+        exercises[match] = {**prescribed, "id": new_ex["id"], "ai_alternative": previous}
+    else:
+        exercises[match] = {
+            "id": new_ex["id"],
+            "name": f"{new_ex['name']} ({new_ex['name_en']})",
+            "sets": current.get("sets", 3),
+            "reps": current.get("reps", 12),
+            "rest_sec": current.get("rest_sec", 60),
+            "primary_muscle": ", ".join(new_ex["primary_muscles"]),
+            "secondary_muscle": ", ".join(new_ex["secondary_muscles"]),
+            "equipment": ", ".join(new_ex["equipment"]) or "Bodyweight",
+            "difficulty": new_ex["difficulty"],
+            "substitute": current.get("name"),
+        }
+
     return {
         "success": True,
         "message": f"Đã đổi sang bài {new_ex['name']} thành công!",
@@ -528,6 +553,7 @@ def start_day_workout(payload: StartDayWorkoutRequest):
         updated_schedule, active_workout, method = start_actual_workout(
             schedule, source["day"], today, use_ai=payload.use_ai
         )
+        _add_catalog_ids(active_workout, get_catalog())
         USER_SCHEDULES[email] = updated_schedule
         is_rearranged = (source["day"] != today_name)
         message = (

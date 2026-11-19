@@ -10,6 +10,7 @@ export const PlannerView = {
   scheduleData: null,
   activeDayIndex: 0,
   catalog: [],
+  generationGoal: "",
 
   findCatalogMatch(name) {
     if (!name) return null;
@@ -73,6 +74,12 @@ export const PlannerView = {
           <button class="btn btn-outline" id="btn-download-sample-plan" title="Tải về file JSON mẫu để tham khảo cấu trúc giáo án">
             ⬇️ Tải JSON mẫu
           </button>
+          <select class="form-select" id="planner-goal" aria-label="Mục tiêu giáo án AI">
+            <option value="">Theo hồ sơ</option>
+            <option value="endurance" ${this.generationGoal === "endurance" ? "selected" : ""}>Sức bền</option>
+            <option value="flexibility" ${this.generationGoal === "flexibility" ? "selected" : ""}>Dẻo dai</option>
+            <option value="fat_loss" ${this.generationGoal === "fat_loss" ? "selected" : ""}>Đốt mỡ</option>
+          </select>
           <button class="btn btn-primary" id="btn-generate-ai" title="AI tự động phân tích và tạo lịch tập tối ưu">
             🤖 Tạo lịch bằng AI
           </button>
@@ -172,7 +179,8 @@ export const PlannerView = {
                 <div class="ex-card-metrics">
                   <span class="ex-metric">🔢 <strong>${ex.sets}</strong> hiệp</span>
                   <span class="ex-metric">🎯 <strong>${ex.reps}</strong> reps</span>
-                  <span class="ex-metric">⏱️ Nghỉ <strong>${ex.rest_sec || 60}s</strong></span>
+                  ${ex.hold_seconds > 0 ? `<span class="ex-metric">Giữ <strong>${ex.hold_seconds}s</strong> mỗi rep</span>` : ""}
+                  <span class="ex-metric">⏱️ Nghỉ <strong>${ex.rest_sec ?? 60}s</strong></span>
                 </div>
 
                 <div class="ex-card-muscles">
@@ -181,10 +189,10 @@ export const PlannerView = {
                 </div>
 
                 <div class="ex-card-actions">
-                  <button class="btn btn-outline btn-sm btn-swap-exercise" data-day="${activeDay.day}" data-ex-id="${ex.id || 'squat'}" data-ex-name="${ex.name}">
+                  <button class="btn btn-outline btn-sm btn-swap-exercise" data-ex-index="${exIdx}" ${ex.id ? "" : "disabled"}>
                     🔄 Đổi bài tập
                   </button>
-                  <button class="btn btn-primary btn-sm btn-start-planner-ex" data-id="${ex.id || 'squat'}" data-name="${ex.name}" data-reps="${ex.reps}">
+                  <button class="btn btn-primary btn-sm btn-start-planner-ex" data-ex-index="${exIdx}" ${ex.id ? "" : 'disabled title="Chọn bài có trong thư viện để mở HUD"'}>
                     ▶️ Tập bài này
                   </button>
                 </div>
@@ -239,6 +247,7 @@ export const PlannerView = {
                         <th style="min-width: 240px;">Tên bài tập (Chọn thư viện 28 bài hoặc tự gõ)</th>
                         <th style="width: 80px;">Sets</th>
                         <th style="width: 90px;">Reps</th>
+                        <th style="width: 80px;">Giữ (s)</th>
                         <th style="width: 80px;">Nghỉ (s)</th>
                         <th style="min-width: 140px;">Nhóm cơ</th>
                         <th style="width: 60px;">Xóa</th>
@@ -261,8 +270,9 @@ export const PlannerView = {
                           </td>
                           <td><input type="number" class="form-control ex-row-sets" value="${ex.sets || 3}" min="1" max="10" /></td>
                           <td><input type="text" class="form-control ex-row-reps" value="${ex.reps || '12'}" /></td>
-                          <td><input type="number" class="form-control ex-row-rest" value="${ex.rest_sec || 60}" min="10" max="300" /></td>
-                          <td><input type="text" class="form-control ex-row-muscle" value="${ex.primary_muscle || matched?.primary_muscles?.[0] || 'Toàn thân'}" /></td>
+                            <td><input type="number" class="form-control ex-row-hold" value="${ex.hold_seconds ?? 0}" min="0" /></td>
+                            <td><input type="number" class="form-control ex-row-rest" value="${ex.rest_sec ?? 60}" min="10" max="300" /></td>
+                            <td><input type="text" class="form-control ex-row-muscle" value="${ex.primary_muscle || matched?.primary_muscles?.[0] || 'Toàn thân'}" /></td>
                           <td style="text-align: center;"><button type="button" class="btn btn-icon btn-sm btn-del-ex-row" style="color: var(--accent-crimson);">🗑️</button></td>
                         </tr>
                         `;
@@ -293,12 +303,15 @@ export const PlannerView = {
     });
 
     // Generate AI button
+    container.querySelector("#planner-goal")?.addEventListener("change", event => {
+      this.generationGoal = event.target.value;
+    });
     container.querySelector("#btn-generate-ai")?.addEventListener("click", async () => {
       const btn = container.querySelector("#btn-generate-ai");
       btn.disabled = true;
       btn.innerHTML = `⏳ AI đang phân tích thể trạng...`;
       try {
-        const result = await API.planner.generate();
+        const result = await API.planner.generate(this.generationGoal || undefined);
         Toast.success(result.message || "Tạo lịch tập thành công!");
         this.scheduleData = await API.planner.getWeek();
         this.renderContent();
@@ -459,6 +472,7 @@ export const PlannerView = {
         </td>
         <td><input type="number" class="form-control ex-row-sets" value="3" min="1" max="10" /></td>
         <td><input type="text" class="form-control ex-row-reps" value="12" /></td>
+        <td><input type="number" class="form-control ex-row-hold" value="0" min="0" /></td>
         <td><input type="number" class="form-control ex-row-rest" value="60" min="10" max="300" /></td>
         <td><input type="text" class="form-control ex-row-muscle" value="${firstCat.primary_muscles?.[0] || 'Toàn thân'}" /></td>
         <td style="text-align: center;"><button type="button" class="btn btn-icon btn-sm btn-del-ex-row" style="color: var(--accent-crimson);">🗑️</button></td>
@@ -490,14 +504,18 @@ export const PlannerView = {
           const exId = tr.getAttribute("data-ex-id") || matched?.id || "custom";
           const sets = parseInt(tr.querySelector(".ex-row-sets")?.value, 10) || 3;
           const reps = tr.querySelector(".ex-row-reps")?.value.trim() || "12";
-          const rest = parseInt(tr.querySelector(".ex-row-rest")?.value, 10) || 60;
+          const restValue = parseInt(tr.querySelector(".ex-row-rest")?.value, 10);
+          const holdValue = parseInt(tr.querySelector(".ex-row-hold")?.value, 10);
+          const previous = activeDay.exercises?.[Number(tr.dataset.rowIdx)];
           const muscle = tr.querySelector(".ex-row-muscle")?.value.trim() || matched?.primary_muscles?.[0] || "Toàn thân";
           exercises.push({
+            ...(previous?.name === name ? previous : {}),
             id: exId,
-            name: name,
-            sets: sets,
-            reps: reps,
-            rest_sec: rest,
+            name,
+            sets,
+            reps,
+            hold_seconds: Number.isInteger(holdValue) ? Math.max(0, holdValue) : 0,
+            rest_sec: Number.isInteger(restValue) ? Math.min(300, Math.max(10, restValue)) : 60,
             primary_muscle: muscle,
             secondary_muscle: matched?.secondary_muscles?.[0] || "Core",
             equipment: matched?.equipment || "Bodyweight",
@@ -517,7 +535,15 @@ export const PlannerView = {
     });
 
     // Helper for safe workout start with recovery warning check
-    const startWorkoutWithSafetyCheck = async (exerciseId, exerciseName, targetReps, exList = []) => {
+    const startWorkoutWithSafetyCheck = async (
+      exercise,
+      workoutDay = activeDay.day,
+      exerciseList = [exercise]
+    ) => {
+      if (!exercise?.id) {
+        Toast.error("Bài tập này chưa có trong thư viện. Hãy chọn bài có thể mở trong HUD.");
+        return;
+      }
       if (dayWarnings.length > 0) {
         const confirmed = await showConfirmModal({
           title: `Cảnh Báo Phục Hồi Cơ Bắp (${activeDay.day})`,
@@ -537,8 +563,14 @@ export const PlannerView = {
         });
         if (!confirmed) return;
       }
-      const exercisesToPass = exList && exList.length ? exList : (activeDay?.exercises || []);
-      window.startWorkoutSession(exerciseId, exerciseName, targetReps, activeDay.day, exercisesToPass);
+      window.startWorkoutSession(
+        exercise.id,
+        exercise.name,
+        parseInt(exercise.reps, 10) || 12,
+        workoutDay,
+        exerciseList,
+        exercise
+      );
     };
 
     // Start entire day workout
@@ -575,14 +607,13 @@ export const PlannerView = {
           Toast.success(`🚀 Bắt đầu buổi tập ${activeDay.day}!`);
         }
 
-        const currentActive = this.scheduleData?.schedule?.[this.activeDayIndex] || activeDay;
+        const currentActive = res.active_workout || activeDay;
         const firstEx = currentActive.exercises?.[0];
         if (firstEx) {
           await startWorkoutWithSafetyCheck(
-            firstEx.id || "squat",
-            firstEx.name,
-            parseInt(firstEx.reps) || 12,
-            currentActive.exercises || []
+            firstEx,
+            res.rearranged ? todayName : activeDay.day,
+            currentActive.exercises || [firstEx]
           );
         }
       } catch (err) {
@@ -593,9 +624,8 @@ export const PlannerView = {
     // Start single exercise
     container.querySelectorAll(".btn-start-planner-ex").forEach((b) => {
       b.addEventListener("click", async () => {
-        const id = b.getAttribute("data-id");
-        const name = b.getAttribute("data-name");
-        const reps = parseInt(b.getAttribute("data-reps")) || 12;
+        const exercise = activeDay.exercises[Number(b.dataset.exIndex)];
+        let workoutDay = activeDay.day;
         const isToday = activeDay.day.toLowerCase() === todayName.toLowerCase();
         if (!isToday) {
           const confirmed = await showConfirmModal({
@@ -617,6 +647,7 @@ export const PlannerView = {
           try {
             const res = await API.planner.startDayWorkout(activeDay.day, true);
             if (res.rearranged) {
+              workoutDay = todayName;
               Toast.success(`✨ ${res.message}`);
               this.scheduleData = await API.planner.getWeek();
               const newTodayIdx = this.scheduleData.schedule.findIndex(d => d.day.toLowerCase() === todayName.toLowerCase());
@@ -627,23 +658,25 @@ export const PlannerView = {
             console.warn("Could not reschedule:", e);
           }
         }
-        const currentActive = this.scheduleData?.schedule?.[this.activeDayIndex] || activeDay;
-        await startWorkoutWithSafetyCheck(id, name, reps, currentActive.exercises || []);
+        await startWorkoutWithSafetyCheck(
+          exercise,
+          workoutDay,
+          activeDay.exercises.slice(Number(b.dataset.exIndex))
+        );
       });
     });
 
     // Swap exercise modal opener
     container.querySelectorAll(".btn-swap-exercise").forEach((b) => {
       b.addEventListener("click", async () => {
-        const day = b.getAttribute("data-day");
-        const exId = b.getAttribute("data-ex-id");
-        const exName = b.getAttribute("data-ex-name");
-        await this.openSwapModal(day, exId, exName);
+        const index = Number(b.dataset.exIndex);
+        await this.openSwapModal(activeDay.day, activeDay.exercises[index], index);
       });
     });
   },
 
-  async openSwapModal(day, exId, exName) {
+  async openSwapModal(day, exercise, index) {
+    const {id: exId, name: exName, ai_alternative: prescribed} = exercise;
     const modalBackdrop = document.getElementById("modal-swap");
     const modalBody = document.getElementById("swap-modal-body");
     if (!modalBackdrop || !modalBody) return;
@@ -652,7 +685,7 @@ export const PlannerView = {
     modalBackdrop.classList.add("active");
 
     try {
-      const data = await API.exercises.alternatives(exId);
+      const data = await API.exercises.alternatives(exId, prescribed?.id);
       const alternatives = data.alternatives || [];
 
       if (alternatives.length === 0) {
@@ -681,6 +714,7 @@ export const PlannerView = {
                 <div style="display: flex; gap: 0.4rem; margin-top: 0.4rem;">
                   <span class="badge badge-beginner">${alt.difficulty}</span>
                   <span class="muscle-pill">${(alt.primary_muscles || []).join(", ")}</span>
+                  ${alt.id === prescribed?.id ? `<span class="muscle-pill">${prescribed.sets} hiệp × ${prescribed.reps} rep · Nghỉ ${prescribed.rest_sec}s</span>` : ""}
                 </div>
               </div>
               <button class="btn btn-primary btn-sm btn-select-swap" data-day="${day}" data-curr="${exId}" data-new="${alt.id}">
@@ -698,7 +732,7 @@ export const PlannerView = {
           const n = btn.getAttribute("data-new");
 
           try {
-            const res = await API.planner.swap(d, c, n);
+            const res = await API.planner.swap(d, c, n, index);
             Toast.success(res.message);
             modalBackdrop.classList.remove("active");
             this.scheduleData = await API.planner.getWeek();

@@ -1,9 +1,11 @@
-import {VI_CUES} from "./voice/vi_cues.mjs";
+import {VI_CUES} from "./voice/vi_cues.mjs?v=camera-position-1";
 
 const MAX_RECORDED_REP = 100;
 const ENABLE_CUE = MAX_RECORDED_REP + 1;
 const SHALLOW_SQUAT_CUE = ENABLE_CUE + 1;
-const VOICE_URL = new URL("./voice/vi.mp3", import.meta.url);
+const POSITION_CUES = {too_close: 103, wrong_angle: 104, incomplete: 105};
+const POSITION_COOLDOWN_MS = 12000;
+const VOICE_URL = new URL("./voice/vi.mp3?v=camera-position-1", import.meta.url);
 const CORRECTION_COOLDOWN_MS = 3500;
 const CORRECTION_MAX_AGE_MS = 1000;
 
@@ -20,6 +22,7 @@ export function createVoiceCoach({
   let context, audioBuffer;
   let current, pendingRep, pendingCorrection;
   let lastCorrectionAt = -Infinity;
+  let lastPositionAt = -Infinity;
 
   function setEnabled(value) {
     enabled = value;
@@ -146,6 +149,14 @@ export function createVoiceCoach({
   return {
     supported,
     get enabled() { return enabled; },
+    get busy() { return current !== null && current !== undefined; },
+    warnPosition(kind) {
+      const cueId = POSITION_CUES[kind];
+      if (!enabled || current || cueId === undefined || now() - lastPositionAt < POSITION_COOLDOWN_MS) return false;
+      lastPositionAt = now();
+      void play([cueId]);
+      return true;
+    },
     toggle() {
       if (!supported) return;
       setEnabled(!enabled);

@@ -86,11 +86,13 @@ def _normalize_schedule(raw_days: list[dict]) -> list[dict]:
                 raise ValueError(f"Mỗi bài tập trong '{day_label}' cần có tên bài tập (`name`).")
             sets_val = ex.get("sets", 3)
             rest_val = ex.get("rest_sec", 60)
+            hold_val = ex.get("hold_seconds", 0)
             clean_exercises.append({
                 "name": str(ex["name"]).strip(),
                 "sets": int(sets_val) if str(sets_val).isdigit() else 3,
                 "reps": ex.get("reps", 12),
                 "rest_sec": int(rest_val) if str(rest_val).isdigit() else 60,
+                "hold_seconds": int(hold_val) if str(hold_val).isdigit() else 0,
                 "primary_muscle": str(ex.get("primary_muscle", "Toàn thân")),
                 "secondary_muscle": str(ex.get("secondary_muscle", "Core")),
                 "equipment": str(ex.get("equipment", "Bodyweight")),
@@ -166,6 +168,7 @@ def parse_uploaded_plan(file_bytes: bytes, filename: str) -> list[dict]:
                     "sets": row.get("sets") or 3,
                     "reps": reps_val,
                     "rest_sec": row.get("rest_sec") or 60,
+                    "hold_seconds": row.get("hold_seconds") or 0,
                     "primary_muscle": (row.get("primary_muscle") or "Toàn thân").strip(),
                     "secondary_muscle": (row.get("secondary_muscle") or "Core").strip(),
                     "equipment": (row.get("equipment") or "Bodyweight").strip(),

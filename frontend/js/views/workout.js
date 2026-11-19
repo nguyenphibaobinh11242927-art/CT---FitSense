@@ -5,6 +5,8 @@
 
 import { API } from "../api.js";
 import { Toast } from "../components/toast.js";
+import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=camera-position-1";
+import { createCameraPositionMonitor, POSITION_MESSAGES } from "../camera_position.mjs";
 
 // Helper: Calculate joint angle in degrees from three 2D/3D points [0, 180]
 function angleAt(a, b, c) {
@@ -13,6 +15,12 @@ function angleAt(a, b, c) {
   const vx = c.x - b.x, vy = c.y - b.y;
   if ((!ux && !uy) || (!vx && !vy)) return null;
   return Math.atan2(Math.abs(ux * vy - uy * vx), ux * vx + uy * vy) * (180 / Math.PI);
+}
+
+function usesElbowAngle(exerciseId) {
+  return /push_?up|dip|pull|row|chin|arm|chest|press|hit_dat|chong_day/.test(
+    (exerciseId || "").toLowerCase()
+  );
 }
 
 // MediaPipe Pose Connections (33 standard landmark bones)
@@ -148,6 +156,8 @@ export const WorkoutView = {
   exerciseId: "squat",
   exerciseName: "Bodyweight Squat",
   targetReps: 12,
+  holdSeconds: 0,
+  restSeconds: 60,
   day: null,
 
   // SCRUM-19: Multi-Exercise Session & Sets Tracking
@@ -173,7 +183,12 @@ export const WorkoutView = {
   isCameraRunning: false,
   videoSourceType: "none", // 'none' | 'camera' | 'file'
   videoFileName: "",
-  isVoiceCoachEnabled: true,
+  voiceCoach: null,
+  statusSpeech: null,
+  poseRequest: null,
+  poseEpoch: 0,
+  poseTrackingLost: false,
+  positionMonitor: null,
 
   videoEl: null,
   canvasEl: null,
@@ -199,6 +214,7 @@ export const WorkoutView = {
 
   sessionStartTime: 0,
   sessionTimerInterval: null,
+  restCountdownTimer: null,
 
   // Web Audio Context & Oscillator Synthesizer for 3-2-1 Beeps and Finish Chime
   getAudioContext() {
@@ -244,6 +260,27 @@ export const WorkoutView = {
   async render(forceRefresh = false) {
     const container = document.getElementById("view-workout");
     if (!container) return;
+    this.voiceCoach ??= createVoiceCoach({
+      AudioContext: window.AudioContext ?? window.webkitAudioContext,
+      showCue: () => {},
+      showStatus: text => {
+        const status = document.getElementById("voice-playback-status");
+        if (status) status.textContent = text;
+      },
+      onEnabledChange: () => this.updateVoiceToggle(),
+    });
+    this.positionMonitor ??= createCameraPositionMonitor({
+      onChange: warning => {
+        const notice = document.getElementById("camera-position-warning");
+        if (!notice) return;
+        notice.hidden = !warning;
+        notice.textContent = warning ? `⚠️ ${POSITION_MESSAGES[warning]}` : "";
+      },
+      remind: warning => {
+        if (this.statusSpeech) return false;
+        return this.voiceCoach.warnPosition(warning);
+      },
+    });
 
     if (!forceRefresh && container.children.length > 0) {
       return;
@@ -263,7 +300,7 @@ export const WorkoutView = {
                 ⏭️ Bỏ qua bài
               </button>
             </div>
-            <span class="hud-ex-target" id="hud-target-text">Mục tiêu: ${this.targetReps} reps • Nghỉ: ${this.restDurationSec}s • Calisthenics chuẩn khoa học</span>
+            <span class="hud-ex-target" id="hud-target-text">Mục tiêu: ${this.targetReps} reps${this.holdSeconds ? ` · Giữ ${this.holdSeconds}s mỗi rep` : ""} · Nghỉ ${this.restSeconds}s</span>
           </div>
 
           <!-- Mode Switcher Pills (Rounded, user-requested names) -->
@@ -296,6 +333,7 @@ export const WorkoutView = {
         <div class="hud-viewport-grid">
           <!-- Left Column: Stage, Rest Overlay, Tech Metrics & Up Next List -->
           <div style="display: flex; flex-direction: column; width: 100%;">
+            <p id="camera-position-warning" role="status" hidden style="color:var(--accent-amber); padding:0.75rem 1rem;"></p>
             <!-- Video / Stage Area -->
             <div class="hud-stage" id="hud-stage">
               <!-- Raw Video (Hidden, frames drawn onto Canvas with skeleton) -->
@@ -572,10 +610,11 @@ export const WorkoutView = {
                 </button>
               </div>
 
-              <div class="voice-coach-toggle" id="btn-toggle-voice">
-                <span style="font-weight: 600;">🔊 HLV Giọng nói Tiếng Việt</span>
-                <span class="badge badge-beginner" id="voice-status-tag">BẬT</span>
-              </div>
+              <button type="button" class="voice-coach-toggle" id="btn-toggle-voice" aria-pressed="false">
+                <span style="font-weight: 600;"><span id="voice-toggle-icon" aria-hidden="true">🔇</span> HLV Giọng nói Tiếng Việt</span>
+                <span class="badge" id="voice-status-tag">TẮT</span>
+              </button>
+              <small id="voice-playback-status" role="status"></small>
 
               <button class="btn btn-primary" id="btn-finish-workout" style="margin-top: 0.5rem; font-weight: 700;">
                 🏁 Hoàn thành buổi tập
@@ -635,14 +674,10 @@ export const WorkoutView = {
     });
 
     // Toggle Voice Coach
+    this.updateVoiceToggle();
     container.querySelector("#btn-toggle-voice")?.addEventListener("click", () => {
-      this.isVoiceCoachEnabled = !this.isVoiceCoachEnabled;
-      const tag = container.querySelector("#voice-status-tag");
-      if (tag) {
-        tag.textContent = this.isVoiceCoachEnabled ? "BẬT" : "TẮT";
-        tag.className = this.isVoiceCoachEnabled ? "badge badge-beginner" : "badge";
-      }
-      Toast.info(this.isVoiceCoachEnabled ? "Đã bật HLV Giọng nói tiếng Việt" : "Đã tắt HLV Giọng nói");
+      this.stopStatusSpeech();
+      this.voiceCoach.toggle();
     });
 
     // Finish Workout
@@ -692,6 +727,7 @@ export const WorkoutView = {
     btnManualMode?.addEventListener("click", () => {
       btnManualMode.classList.add("active");
       btnCameraMode?.classList.remove("active");
+      this.positionMonitor?.reset();
 
       // Strictly isolate manual mode: show manual panel, hide all camera HUDs
       if (manualPanel) manualPanel.style.display = "flex";
@@ -711,7 +747,7 @@ export const WorkoutView = {
     container.querySelector("#btn-manual-rep-plus1")?.addEventListener("click", () => {
       this.repCount += 1;
       updateManualDisplay();
-      this.speak(`${this.repCount}`);
+      this.playVoiceEvent({kind: "rep", count: this.repCount});
       if (this.repCount >= this.targetReps) {
         Toast.success(`Đạt chỉ tiêu hiệp ${this.currentSet}/${this.totalSets}! Bấm "Hoàn thành hiệp" để tiếp tục.`);
       }
@@ -720,7 +756,7 @@ export const WorkoutView = {
     container.querySelector("#btn-manual-rep-plus5")?.addEventListener("click", () => {
       this.repCount += 5;
       updateManualDisplay();
-      this.speak(`${this.repCount}`);
+      this.playVoiceEvent({kind: "rep", count: this.repCount});
       if (this.repCount >= this.targetReps) {
         Toast.success(`Đạt chỉ tiêu hiệp ${this.currentSet}/${this.totalSets}! Bấm "Hoàn thành hiệp" để tiếp tục.`);
       }
@@ -782,10 +818,24 @@ export const WorkoutView = {
     });
   },
 
-  async startSession(exerciseId, exerciseName, targetReps = 12, day = null, exerciseList = []) {
+  async startSession(
+    exerciseId,
+    exerciseName,
+    targetReps = 12,
+    day = null,
+    exerciseList = [],
+    prescription = {}
+  ) {
+    this.leave();
+    this.sessionStartTime = 0;
+    this.sessionId = null;
+    this.poseRequest = null;
     this.exerciseId = exerciseId || "squat";
     this.exerciseName = exerciseName || "Bodyweight Squat";
     this.targetReps = targetReps || 12;
+    this.holdSeconds = prescription.hold_seconds ?? 0;
+    this.restSeconds = prescription.rest_sec ?? 60;
+    this.restDurationSec = this.restSeconds;
     this.day = day;
     this.repCount = 0;
     this.currentSet = 1;
@@ -804,7 +854,9 @@ export const WorkoutView = {
       if (curEx) {
         this.totalSets = parseInt(curEx.sets) || 3;
         this.targetReps = parseInt(curEx.reps) || this.targetReps;
-        this.restDurationSec = parseInt(curEx.rest_sec) || 60;
+        this.holdSeconds = curEx.hold_seconds ?? this.holdSeconds;
+        this.restSeconds = curEx.rest_sec ?? this.restSeconds;
+        this.restDurationSec = this.restSeconds;
       }
     } else {
       this.exerciseList = JSON.parse(JSON.stringify(DEFAULT_SESSION_EXERCISES));
@@ -814,7 +866,9 @@ export const WorkoutView = {
       if (curEx) {
         this.totalSets = parseInt(curEx.sets) || 3;
         this.targetReps = parseInt(curEx.reps) || this.targetReps;
-        this.restDurationSec = parseInt(curEx.rest_sec) || 60;
+        this.holdSeconds = curEx.hold_seconds ?? this.holdSeconds;
+        this.restSeconds = curEx.rest_sec ?? this.restSeconds;
+        this.restDurationSec = this.restSeconds;
       }
     }
 
@@ -851,6 +905,7 @@ export const WorkoutView = {
   startRestTimer(seconds = null, nextInfo = "", onFinishCallback = null) {
     this.isResting = true;
     this.restDurationSec = seconds || this.restDurationSec || 60;
+    this.restSeconds = this.restDurationSec;
     this.restRemainingSec = this.restDurationSec;
     this.restSoundPlayed = { 3: false, 2: false, 1: false, 0: false };
     this.onRestFinishCallback = onFinishCallback;
@@ -1015,7 +1070,7 @@ export const WorkoutView = {
       if (this.currentExerciseIdx + 1 < this.exerciseList.length) {
         const nextEx = this.exerciseList[this.currentExerciseIdx + 1];
         this.startRestTimer(
-          nextEx.rest_sec || 60,
+          nextEx.rest_sec ?? 60,
           `Chuẩn bị bài tiếp theo: ${nextEx.name} (Hiệp 1/${nextEx.sets || 3})`,
           () => {
             this.skipToNextExercise();
@@ -1057,7 +1112,9 @@ export const WorkoutView = {
     this.exerciseName = targetEx.name || "Bài tập";
     this.targetReps = parseInt(targetEx.reps) || 12;
     this.totalSets = parseInt(targetEx.sets) || 3;
-    this.restDurationSec = parseInt(targetEx.rest_sec) || 60;
+    this.holdSeconds = targetEx.hold_seconds ?? 0;
+    this.restSeconds = targetEx.rest_sec ?? 60;
+    this.restDurationSec = this.restSeconds;
     this.currentSet = 1;
     this.repCount = 0;
 
@@ -1122,7 +1179,9 @@ export const WorkoutView = {
     if (titleText) titleText.textContent = this.exerciseName;
 
     const targetEl = document.getElementById("hud-target-text");
-    if (targetEl) targetEl.textContent = `Mục tiêu: ${this.targetReps} reps • Nghỉ: ${this.restDurationSec}s • Calisthenics chuẩn khoa học`;
+    if (targetEl) {
+      targetEl.textContent = `Mục tiêu: ${this.targetReps} reps${this.holdSeconds ? ` · Giữ ${this.holdSeconds}s mỗi rep` : ""} · Nghỉ ${this.restSeconds}s`;
+    }
 
     const setBadge = document.getElementById("hud-set-badge");
     if (setBadge) setBadge.textContent = `Hiệp ${this.currentSet}/${this.totalSets}`;
@@ -1271,6 +1330,7 @@ export const WorkoutView = {
 
   pauseWorkout() {
     this.isWorkingOut = false;
+    this.resetPoseFeedback();
     clearInterval(this.sessionTimerInterval);
 
     if (this.videoEl && this.videoSourceType === "file" && !this.videoEl.paused) {
@@ -1397,6 +1457,8 @@ export const WorkoutView = {
   },
 
   stopVideoSource() {
+    this.positionMonitor?.reset();
+    if (this.videoSourceType !== "none") this.resetPoseFeedback();
     if (this.stream) {
       this.stream.getTracks().forEach((track) => track.stop());
       this.stream = null;
@@ -1528,6 +1590,10 @@ export const WorkoutView = {
                 : 0.85 * detectCostMs + 0.15 * currentDetectCost;
 
               const pose = results?.landmarks?.[0] || null;
+              if (this.videoSourceType === "camera" &&
+                  document.getElementById("btn-mode-camera")?.classList.contains("active")) {
+                this.positionMonitor?.update(pose, this.exerciseId, w, h, now);
+              }
 
               if (pose && pose.length >= 29) {
                 cachedPose = pose;
@@ -1613,21 +1679,12 @@ export const WorkoutView = {
                 ctx.stroke();
               }
 
-              const lowerId = (this.exerciseId || "").toLowerCase();
-              const isUpper = lowerId.includes("push") ||
-                              lowerId.includes("dip") ||
-                              lowerId.includes("pull") ||
-                              lowerId.includes("row") ||
-                              lowerId.includes("chin") ||
-                              lowerId.includes("arm") ||
-                              lowerId.includes("chest") ||
-                              lowerId.includes("hit_dat") ||
-                              lowerId.includes("chong_day") ||
-                              lowerId.includes("press");
-
-              const detectedAngle = cachedDetectedAngle !== null ? cachedDetectedAngle : (isUpper
-                ? (angles.leftElbow || angles.rightElbow || this.currentAngle)
-                : (angles.leftKnee || angles.rightKnee || this.currentAngle));
+              const isUpper = usesElbowAngle(this.exerciseId);
+              const detectedAngle = cachedDetectedAngle !== null
+                ? cachedDetectedAngle
+                : (isUpper
+                  ? (angles.leftElbow ?? angles.rightElbow ?? this.currentAngle)
+                  : (angles.leftKnee ?? angles.rightKnee ?? this.currentAngle));
 
               // Evaluate real-time positioning: too_close or bad_angle (SCRUM-19 Smart Warnings)
               const isPositionValid = this.evaluatePosePositioning(pose, points, w, h, isUpper, angles, detectedAngle, now);
@@ -1658,15 +1715,26 @@ export const WorkoutView = {
               }
 
               // Send to backend FSM rep counter (only when working out AND NOT resting AND position is valid)
-              if (now - lastDispatchTime > DISPATCH_INTERVAL_MS) {
-                lastDispatchTime = now;
-                if (this.isWorkingOut && !this.isResting && this.sessionId && detectedAngle !== null && isPositionValid) {
-                  this.dispatchAngleToFSM(detectedAngle);
+              if (now - lastDispatchTime >= DISPATCH_INTERVAL_MS) {
+                if (this.isWorkingOut && !this.isResting && this.sessionId) {
+                  const accepted = isPositionValid && detectedAngle !== null
+                    ? this.dispatchAngleToFSM(detectedAngle, now, isUpper ? "elbow" : "knee")
+                    : this.dispatchAngleToFSM(null, now, isUpper ? "elbow" : "knee");
+                  if (accepted) lastDispatchTime = now;
                 }
               }
             } else {
               this.evaluatePosePositioning(null, [], w, h, false, null, null, now);
+              if (this.videoSourceType === "camera" &&
+                  document.getElementById("btn-mode-camera")?.classList.contains("active")) {
+                this.positionMonitor?.update(null, this.exerciseId, w, h, now);
+              }
               this.resetXGesture();
+              if (now - lastDispatchTime >= DISPATCH_INTERVAL_MS &&
+                  this.isWorkingOut && !this.isResting &&
+                  this.dispatchAngleToFSM(null, now)) {
+                lastDispatchTime = now;
+              }
             }
           } catch (detErr) {
             // Frame detection error handled gracefully
@@ -1899,78 +1967,81 @@ export const WorkoutView = {
   },
 
   updateTechnicalMetrics(points) {
-    let leftElbow = null;
-    let rightElbow = null;
-    let leftKnee = null;
-    let rightKnee = null;
-
-    if (points[11] && points[13] && points[15]) {
-      leftElbow = Math.round(angleAt(points[11], points[13], points[15]));
-    }
-    if (points[12] && points[14] && points[16]) {
-      rightElbow = Math.round(angleAt(points[12], points[14], points[16]));
-    }
-    if (points[23] && points[25] && points[27]) {
-      leftKnee = Math.round(angleAt(points[23], points[25], points[27]));
-    }
-    if (points[24] && points[26] && points[28]) {
-      rightKnee = Math.round(angleAt(points[24], points[26], points[28]));
-    }
+    const leftElbow = angleAt(points[11], points[13], points[15]);
+    const rightElbow = angleAt(points[12], points[14], points[16]);
+    const leftKnee = angleAt(points[23], points[25], points[27]);
+    const rightKnee = angleAt(points[24], points[26], points[28]);
 
     const elElbowL = document.getElementById("val-elbow-left");
     const elElbowR = document.getElementById("val-elbow-right");
     const elKneeL = document.getElementById("val-knee-left");
     const elKneeR = document.getElementById("val-knee-right");
 
-    if (elElbowL) elElbowL.textContent = leftElbow !== null ? `${leftElbow}°` : "—";
-    if (elElbowR) elElbowR.textContent = rightElbow !== null ? `${rightElbow}°` : "—";
-    if (elKneeL) elKneeL.textContent = leftKnee !== null ? `${leftKnee}°` : "—";
-    if (elKneeR) elKneeR.textContent = rightKnee !== null ? `${rightKnee}°` : "—";
+    if (elElbowL) elElbowL.textContent = leftElbow !== null ? `${Math.round(leftElbow)}°` : "—";
+    if (elElbowR) elElbowR.textContent = rightElbow !== null ? `${Math.round(rightElbow)}°` : "—";
+    if (elKneeL) elKneeL.textContent = leftKnee !== null ? `${Math.round(leftKnee)}°` : "—";
+    if (elKneeR) elKneeR.textContent = rightKnee !== null ? `${Math.round(rightKnee)}°` : "—";
 
     const statusEl = document.getElementById("tech-ai-status");
     if (statusEl && !this.posePositionWarning) {
       statusEl.style.color = "var(--accent-cyan)";
-      const lowerId = (this.exerciseId || "").toLowerCase();
-      const isUpper = lowerId.includes("push") || lowerId.includes("dip") || lowerId.includes("pull") || lowerId.includes("row") || lowerId.includes("chin") || lowerId.includes("arm") || lowerId.includes("hit_dat") || lowerId.includes("chong_day");
+      const isUpper = usesElbowAngle(this.exerciseId);
       const activeAngle = isUpper
-        ? (leftElbow || rightElbow)
-        : (leftKnee || rightKnee);
+        ? (leftElbow ?? rightElbow)
+        : (leftKnee ?? rightKnee);
       statusEl.textContent = activeAngle !== null
-        ? `🎯 Đã nhận diện toàn thân · Góc đo rep (${isUpper ? 'Khuỷu tay' : 'Khớp gối'}): ${activeAngle}°`
+        ? `🎯 Đã nhận diện toàn thân · Góc đo rep (${isUpper ? "Khuỷu tay" : "Khớp gối"}): ${Math.round(activeAngle)}°`
         : `👀 Hãy đứng trong khung hình để thấy rõ khớp.`;
     }
 
     return { leftElbow, rightElbow, leftKnee, rightKnee };
   },
 
-  async dispatchAngleToFSM(angle) {
-    if (!this.sessionId || this.isResting || this.isDispatching) return;
-    this.isDispatching = true;
-
-    try {
-      const data = await API.session.sendAngle(this.sessionId, angle);
-      this.updateHUDDisplay(data.angle, data.state, data.rep_incremented, data.depth_pct, data.cue);
-
-      if (data.rep_incremented) {
-        this.repCount = data.rep_count;
-        this.onRepCounted();
-      }
-    } catch (e) {
-      // Backend FSM error handled gracefully
-    } finally {
-      this.isDispatching = false;
-    }
+  dispatchAngleToFSM(angle, capturedAt, landmarkType = "knee") {
+    if (!this.isWorkingOut || !this.sessionId || this.poseRequest) return false;
+    const sessionId = this.sessionId, epoch = this.poseEpoch;
+    const request = API.session.sendAngle(sessionId, angle, landmarkType).then(data => {
+      if (sessionId !== this.sessionId || epoch !== this.poseEpoch || !this.isWorkingOut) return;
+      this.repCount = data.rep_count;
+      this.updateHUDDisplay(data.angle, data.state, data.depth_pct, data.cue);
+      if (data.tracking_lost && !this.poseTrackingLost) this.stopVoice();
+      this.poseTrackingLost = data.tracking_lost === true;
+      if (data.voice_event) this.playVoiceEvent({...data.voice_event, captured_at: capturedAt});
+      if (data.rep_incremented) this.onRepCounted();
+    }).catch(() => {}).finally(() => {
+      if (this.poseRequest === request) this.poseRequest = null;
+    });
+    this.poseRequest = request;
+    return true;
   },
 
-  updateHUDDisplay(angle, state, repIncremented, depthPct, cue) {
+  resetPoseFeedback() {
+    this.poseEpoch++;
+    this.stopVoice();
+    const sessionId = this.sessionId, epoch = this.poseEpoch;
+    if (!sessionId) return;
+    const request = Promise.resolve(this.poseRequest).then(() => {
+      if (sessionId === this.sessionId && epoch === this.poseEpoch) {
+        return API.session.sendAngle(sessionId, null, "knee", true);
+      }
+    }).then(data => {
+      if (data && sessionId === this.sessionId && epoch === this.poseEpoch) {
+        this.repCount = data.rep_count;
+        this.updateHUDDisplay(null, data.state, 0, null);
+      }
+    }).catch(() => {}).finally(() => {
+      if (this.poseRequest === request) this.poseRequest = null;
+    });
+    this.poseRequest = request;
+  },
+
+  updateHUDDisplay(angle, state, depthPct, cue) {
     this.currentAngle = angle;
     this.currentState = state;
     this.currentDepthPct = depthPct;
 
     const angleEl = document.getElementById("hud-angle-val");
-    if (angleEl && angle !== null && !isNaN(angle)) {
-      angleEl.textContent = `${Math.round(angle)}°`;
-    }
+    if (angleEl) angleEl.textContent = Number.isFinite(angle) ? `${Math.round(angle)}°` : "—";
 
     const fsmEl = document.getElementById("hud-fsm-badge");
     if (fsmEl) fsmEl.textContent = state;
@@ -1994,15 +2065,14 @@ export const WorkoutView = {
       if (cue) {
         banner.textContent = `📢 ${cue}`;
         banner.className = "hud-coach-banner perfect";
-        if (repIncremented) {
-          this.speak(cue);
-        }
       } else if (state === "STATE_DOWN") {
         banner.textContent = "✨ Độ sâu rất chuẩn! Đẩy thẳng người lên!";
         banner.className = "hud-coach-banner perfect";
       } else if (state === "STATE_GOING_DOWN") {
         banner.textContent = "🔻 Hạ thấp người thêm nữa nào!";
         banner.className = "hud-coach-banner warn";
+      } else {
+        banner.textContent = "";
       }
     }
   },
@@ -2037,16 +2107,61 @@ export const WorkoutView = {
     }
   },
 
+  updateVoiceToggle() {
+    const enabled = this.voiceCoach.enabled;
+    const button = document.getElementById("btn-toggle-voice");
+    button?.setAttribute("aria-pressed", String(enabled));
+    if (button) button.disabled = !this.voiceCoach.supported;
+    const icon = document.getElementById("voice-toggle-icon");
+    if (icon) icon.textContent = enabled ? "🔊" : "🔇";
+    const tag = document.getElementById("voice-status-tag");
+    if (tag) {
+      tag.textContent = enabled ? "BẬT" : "TẮT";
+      tag.classList.toggle("badge-beginner", enabled);
+    }
+  },
+
+  playVoiceEvent(event) {
+    if (!this.voiceCoach?.enabled) return;
+    this.stopStatusSpeech();
+    this.voiceCoach.receive(event);
+  },
+
+  stopStatusSpeech() {
+    if (!this.statusSpeech) return;
+    this.statusSpeech = null;
+    window.speechSynthesis.cancel();
+  },
+
+  stopVoice() {
+    this.voiceCoach?.stop();
+    this.stopStatusSpeech();
+  },
+
+  leave() {
+    this.isWorkingOut = false;
+    clearInterval(this.sessionTimerInterval);
+    clearInterval(this.restCountdownTimer);
+    this.stopVoice();
+    this.stopVideoSource();
+  },
+
   speak(text) {
-    if (!this.isVoiceCoachEnabled || !('speechSynthesis' in window)) return;
+    const synth = window.speechSynthesis;
+    if (!this.voiceCoach?.enabled || this.voiceCoach.busy || this.statusSpeech || !synth) return;
+    const voice = synth.getVoices().find(candidate => /^vi(?:-|$)/i.test(candidate.lang));
+    if (!voice) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = voice.lang;
+    utterance.voice = voice;
+    utterance.onend = utterance.onerror = () => {
+      if (this.statusSpeech === utterance) this.statusSpeech = null;
+    };
+    this.statusSpeech = utterance;
     try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "vi-VN";
-      utterance.rate = 1.05;
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.warn("TTS error:", e);
+      synth.speak(utterance);
+    } catch {
+      this.statusSpeech = null;
     }
   },
 
@@ -2058,6 +2173,7 @@ export const WorkoutView = {
 
     this.pauseWorkout();
     this.stopVideoSource();
+    clearInterval(this.restCountdownTimer);
 
     const elapsed = this.sessionStartTime ? Math.floor((Date.now() - this.sessionStartTime) / 1000) : 60;
     this.openRPEEvaluationModal(this.repCount, elapsed);

@@ -48,9 +48,22 @@ class FitSenseApp {
 
     // Global helper methods for cross-view navigation
     window.navigateTo = (viewName) => this.switchView(viewName);
-    window.startWorkoutSession = (exId, exName, reps, day, exerciseList = []) => {
+    window.startWorkoutSession = (
+      exId,
+      exName,
+      reps,
+      day,
+      exerciseListOrPrescription = [],
+      prescription = {}
+    ) => {
+      const exerciseList = Array.isArray(exerciseListOrPrescription)
+        ? exerciseListOrPrescription
+        : [];
+      const selectedPrescription = Array.isArray(exerciseListOrPrescription)
+        ? prescription
+        : exerciseListOrPrescription || prescription;
       this.switchView("workout");
-      WorkoutView.startSession(exId, exName, reps, day, exerciseList);
+      WorkoutView.startSession(exId, exName, reps, day, exerciseList, selectedPrescription);
     };
 
     // Check Authentication Status:
@@ -206,7 +219,7 @@ class FitSenseApp {
         modal.classList.remove("active");
         const firstEx = todayDay.exercises?.[0];
         if (firstEx) {
-          window.startWorkoutSession(firstEx.id || "squat", firstEx.name, parseInt(firstEx.reps) || 12, todayDay.day, todayDay.exercises || []);
+          window.startWorkoutSession(firstEx.id || "squat", firstEx.name, parseInt(firstEx.reps) || 12, todayDay.day);
         }
       });
     } catch (e) {
@@ -274,6 +287,7 @@ class FitSenseApp {
       }
     }
 
+    if (this.currentView === "workout" && viewName !== "workout") WorkoutView.leave();
     this.currentView = viewName;
     if (updateHash && window.location.hash !== `#${viewName}`) {
       history.replaceState(null, "", `#${viewName}`);

@@ -75,7 +75,9 @@ export const API = {
       return request(`/api/exercises?${query}`);
     },
     detail: (id) => request(`/api/exercises/${encodeURIComponent(id)}`),
-    alternatives: (id) => request(`/api/exercises/${encodeURIComponent(id)}/alternatives`),
+    alternatives: (id, preferredId) => request(
+      `/api/exercises/${encodeURIComponent(id)}/alternatives${preferredId ? `?preferred_id=${encodeURIComponent(preferredId)}` : ""}`,
+    ),
   },
 
   planner: {
@@ -84,12 +86,13 @@ export const API = {
       method: "POST",
       body: JSON.stringify({ goal, use_ai: useAI }),
     }),
-    swap: (day, currentExerciseId, newExerciseId) => request("/api/planner/swap", {
+    swap: (day, currentExerciseId, newExerciseId, exerciseIndex) => request("/api/planner/swap", {
       method: "POST",
       body: JSON.stringify({
         day,
         current_exercise_id: currentExerciseId,
         new_exercise_id: newExerciseId,
+        exercise_index: exerciseIndex,
       }),
     }),
     reset: () => request("/api/planner/reset", { method: "POST" }),
@@ -134,9 +137,9 @@ export const API = {
         total_sets: totalSets,
       }),
     }),
-    sendAngle: (sessionId, angle, landmarkType = "knee") => request("/api/session/fsm-rep", {
+    sendAngle: (sessionId, angle, landmarkType = "knee", trackingInterrupted = false) => request("/api/session/fsm-rep", {
       method: "POST",
-      body: JSON.stringify({ session_id: sessionId, angle, landmark_type: landmarkType }),
+      body: JSON.stringify({ session_id: sessionId, angle, landmark_type: landmarkType, tracking_interrupted: trackingInterrupted }),
     }),
     finish: ({ sessionId, exerciseId, completedReps, durationSeconds, rpe = 7, notes = "", day = null, targetReps = null }) => request("/api/session/finish", {
       method: "POST",
