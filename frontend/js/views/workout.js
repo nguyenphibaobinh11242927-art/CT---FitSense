@@ -1033,6 +1033,12 @@ export const WorkoutView = {
     if (this.currentExerciseIdx + 1 < this.exerciseList.length) {
       this.jumpToExercise(this.currentExerciseIdx + 1);
     } else {
+      if (this.isResting) {
+        clearInterval(this.restTimerInterval);
+        this.isResting = false;
+        const overlay = document.getElementById("hud-rest-overlay");
+        if (overlay) overlay.style.display = "none";
+      }
       Toast.info("Đây đã là bài tập cuối cùng trong buổi hôm nay!");
     }
   },
@@ -2045,6 +2051,11 @@ export const WorkoutView = {
   },
 
   async finishWorkout() {
+    clearInterval(this.restTimerInterval);
+    this.isResting = false;
+    const overlay = document.getElementById("hud-rest-overlay");
+    if (overlay) overlay.style.display = "none";
+
     this.pauseWorkout();
     this.stopVideoSource();
 

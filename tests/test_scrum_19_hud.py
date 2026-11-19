@@ -130,6 +130,88 @@ class Scrum19SessionHudTests(unittest.TestCase):
         self.assertEqual(st.session_state["hud_rest_duration"], 90)
         self.assertEqual(st.session_state["hud_rest_remaining"], 90)
 
+    def test_adjust_rest_timer_plus_minus_15s(self):
+        """Kiểm tra nút +15s và -15s tăng/giảm thời gian nghỉ và giới hạn biên tối thiểu 10s."""
+        st.session_state["hud_is_resting"] = True
+        st.session_state["hud_rest_duration"] = 60
+        st.session_state["hud_rest_remaining"] = 60
+
+        # Tăng +15s
+        session_view._adjust_rest_timer(15)
+        self.assertEqual(st.session_state["hud_rest_duration"], 75)
+        self.assertEqual(st.session_state["hud_rest_remaining"], 75)
+
+        # Giảm -15s
+        session_view._adjust_rest_timer(-15)
+        self.assertEqual(st.session_state["hud_rest_duration"], 60)
+        self.assertEqual(st.session_state["hud_rest_remaining"], 60)
+
+        # Giảm liên tục kiểm tra giới hạn dưới (min 10s không bị âm)
+        session_view._adjust_rest_timer(-60)
+        self.assertEqual(st.session_state["hud_rest_duration"], 10)
+        self.assertEqual(st.session_state["hud_rest_remaining"], 0)
+
+    def test_auto_advance_rest_timer_when_countdown_reaches_zero(self):
+        """Khi wall-clock đếm hết thời gian nghỉ, hệ thống tự động chuyển hiệp mà không cần bấm thủ công."""
+        import time
+        exercises = [
+            {"name": "Squat", "sets": 3, "reps": 12, "rest_sec": 45},
+        ]
+        session_view._advance_hud_set(exercises)
+        self.assertTrue(st.session_state["hud_is_resting"])
+        self.assertEqual(st.session_state["hud_current_set"], 1)
+
+        # Giả lập wall-clock trôi qua 50 giây (lớn hơn 45s thời gian nghỉ)
+        st.session_state["hud_rest_start_time"] = time.time() - 50
+
+        # Kích hoạt kiểm tra auto-advance
+        advanced = session_view._check_auto_advance_rest_timer(exercises)
+        self.assertTrue(advanced)
+        self.assertFalse(st.session_state["hud_is_resting"])
+        self.assertEqual(st.session_state["hud_current_set"], 2)
+        self.assertIsNone(st.session_state["hud_rest_start_time"])
+
+    def test_auto_advance_frozen_when_timer_paused(self):
+        """Khi buổi tập đang tạm dừng (user_paused hoặc hud_rest_paused), không tự động chuyển hiệp."""
+        import time
+        exercises = [
+            {"name": "Squat", "sets": 3, "reps": 12, "rest_sec": 45},
+        ]
+        session_view._advance_hud_set(exercises)
+        st.session_state["hud_rest_start_time"] = time.time() - 50
+        st.session_state["session_user_paused"] = True
+
+        # Khi pause, auto-advance không được phép kích hoạt
+        advanced = session_view._check_auto_advance_rest_timer(exercises)
+        self.assertFalse(advanced)
+        self.assertTrue(st.session_state["hud_is_resting"])
+        self.assertEqual(st.session_state["hud_current_set"], 1)
+
+    def test_skip_last_exercise_while_resting_cleans_timer_state(self):
+        """Bỏ qua bài tập cuối cùng khi đang nghỉ phải dọn dẹp sạch sẽ timer, không leak sang phiên sau."""
+        exercises = [
+            {"name": "Squat", "sets": 2, "reps": 12, "rest_sec": 60},
+        ]
+        # Bắt đầu nghỉ ở bài cuối cùng
+        session_view._advance_hud_set(exercises)
+        self.assertTrue(st.session_state["hud_is_resting"])
+        self.assertIsNotNone(st.session_state["hud_rest_start_time"])
+
+        # Bấm bỏ qua bài này
+        session_view._skip_to_next_exercise(exercises)
+
+        # Xác minh: Toàn bộ cờ nghỉ và timer được xóa sạch
+        self.assertFalse(st.session_state["hud_is_resting"])
+        self.assertIsNone(st.session_state["hud_rest_start_time"])
+        self.assertTrue(st.session_state["hud_all_completed"])
+
+        # Khi khởi tạo phiên tập mới, không bị dính cờ cũ tồn đọng
+        session_view._init_hud_state()
+        self.assertFalse(st.session_state["hud_is_resting"])
+        self.assertFalse(st.session_state["hud_all_completed"])
+        self.assertEqual(st.session_state["hud_current_ex_idx"], 0)
+        self.assertEqual(st.session_state["hud_current_set"], 1)
+
 
 class Scrum19AppIntegrationTests(unittest.TestCase):
     """Kiểm thử tích hợp giao diện AppTest cho HUD và Rest Timer."""

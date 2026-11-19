@@ -319,8 +319,22 @@ def _get_session_exercises() -> list[dict]:
     return [dict(e) for e in DEFAULT_SESSION_EXERCISES]
 
 
-def _init_hud_state():
+def _init_hud_state(force: bool = False):
     """Khởi tạo trạng thái bộ điều hành HUD, đồng hồ nghỉ và tiến trình hiệp."""
+    if force or st.session_state.get("hud_all_completed", False):
+        st.session_state["hud_current_ex_idx"] = 0
+        st.session_state["hud_current_set"] = 1
+        st.session_state["hud_is_resting"] = False
+        st.session_state["hud_rest_duration"] = 60
+        st.session_state["hud_rest_remaining"] = 60
+        st.session_state["hud_rest_start_time"] = None
+        st.session_state["hud_rest_paused"] = False
+        st.session_state["hud_completed_sets"] = {}
+        st.session_state["hud_custom_rest_sec"] = None
+        st.session_state["hud_all_completed"] = False
+        st.session_state.pop("hud_next_target", None)
+        return
+
     if "hud_current_ex_idx" not in st.session_state:
         st.session_state["hud_current_ex_idx"] = 0
     if "hud_current_set" not in st.session_state:
@@ -339,6 +353,37 @@ def _init_hud_state():
         st.session_state["hud_completed_sets"] = {}
     if "hud_custom_rest_sec" not in st.session_state:
         st.session_state["hud_custom_rest_sec"] = None
+    if "hud_all_completed" not in st.session_state:
+        st.session_state["hud_all_completed"] = False
+
+
+def _adjust_rest_timer(delta_sec: int):
+    """Điều chỉnh thời gian nghỉ (+/- delta_sec) và cập nhật start_time tương ứng."""
+    cur_dur = st.session_state.get("hud_rest_duration", 60)
+    cur_rem = st.session_state.get("hud_rest_remaining", cur_dur)
+    new_dur = max(10, cur_dur + delta_sec)
+    new_rem = max(0, cur_rem + delta_sec)
+    st.session_state["hud_rest_duration"] = new_dur
+    st.session_state["hud_rest_remaining"] = new_rem
+    if st.session_state.get("hud_rest_start_time") is not None:
+        st.session_state["hud_rest_start_time"] = time.time() - (new_dur - new_rem)
+
+
+def _check_auto_advance_rest_timer(exercises: list[dict]) -> bool:
+    """Kiểm tra thời gian nghỉ theo wall-clock; tự động chuyển hiệp/bài khi hết giờ."""
+    if not st.session_state.get("hud_is_resting", False):
+        return False
+    if st.session_state.get("session_user_paused", False) or st.session_state.get("hud_rest_paused", False):
+        return False
+    start_t = st.session_state.get("hud_rest_start_time")
+    if start_t is None:
+        return False
+    duration = st.session_state.get("hud_rest_duration", 60)
+    elapsed = time.time() - start_t
+    if elapsed >= duration:
+        _finish_rest_period(exercises)
+        return True
+    return False
 
 
 def _advance_hud_set(exercises: list[dict]):
@@ -399,11 +444,14 @@ def _finish_rest_period(exercises: list[dict]):
 def _skip_to_next_exercise(exercises: list[dict]):
     """Bỏ qua bài tập hiện tại và chuyển sang bài tiếp theo trong Up Next list."""
     cur_idx = st.session_state.get("hud_current_ex_idx", 0)
+    # Luôn dừng và hủy trạng thái nghỉ khi bỏ qua bài
+    st.session_state["hud_is_resting"] = False
+    st.session_state["hud_rest_start_time"] = None
+    st.session_state["hud_rest_paused"] = False
+
     if cur_idx + 1 < len(exercises):
         st.session_state["hud_current_ex_idx"] = cur_idx + 1
         st.session_state["hud_current_set"] = 1
-        st.session_state["hud_is_resting"] = False
-        st.session_state["hud_rest_start_time"] = None
     else:
         st.session_state["hud_all_completed"] = True
 
@@ -503,6 +551,7 @@ def save_result(session, outcome, manual=None):
     save_week_state(st.session_state)
     st.session_state["session_user_paused"] = False
     st.session_state.pop("paused_progress", None)
+    _init_hud_state(force=True)
     st.session_state["review_session_id"] = session.session_id
     if session.status == "completed":
         st.session_state["has_worked_out_today"] = True
@@ -883,6 +932,18 @@ def _render_ai_vision_hud_fragment() -> None:
                 rem = max(0, int(rest_total - elapsed))
                 st.session_state["hud_rest_remaining"] = rem
 
+                # Tự động chuyển hiệp khi wall-clock đếm về 0
+                if rem <= 0:
+                    _finish_rest_period(exercises)
+                    if pose.stop.is_rep_locked:
+                        pose.stop.reset()
+                    is_resting = False
+                    st.toast("🔔 Hết giờ nghỉ! Tự động vào hiệp mới!", icon="🔥")
+                    try:
+                        st.rerun(scope="fragment")
+                    except Exception:
+                        st.rerun()
+
             with st.container(border=True):
                 st.markdown("### ⏱️ Đồng hồ Nghỉ Giữa Hiệp (Rest Timer)")
                 next_target_label = st.session_state.get(
@@ -907,18 +968,11 @@ def _render_ai_vision_hud_fragment() -> None:
                         st.rerun()
                 with c_r2:
                     if st.button("+15s Nghỉ", key="hud_rest_plus15", use_container_width=True):
-                        st.session_state["hud_rest_duration"] = rest_total + 15
-                        st.session_state["hud_rest_remaining"] = rem + 15
-                        if st.session_state.get("hud_rest_start_time"):
-                            st.session_state["hud_rest_start_time"] += 15
+                        _adjust_rest_timer(15)
                         st.rerun()
                 with c_r3:
                     if st.button("-15s Nghỉ", key="hud_rest_minus15", use_container_width=True):
-                        new_dur = max(10, rest_total - 15)
-                        st.session_state["hud_rest_duration"] = new_dur
-                        st.session_state["hud_rest_remaining"] = max(0, rem - 15)
-                        if st.session_state.get("hud_rest_start_time"):
-                            st.session_state["hud_rest_start_time"] = max(0, st.session_state["hud_rest_start_time"] - 15)
+                        _adjust_rest_timer(-15)
                         st.rerun()
         else:
             with st.container(border=True):
@@ -1047,6 +1101,10 @@ def _render_ai_vision_hud_fragment() -> None:
                     st.session_state["session_user_paused"] = False
                     if pose.started and not pose.stop.is_rep_locked:
                         session.status = "active"
+                    if st.session_state.get("hud_is_resting"):
+                        dur = st.session_state.get("hud_rest_duration", 60)
+                        rem = st.session_state.get("hud_rest_remaining", dur)
+                        st.session_state["hud_rest_start_time"] = time.time() - (dur - rem)
                     st.toast("Tiếp tục ghi nhận buổi tập!", icon="▶️")
                     st.rerun()
 
