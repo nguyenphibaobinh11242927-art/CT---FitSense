@@ -25,6 +25,38 @@ def _format_duration(seconds: int) -> str:
     return f"{rem}s"
 
 
+def _get_series(df: pd.DataFrame, col: str, default: Any) -> pd.Series:
+    """Safely extract a column as a Pandas Series even if the column is missing."""
+    if col in df.columns:
+        return df[col]
+    return pd.Series([default] * len(df), index=df.index)
+
+
+def _count_unique_sessions(df: pd.DataFrame) -> int:
+    """Count unique workout sessions.
+
+    If records include a non-empty `session_id`, exercises sharing the same
+    `session_id` are counted as a single session. Records without `session_id`
+    fall back to their own record `id` (or row index).
+    """
+    if df.empty:
+        return 0
+
+    session_ids = _get_series(df, "session_id", "").fillna("").astype(str).str.strip()
+    record_ids = _get_series(df, "id", "").fillna("").astype(str).str.strip()
+
+    effective_keys = []
+    for idx in df.index:
+        sid = session_ids.loc[idx]
+        if sid:
+            effective_keys.append(f"session:{sid}")
+        else:
+            rid = record_ids.loc[idx]
+            effective_keys.append(f"record:{rid}" if rid else f"row:{idx}")
+
+    return len(set(effective_keys))
+
+
 def compute_personal_records(history: list[dict[str, Any]]) -> dict[str, str]:
     """Compute genuine Personal Records (PRs) from workout history using Pandas."""
     default_prs = {
@@ -40,10 +72,10 @@ def compute_personal_records(history: list[dict[str, Any]]) -> dict[str, str]:
     if df.empty:
         return default_prs
 
-    df["exercise_id"] = df.get("exercise_id", pd.Series("", index=df.index)).fillna("").astype(str).str.lower()
-    df["exercise_name"] = df.get("exercise_name", pd.Series("", index=df.index)).fillna("").astype(str)
-    df["reps"] = pd.to_numeric(df.get("reps", 0), errors="coerce").fillna(0).astype(int)
-    df["duration_sec"] = pd.to_numeric(df.get("duration_sec", 0), errors="coerce").fillna(0).astype(int)
+    df["exercise_id"] = _get_series(df, "exercise_id", "").fillna("").astype(str).str.lower()
+    df["exercise_name"] = _get_series(df, "exercise_name", "").fillna("").astype(str)
+    df["reps"] = pd.to_numeric(_get_series(df, "reps", 0), errors="coerce").fillna(0).astype(int)
+    df["duration_sec"] = pd.to_numeric(_get_series(df, "duration_sec", 0), errors="coerce").fillna(0).astype(int)
 
     # 1. Squat PR (reps)
     squat_df = df[df["exercise_id"].str.contains("squat") | df["exercise_name"].str.lower().str.contains("squat")]
@@ -88,7 +120,7 @@ def build_progress_analytics(
     today = reference_date or date.today()
     prs = compute_personal_records(history)
 
-    if not history:
+    def _empty_result(invalid_count: int = 0) -> dict[str, Any]:
         return {
             "timeframe": tf,
             "labels": [],
@@ -102,44 +134,48 @@ def build_progress_analytics(
                 "total_reps": 0,
                 "best_plank_sec": 0,
                 "avg_rpe": 0.0,
+                "invalid_date_records": invalid_count,
             },
         }
+
+    if not history:
+        return _empty_result()
 
     df = pd.DataFrame(history)
-    df["parsed_date"] = pd.to_datetime(df.get("actual_date"), errors="coerce").dt.date
-    df["parsed_date"] = df["parsed_date"].fillna(today)
-    df["reps"] = pd.to_numeric(df.get("reps", 0), errors="coerce").fillna(0).astype(int)
-    df["duration_sec"] = pd.to_numeric(df.get("duration_sec", 0), errors="coerce").fillna(0).astype(int)
-    df["rpe"] = pd.to_numeric(df.get("rpe", 7), errors="coerce").fillna(7).astype(float)
-    df["exercise_id"] = df.get("exercise_id", pd.Series("", index=df.index)).fillna("").astype(str)
-    df["exercise_name"] = df.get("exercise_name", pd.Series("", index=df.index)).fillna("").astype(str)
+    if df.empty:
+        return _empty_result()
 
-    # Filter by timeframe
+    # Parse dates strictly: invalid or missing dates become NaT and are excluded (never coerced to today)
+    parsed_ts = pd.to_datetime(_get_series(df, "actual_date", None), errors="coerce")
+    invalid_date_count = int(parsed_ts.isna().sum())
+    df["parsed_date"] = parsed_ts.dt.date
+
+    # Safe numeric/string normalization even when columns are absent
+    df["reps"] = pd.to_numeric(_get_series(df, "reps", 0), errors="coerce").fillna(0).astype(int)
+    df["duration_sec"] = pd.to_numeric(_get_series(df, "duration_sec", 0), errors="coerce").fillna(0).astype(int)
+    df["rpe"] = pd.to_numeric(_get_series(df, "rpe", 7), errors="coerce").fillna(7).astype(float)
+    df["exercise_id"] = _get_series(df, "exercise_id", "").fillna("").astype(str)
+    df["exercise_name"] = _get_series(df, "exercise_name", "").fillna("").astype(str)
+
+    # Exclude invalid dates and future dates (> today) from completed workout statistics
+    valid_df = df[parsed_ts.notna()].copy()
+    valid_df = valid_df[valid_df["parsed_date"] <= today].copy()
+
+    if valid_df.empty:
+        return _empty_result(invalid_date_count)
+
+    # Filter by timeframe lower bound
     if tf == "week":
         cutoff = today - timedelta(days=6)
-        filtered_df = df[df["parsed_date"] >= cutoff].copy()
+        filtered_df = valid_df[valid_df["parsed_date"] >= cutoff].copy()
     elif tf == "month":
         cutoff = today - timedelta(days=29)
-        filtered_df = df[df["parsed_date"] >= cutoff].copy()
+        filtered_df = valid_df[valid_df["parsed_date"] >= cutoff].copy()
     else:
-        filtered_df = df.copy()
+        filtered_df = valid_df.copy()
 
     if filtered_df.empty:
-        return {
-            "timeframe": tf,
-            "labels": [],
-            "reps_series": [],
-            "plank_series": [],
-            "duration_min_series": [],
-            "personal_records": prs,
-            "filtered_history": [],
-            "summary": {
-                "total_sessions": 0,
-                "total_reps": 0,
-                "best_plank_sec": 0,
-                "avg_rpe": 0.0,
-            },
-        }
+        return _empty_result(invalid_date_count)
 
     filtered_df["is_plank"] = filtered_df.apply(
         lambda r: _is_plank_exercise(r["exercise_id"], r["exercise_name"]), axis=1
@@ -177,9 +213,10 @@ def build_progress_analytics(
         "personal_records": prs,
         "filtered_history": filtered_history,
         "summary": {
-            "total_sessions": int(len(filtered_df)),
+            "total_sessions": _count_unique_sessions(filtered_df),
             "total_reps": int(filtered_df["reps"].sum()),
             "best_plank_sec": int(filtered_df["plank_sec"].max()),
             "avg_rpe": round(float(filtered_df["rpe"].mean()), 1),
+            "invalid_date_records": invalid_date_count,
         },
     }

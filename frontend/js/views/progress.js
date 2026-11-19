@@ -23,7 +23,10 @@ export const ProgressView = {
         API.progress.stats(),
         API.progress.evaluationMeta(),
         API.progress.evaluations(),
-        API.progress.analytics(this.timeframe),
+        API.progress.analytics(this.timeframe).catch((err) => {
+          console.warn("Analytics API failed, falling back gracefully:", err);
+          return { __error: err.message || "Không thể tải dữ liệu biểu đồ." };
+        }),
       ]);
 
       this.evalMeta = evalMetaData;
@@ -658,7 +661,7 @@ export const ProgressView = {
       }
     });
   },
-  
+
   bindTimeframeEvents(container) {
     container.querySelectorAll("#progress-timeframe-filters button[data-tf]").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -676,6 +679,13 @@ export const ProgressView = {
     const plankEl = document.getElementById("plotly-plank-chart");
     if (!repsEl || !plankEl) return;
 
+    if (analyticsData?.__error) {
+      const errMsg = `<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-amber); font-size: 0.85rem; text-align: center; padding: 1rem;">⚠️ Tạm thời chưa tải được biểu đồ (${analyticsData.__error}). Các mục khác vẫn hoạt động bình thường.</div>`;
+      repsEl.innerHTML = errMsg;
+      plankEl.innerHTML = errMsg;
+      return;
+    }
+    
     const labels = analyticsData?.labels || [];
     const repsSeries = analyticsData?.reps_series || [];
     const plankSeries = analyticsData?.plank_series || [];

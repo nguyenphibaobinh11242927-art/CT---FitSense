@@ -79,6 +79,118 @@ class TestProgressAnalytics(unittest.TestCase):
         # All: all 4 records
         self.assertEqual(all_res["summary"]["total_sessions"], 4)
 
+    def test_missing_optional_columns_do_not_raise(self):
+        # Records completely missing reps, duration_sec, rpe, and actual_date
+        minimal_history = [
+            {"id": "m-01", "exercise_id": "squat", "exercise_name": "Squat"},
+        ]
+        res = build_progress_analytics(minimal_history, timeframe="all", reference_date=self.ref_date)
+        self.assertEqual(res["summary"]["total_sessions"], 0)
+        self.assertEqual(res["summary"]["invalid_date_records"], 1)
+        self.assertEqual(res["personal_records"]["Squat Thể dục"], "Chưa ghi nhận")
+
+        # Record with valid date but missing reps, duration_sec, rpe
+        valid_date_minimal = [
+            {"id": "m-02", "exercise_id": "squat", "actual_date": self.ref_date.isoformat()},
+        ]
+        res2 = build_progress_analytics(valid_date_minimal, timeframe="week", reference_date=self.ref_date)
+        self.assertEqual(res2["summary"]["total_sessions"], 1)
+        self.assertEqual(res2["summary"]["total_reps"], 0)
+        self.assertEqual(res2["summary"]["avg_rpe"], 7.0)
+
+    def test_invalid_dates_are_excluded_not_coerced_to_today(self):
+        history = [
+            {
+                "id": "bad-1",
+                "exercise_id": "squat",
+                "actual_date": "not-a-valid-date",
+                "reps": 30,
+                "duration_sec": 60,
+            },
+            {
+                "id": "bad-2",
+                "exercise_id": "plank",
+                "actual_date": None,
+                "reps": 0,
+                "duration_sec": 90,
+            },
+        ]
+        res = build_progress_analytics(history, timeframe="week", reference_date=self.ref_date)
+        self.assertEqual(res["labels"], [])
+        self.assertEqual(res["summary"]["total_sessions"], 0)
+        self.assertEqual(res["summary"]["total_reps"], 0)
+        self.assertEqual(res["summary"]["invalid_date_records"], 2)
+
+    def test_future_dates_are_excluded_from_completed_history(self):
+        future_date = (self.ref_date + timedelta(days=3)).isoformat()
+        history = [
+            {
+                "id": "f-01",
+                "exercise_id": "squat",
+                "actual_date": future_date,
+                "reps": 50,
+                "duration_sec": 120,
+            },
+            {
+                "id": "p-01",
+                "exercise_id": "squat",
+                "actual_date": self.ref_date.isoformat(),
+                "reps": 20,
+                "duration_sec": 60,
+            },
+        ]
+        for tf in ("week", "month", "all"):
+            res = build_progress_analytics(history, timeframe=tf, reference_date=self.ref_date)
+            self.assertEqual(res["summary"]["total_sessions"], 1)
+            self.assertEqual(res["summary"]["total_reps"], 20)
+            self.assertEqual(res["labels"], [self.ref_date.strftime("%d/%m")])
+
+    def test_multiple_exercises_in_same_session_counted_once(self):
+        history = [
+            {
+                "id": "w-10",
+                "session_id": "sess-001",
+                "exercise_id": "squat",
+                "actual_date": self.ref_date.isoformat(),
+                "reps": 20,
+                "duration_sec": 90,
+            },
+            {
+                "id": "w-11",
+                "session_id": "sess-001",
+                "exercise_id": "push_up",
+                "actual_date": self.ref_date.isoformat(),
+                "reps": 15,
+                "duration_sec": 60,
+            },
+            {
+                "id": "w-12",
+                "session_id": "sess-002",
+                "exercise_id": "plank",
+                "actual_date": self.ref_date.isoformat(),
+                "reps": 0,
+                "duration_sec": 80,
+            },
+        ]
+        res = build_progress_analytics(history, timeframe="week", reference_date=self.ref_date)
+        # 3 exercise records, but only 2 distinct sessions (sess-001 and sess-002)
+        self.assertEqual(res["summary"]["total_sessions"], 2)
+        self.assertEqual(res["summary"]["total_reps"], 35)
+
+    def test_same_day_multiple_records_aggregate_reps_and_max_plank(self):
+        day_str = self.ref_date.isoformat()
+        history = [
+            {"id": "d-1", "exercise_id": "squat", "actual_date": day_str, "reps": 15, "duration_sec": 60},
+            {"id": "d-2", "exercise_id": "push_up", "actual_date": day_str, "reps": 12, "duration_sec": 45},
+            {"id": "d-3", "exercise_id": "plank", "actual_date": day_str, "reps": 0, "duration_sec": 50},
+            {"id": "d-4", "exercise_id": "plank", "actual_date": day_str, "reps": 0, "duration_sec": 85},
+        ]
+        res = build_progress_analytics(history, timeframe="week", reference_date=self.ref_date)
+        self.assertEqual(res["labels"], [self.ref_date.strftime("%d/%m")])
+        self.assertEqual(res["reps_series"], [27])      # 15 + 12
+        self.assertEqual(res["plank_series"], [85])     # max(50, 85)
+        self.assertEqual(res["summary"]["best_plank_sec"], 85)
+
 
 if __name__ == "__main__":
     unittest.main()
