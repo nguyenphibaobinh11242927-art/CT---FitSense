@@ -5,7 +5,7 @@
 
 import { API } from "../api.js";
 import { Toast } from "../components/toast.js";
-import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=camera-position-1";
+import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=mai-anh-2";
 import { createCameraPositionMonitor, POSITION_MESSAGES } from "../camera_position.mjs";
 
 // Helper: Calculate joint angle in degrees from three 2D/3D points [0, 180]
