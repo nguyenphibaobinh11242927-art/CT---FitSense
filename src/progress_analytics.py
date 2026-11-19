@@ -159,8 +159,10 @@ def build_progress_analytics(
 
     # Exclude invalid dates and future dates (> today) from completed workout statistics
     valid_df = df[parsed_ts.notna()].copy()
-    valid_df = valid_df[valid_df["parsed_date"] <= today].copy()
+    if valid_df.empty:
+        return _empty_result(invalid_date_count)
 
+    valid_df = valid_df[valid_df["parsed_date"] <= today].copy()
     if valid_df.empty:
         return _empty_result(invalid_date_count)
 
