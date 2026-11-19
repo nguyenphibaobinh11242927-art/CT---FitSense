@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    
+    <linearGradient id="bgLinear1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#111827" />
+    </linearGradient>
+    <linearGradient id="pinkGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="100%" stop-color="#fb7185" />
+    </linearGradient>
+    <linearGradient id="blueGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+    <linearGradient id="textGrad1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="48%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+    <filter id="shadow1" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.4" />
+    </filter>
+
+  </defs>
+  <rect width="512" height="512" rx="48" fill="url(#bgLinear1)" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+  <text x="256" y="56" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="15" font-weight="700" fill="#94a3b8" letter-spacing="3">Ý TƯỞNG 1: MONOGRAM F KHÍ ĐỘNG HỌC</text>
+  
+  <g filter="url(#shadow1)" transform="translate(110, 95)">
+    <!-- Main Sweeping Spine (Pastel Pink) - Leaning at athletic forward angle -->
+    <path d="M70 300 C60 260 70 200 95 140 C115 95 140 60 165 30 C175 18 190 28 182 40 C160 75 140 120 125 170 C105 230 100 280 115 305 C120 318 100 325 85 318 C75 313 72 308 70 300 Z" fill="url(#pinkGrad1)" />
+
+    <!-- Top Wing Bar (Pure White) - Soaring forward like a reaching hand -->
+    <path d="M150 48 C185 40 230 45 275 60 C290 65 285 85 270 82 C230 72 190 70 145 78 C135 80 130 65 140 55 C143 51 146 49 150 48 Z" fill="#ffffff" />
+    <!-- Dynamic top wing flare tip -->
+    <circle cx="288" cy="65" r="7" fill="#ffffff" />
+
+    <!-- Middle Drive Bar (Pastel Blue) - Powerful forward thrust -->
+    <path d="M125 155 C160 145 205 148 245 160 C258 164 255 182 240 180 C205 172 165 172 120 180 C110 182 108 168 118 160 C120 158 122 156 125 155 Z" fill="url(#blueGrad1)" />
+
+    <!-- Kinetic Ground Boost Sparkle -->
+    <path d="M50 280 C60 260 80 255 90 265 C75 275 65 290 50 280 Z" fill="url(#blueGrad1)" opacity="0.8" />
+  </g>
+
+  <text x="256" y="470" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="14" font-weight="600" fill="#cbd5e1">Chữ F cách điệu · 3 nhịp sải tay, thân mình &amp; bước chân</text>
+</svg>

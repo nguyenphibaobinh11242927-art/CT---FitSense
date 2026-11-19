@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {existsSync} from "node:fs";
 import test from "node:test";
 import {createVoiceCoach} from "../assets/webcam/voice_coach.mjs";
 import {VI_CUES} from "../assets/webcam/voice/vi_cues.mjs";
@@ -23,7 +24,8 @@ function setup(response) {
       }
     },
     fetchAudio: async url => {
-      assert.match(url.pathname, /\/voice\/vi\.mp3$/);
+      assert.match(url.pathname, /\/voice\/vi-mai-anh\.mp3$/);
+      assert.ok(existsSync(url), "the Voice Coach MP3 exists at the configured URL");
       calls.push("fetch");
       return response?.() ?? {ok: true, arrayBuffer: () => new ArrayBuffer(1)};
     },
@@ -140,6 +142,27 @@ test("plays bundled camera warnings twelve seconds apart without cutting current
   await flush();
   assert.deepEqual(played[1].args, [3, ...VI_CUES[104]]);
   assert.equal(played[0].stopped, undefined);
+});
+
+test("plays fresh rep and form feedback without waiting behind long guidance", async () => {
+  const {coach, played, advance, status} = setup();
+  coach.toggle();
+  await flush();
+  played.shift().onended();
+
+  assert.equal(coach.warnPosition("wrong_angle"), true);
+  await flush();
+  advance(100);
+  coach.receive({kind: "rep", count: 2, captured_at: 350});
+  await flush();
+  assert.ok(played[0].stopped);
+  assert.deepEqual(played[1].args.slice(1), VI_CUES[2]);
+  assert.match(status.at(-1), /: 0 ms/);
+
+  coach.receive({kind: "shallow_squat", captured_at: 350});
+  await flush();
+  assert.ok(played[1].stopped);
+  assert.deepEqual(played[2].args.slice(1), VI_CUES[102]);
 });
 
 test("reads the latest completed rep before coaching on a newer attempt in the same batch", async () => {

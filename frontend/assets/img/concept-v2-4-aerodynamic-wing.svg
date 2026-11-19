@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    
+    <linearGradient id="bgLinear4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#111827" />
+    </linearGradient>
+    <linearGradient id="pinkGrad4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="100%" stop-color="#fb7185" />
+    </linearGradient>
+    <linearGradient id="blueGrad4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+    <linearGradient id="textGrad4" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="48%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+    <filter id="shadow4" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.4" />
+    </filter>
+
+  </defs>
+  <rect width="512" height="512" rx="48" fill="url(#bgLinear4)" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+  <text x="256" y="56" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="15" font-weight="700" fill="#94a3b8" letter-spacing="3">Ý TƯỞNG 4: CÁNH GIÓ KHÍ ĐỘNG HỌC</text>
+  
+  <g filter="url(#shadow4)" transform="translate(100, 95)">
+    <!-- Top Leading Slash (Pure White) - Arm/Head thrusting ahead -->
+    <path d="M170 40 C210 35 270 45 320 70 C335 78 330 95 315 90 C265 72 215 70 160 82 C148 85 142 70 152 60 C158 52 164 45 170 40 Z" fill="#ffffff" />
+
+    <!-- Middle Core Slash (Pastel Pink) - Torso momentum -->
+    <path d="M110 135 C150 125 220 135 280 165 C295 172 290 190 275 185 C220 165 165 162 100 178 C88 181 82 165 94 155 C100 148 105 140 110 135 Z" fill="url(#pinkGrad4)" />
+
+    <!-- Bottom Launch Slash (Pastel Blue) - Leg drive & ground launch -->
+    <path d="M50 230 C90 215 170 225 240 260 C255 268 250 285 235 280 C175 258 115 255 40 275 C28 278 22 262 34 252 C40 244 45 236 50 230 Z" fill="url(#blueGrad4)" />
+
+    <!-- Dynamic Speed Streaks -->
+    <circle cx="340" cy="78" r="6" fill="#ffffff" />
+    <circle cx="300" cy="175" r="5" fill="#f472b6" opacity="0.85" />
+    <circle cx="260" cy="272" r="5" fill="#38bdf8" opacity="0.85" />
+  </g>
+
+  <text x="256" y="470" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="14" font-weight="600" fill="#cbd5e1">3 vệt lướt tốc độ · Khí động học bứt phá &amp; tối giản đỉnh cao</text>
+</svg>

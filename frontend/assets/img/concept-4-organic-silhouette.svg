@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <linearGradient id="bgGlow4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <!-- Organic Blob Gradients -->
+    <linearGradient id="blobPink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="100%" stop-color="#fb7185" />
+    </linearGradient>
+    <linearGradient id="blobBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+    <filter id="shadow4" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.38" />
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="512" height="512" rx="48" fill="url(#bgGlow4)" />
+  <rect x="2" y="2" width="508" height="508" rx="46" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+
+  <!-- Title Badge -->
+  <text x="256" y="58" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="16" font-weight="700" fill="#94a3b8" letter-spacing="3">Ý TƯỞNG 4: PHÁ VỠ GIỚI HẠN (ORGANIC BLOBS)</text>
+
+  <!-- Graphic Container -->
+  <g filter="url(#shadow4)" transform="translate(10, 10)">
+    <!-- Left Organic Fluid Blob (Pastel Pink) -->
+    <path d="M120 180 C80 230 70 310 115 365 C160 420 245 425 285 380 C315 345 310 290 270 245 C230 200 160 130 120 180 Z" fill="url(#blobPink)" opacity="0.92" />
+
+    <!-- Right Overlapping Organic Fluid Blob (Pastel Blue) -->
+    <path d="M260 120 C205 100 170 145 190 205 C210 260 270 270 325 255 C390 240 435 180 405 125 C375 75 310 80 260 120 Z" fill="url(#blobBlue)" opacity="0.9" />
+
+    <!-- Intersection Energy Accent -->
+    <circle cx="235" cy="225" r="55" fill="#fbcfe8" opacity="0.25" filter="blur(15px)" />
+
+    <!-- CRISP WHITE ATHLETE SILHOUETTE STEPPING OUT OF BOUNDS -->
+    <!-- Head -->
+    <circle cx="280" cy="115" r="28" fill="#ffffff" />
+
+    <!-- Athlete Torso & Victory Motion -->
+    <!-- Left Arm thrusting up-back -->
+    <path d="M255 150 C215 130 160 115 105 125 C95 127 90 140 100 145 C145 140 195 155 240 170 Z" fill="#ffffff" />
+    
+    <!-- Right Arm powering forward-up (breaking out of blue blob) -->
+    <path d="M295 150 C335 135 385 110 430 85 C442 78 450 92 438 100 C395 128 350 155 310 168 Z" fill="#ffffff" />
+
+    <!-- Solid Athletic Core & Chest -->
+    <path d="M265 155 C295 165 305 200 295 240 C285 280 255 315 235 350 C225 365 210 355 218 340 C240 310 265 280 270 245 C275 210 260 180 245 165 Z" fill="#ffffff" />
+
+    <!-- Front Leg Spanning dynamically -->
+    <path d="M285 245 C325 260 365 285 395 320 C405 332 390 345 380 335 C355 305 320 285 275 270 Z" fill="#ffffff" />
+
+    <!-- Back Leg Drive (breaking out of pink blob) -->
+    <path d="M240 330 C205 360 165 390 115 410 C100 415 95 400 108 392 C150 375 190 350 225 320 Z" fill="#ffffff" />
+  </g>
+
+  <!-- Caption -->
+  <text x="256" y="475" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="14" font-weight="600" fill="#cbd5e1">Dáng thể thao bứt phá khỏi 2 mảng màu · Tương phản cực cao</text>
+</svg>
