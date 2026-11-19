@@ -14,6 +14,8 @@ from backend.schemas import (
 )
 from backend.routers.exercises import get_catalog
 from src.fsm_rep_counter import RepCounterFSM
+from src.session_view import DEFAULT_SESSION_EXERCISES
+from src.squat_correction import SquatCorrection
 
 router = APIRouter(prefix="/api/session", tags=["Workout Session"])
 
