@@ -15,10 +15,17 @@ class FitAIServiceError(WorkoutPlanError):
     """FIT-AI could not return a complete response."""
 
 
-def complete_with_school_ai(prompt: str) -> str:
+def complete_with_school_ai(
+    prompt: str, *, system_prompt: str | None = None, max_tokens: int = 2300,
+    timeout: tuple[float, float] = (5, 90),
+) -> str:
     key = os.getenv("FITAI_API_KEY", "").strip()
     if not key:
         raise FitAIServiceError("Máy chủ FitSense chưa cấu hình FITAI_API_KEY.")
+
+    messages = [{"role": "user", "content": prompt}]
+    if system_prompt is not None:
+        messages.insert(0, {"role": "system", "content": system_prompt})
 
     try:
         response = requests.post(
@@ -26,12 +33,12 @@ def complete_with_school_ai(prompt: str) -> str:
             headers={"Authorization": f"Bearer {key}", "User-Agent": "FitSense/1.0"},
             json={
                 "model": FITAI_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "chat_template_kwargs": {"enable_thinking": False},
-                "max_tokens": 2300,
+                "max_tokens": max_tokens,
                 "response_format": {"type": "json_object"},
             },
-            timeout=(5, 90),
+            timeout=timeout,
             allow_redirects=False,
         )
     except requests.Timeout:
