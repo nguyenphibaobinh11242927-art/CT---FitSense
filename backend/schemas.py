@@ -174,6 +174,9 @@ class EvaluationSubmitRequest(BaseModel):
     completion_rate: int = Field(default=80, ge=0, le=100)
     rpe: int = Field(default=5, ge=1, le=10)
     soreness: list[str] = Field(default_factory=list)
+    doms_severity: Optional[str] = "moderate"
+    satisfaction: Optional[str] = "satisfied"
+    duration_sec: Optional[int] = 0
     note: str = ""
     auto_apply: bool = True
 

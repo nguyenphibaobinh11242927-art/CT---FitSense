@@ -373,6 +373,28 @@ export const ProgressView = {
               </div>
             </div>
 
+            <!-- DOMS Severity & Satisfaction Rating (SCRUM-22 Yêu cầu 69) -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 700;">Mức độ mỏi cơ cục bộ (DOMS):</label>
+                <select class="form-control" id="eval-doms-severity">
+                  <option value="normal">🟢 Bình thường (Căng cơ nhẹ, phục hồi nhanh)</option>
+                  <option value="moderate" selected>🟡 Vừa phải (Mỏi rõ rệt sau bài tập, cần nghỉ ngơi)</option>
+                  <option value="intense">🔴 Đau nhức (Căng cứng khó chịu, cần giãn cơ & chườm)</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 700;">Mức độ hài lòng về buổi tập:</label>
+                <select class="form-control" id="eval-satisfaction">
+                  <option value="very_satisfied">🌟 Rất hài lòng (Đúng kế hoạch, thể lực sung mãn)</option>
+                  <option value="satisfied" selected>👍 Hài lòng (Hoàn thành tốt các hiệp chính)</option>
+                  <option value="neutral">😐 Bình thường (Đạt yêu cầu tối thiểu)</option>
+                  <option value="unsatisfied">⚡ Cần cải thiện (Đuối sức hoặc đứt quãng)</option>
+                </select>
+              </div>
+            </div>
+
             <!-- User Note -->
             <div class="form-group">
               <label class="form-label" style="font-weight: 700;">Ghi chú cảm xúc & thể trạng (tùy chọn):</label>
@@ -409,7 +431,20 @@ export const ProgressView = {
                 ${recDesc}
               </p>
 
-              <div style="padding-top: 0.75rem; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.82rem; color: var(--text-muted);">
+              <!-- Cool-down Stretches & Hydration Box -->
+              <div id="rec-cooldown-box" style="margin-top: 1rem; padding: 1rem; background: var(--bg-card); border-radius: var(--radius-md); border-left: 3px solid var(--accent-emerald);">
+                <div style="font-weight: 700; color: var(--accent-emerald); font-size: 0.92rem; margin-bottom: 0.4rem;">
+                  🧘 Lời khuyên Phục hồi Sinh học (Cool-down & Bù nước)
+                </div>
+                <div id="rec-stretches-list" style="font-size: 0.86rem; color: var(--text-secondary); line-height: 1.6;">
+                  ${latestEval?.recovery_items?.length ? latestEval.recovery_items.map(it => `<div>• <b>${it.target}:</b> ${it.stretch_name} (${it.guide}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("") : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>"}
+                </div>
+                <div id="rec-hydration-text" style="font-size: 0.84rem; color: var(--accent-cyan); margin-top: 0.5rem; font-weight: 600;">
+                  💧 ${latestEval?.hydration_advice || "Uống từng ngụm nhỏ 350ml–500ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."}
+                </div>
+              </div>
+
+              <div style="padding-top: 0.75rem; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.82rem; color: var(--text-muted); margin-top: 1rem;">
                 <span style="color: var(--accent-emerald); font-weight: 600;">
                   ✨ Đã đồng bộ vào Kế hoạch tuần & Ma trận phục hồi sinh học
                 </span>
@@ -523,7 +558,11 @@ export const ProgressView = {
       if (comp < 70 || rpe >= 9) {
         if (badgeEl) { badgeEl.className = "badge badge-advanced"; badgeEl.textContent = "Deload -15%"; }
         if (titleEl) { titleEl.textContent = "🩹 Khuyến nghị Giảm tải (Deload Strategy -15%) 📉"; titleEl.style.color = "var(--accent-crimson)"; }
-        if (descEl) { descEl.textContent = `AI ghi nhận mức hoàn thành ${comp}% với độ gắng sức ${rpe}/10 😮‍💨. Hành động: Tự động giảm 1–2 sets hoặc tăng thời gian nghỉ giữa hiệp thêm 15 giây cho buổi kế tiếp để bảo vệ khớp!`; }
+        if (descEl) { descEl.textContent = `AI ghi nhận mức hoàn thành ${comp}% với độ gắng sức ${rpe}/10 😮‍💨. Hành động: Tự động giảm 15% số reps hoặc tăng thời gian nghỉ giữa hiệp thêm 15 giây cho buổi kế tiếp để bảo vệ khớp!`; }
+      } else if ((comp >= 70 && comp < 85) || (rpe === 8 && comp < 90)) {
+        if (badgeEl) { badgeEl.className = "badge badge-intermediate"; badgeEl.textContent = "Minor Deload -5%"; }
+        if (titleEl) { titleEl.textContent = "🛡️ Khuyến nghị Giảm nhẹ Củng cố Thể lực (-5%) 📉"; titleEl.style.color = "var(--accent-amber)"; }
+        if (descEl) { descEl.textContent = `Khối lượng tập vừa qua hơi vượt ngưỡng nhẹ (${comp}%, RPE ${rpe}/10) 😐. Hành động: Tự động tinh chỉnh giảm nhẹ -5% số reps và chuẩn hóa form động tác!`; }
       } else if (comp >= 90 && rpe <= 6) {
         if (badgeEl) { badgeEl.className = "badge badge-emerald"; badgeEl.textContent = "Overload +10%"; }
         if (titleEl) { titleEl.textContent = "🚀 Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥"; titleEl.style.color = "var(--accent-emerald)"; }
@@ -627,8 +666,10 @@ export const ProgressView = {
       const sessionLabel = sessionSelect?.options[sessionSelect.selectedIndex]?.text || "Buổi tập vừa thực hiện";
       const comp = parseInt(compSlider?.value || 90, 10);
       const rpe = parseInt(rpeSlider?.value || 5, 10);
+      const domsSeverity = document.getElementById("eval-doms-severity")?.value || "moderate";
+      const satisfaction = document.getElementById("eval-satisfaction")?.value || "satisfied";
       const note = document.getElementById("eval-user-note")?.value || "";
-      const autoApply = document.getElementById("eval-auto-apply")?.checked || true;
+      const autoApply = document.getElementById("eval-auto-apply")?.checked ?? true;
 
       const checkedSoreness = [];
       document.querySelectorAll("input[name='soreness_item']:checked").forEach((chk) => {
@@ -642,6 +683,8 @@ export const ProgressView = {
           completion_rate: comp,
           rpe,
           soreness: checkedSoreness,
+          doms_severity: domsSeverity,
+          satisfaction: satisfaction,
           note,
           auto_apply: autoApply,
         });

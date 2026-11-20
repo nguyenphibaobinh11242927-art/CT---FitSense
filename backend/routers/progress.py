@@ -136,6 +136,45 @@ def get_stats():
     }
 
 
+STRETCHING_RECOMMENDATIONS = {
+    "Cơ đùi trước (Quads)": {
+        "rest_hours": 48,
+        "stretch_name": "Standing Quad Stretch (Giãn cơ đùi trước đứng)",
+        "guide": "Đứng thẳng một chân, gập chân kia về sau và dùng tay giữ cổ chân kéo sát mông, giữ 30 giây mỗi bên.",
+    },
+    "Cơ mông (Glutes)": {
+        "rest_hours": 48,
+        "stretch_name": "Pigeon Pose / Figure-4 Stretch (Giãn mông chữ 4)",
+        "guide": "Nằm ngửa hoặc ngồi gác mắt cá chân lên đùi đối diện, ôm đùi kéo nhẹ về phía ngực, giữ 30–45 giây.",
+    },
+    "Cơ ngực (Chest)": {
+        "rest_hours": 48,
+        "stretch_name": "Doorway Chest Stretch (Giãn ngực khung cửa)",
+        "guide": "Đặt cẳng tay vuông góc vào mép cửa, bước nhẹ một chân lên trước và xoay người mở rộng lồng ngực 30 giây.",
+    },
+    "Lưng & Cột sống": {
+        "rest_hours": 48,
+        "stretch_name": "Cat-Cow & Child's Pose (Tư thế đứa trẻ & Con mèo)",
+        "guide": "Quỳ gối hạ mông chạm gót chân, vươn dài hai tay ra phía trước thả lỏng toàn bộ sống lưng trong 45–60 giây.",
+    },
+    "Khớp gối": {
+        "rest_hours": 48,
+        "stretch_name": "Calf & Hamstring Gentle Stretch (Thả lỏng bắp chân & gân kheo)",
+        "guide": "Ngồi duỗi thẳng chân, nghiêng nhẹ người về phía mũi chân không khóa cứng gối; chườm mát nếu thấy sưng nóng.",
+    },
+    "Cổ tay": {
+        "rest_hours": 24,
+        "stretch_name": "Wrist Flexor & Extensor Stretch (Giãn duỗi cổ tay)",
+        "guide": "Duỗi thẳng một tay về trước, dùng tay kia bẻ nhẹ các ngón tay ngược về sau rồi gập xuống dưới, 20 giây mỗi chiều.",
+    },
+    "Không đau mỏi gì đặc biệt": {
+        "rest_hours": 24,
+        "stretch_name": "Full Body Light Shakeout (Thả lỏng toàn thân & Hít thở sâu)",
+        "guide": "Đi bộ chậm 2–3 phút, xoay nhẹ các khớp chính và hít thở sâu bằng cơ hoành để hạ nhịp tim về trạng thái nghỉ.",
+    },
+}
+
+
 @router.get("/evaluation-meta")
 def get_evaluation_metadata():
     return {
@@ -149,6 +188,18 @@ def get_evaluation_metadata():
             "Cổ tay",
             "Không đau mỏi gì đặc biệt",
         ],
+        "doms_severity_options": {
+            "normal": "🟢 Bình thường (Căng cơ nhẹ, phục hồi nhanh)",
+            "moderate": "🟡 Vừa phải (Mỏi rõ rệt sau bài tập, cần nghỉ ngơi)",
+            "intense": "🔴 Đau nhức (Căng cứng khó chịu, cần giãn cơ & chườm)",
+        },
+        "satisfaction_options": {
+            "very_satisfied": "🌟 Rất hài lòng (Đúng kế hoạch, thể lực sung mãn)",
+            "satisfied": "👍 Hài lòng (Hoàn thành tốt các hiệp chính)",
+            "neutral": "😐 Bình thường (Đạt yêu cầu tối thiểu)",
+            "unsatisfied": "⚡ Cần cải thiện (Đuối sức hoặc đứt quãng)",
+        },
+        "stretching_recommendations": STRETCHING_RECOMMENDATIONS,
     }
 
 
@@ -165,26 +216,54 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
     global HAS_WORKED_OUT_TODAY
     comp = payload.completion_rate
     user_rpe = payload.rpe
+    duration_sec = payload.duration_sec or 900
     
-    if comp >= 70:
+    # CT Section 4.5 Streak condition: rho >= 50% OR T_active >= 600 seconds
+    if comp >= 50 or duration_sec >= 600:
         HAS_WORKED_OUT_TODAY = True
     
+    # CT Section 4.4 4-Tier Adaptive Formulation
     if comp < 70 or user_rpe >= 9:
         strategy = "deload"
         rec_title = "Khuyến nghị Giảm tải (Deload Strategy -15%) 📉"
-        rec_action = "Tự động giảm 1–2 sets hoặc tăng thời gian nghỉ giữa hiệp thêm 15 giây cho buổi kế tiếp để bảo vệ khớp!"
+        rec_action = "Tự động giảm 15% số reps (hoặc bớt 1 set) và tăng thời gian nghỉ giữa hiệp thêm 15 giây cho buổi kế tiếp để bảo vệ khớp!"
         rec_badge = "badge-advanced"
-    elif comp >= 90 and user_rpe <= 6:
-        strategy = "overload"
-        rec_title = "Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥"
-        rec_action = "Xuất sắc! Buổi sau sẽ tự động tăng 2 reps/set hoặc gợi ý biến thể nâng cao để bứt phá giới hạn!"
-        rec_badge = "badge-emerald"
-    else:
+        multiplier = 0.85
+    elif (70 <= comp < 85) or (user_rpe == 8 and comp < 90):
+        strategy = "minor_deload"
+        rec_title = "Khuyến nghị Giảm nhẹ Củng cố Thể lực (-5%) 📉"
+        rec_action = "Tự động tinh chỉnh nhẹ -5% số reps và tập trung chuẩn hóa kỹ thuật form trước khi tăng tải trở lại."
+        rec_badge = "badge-warning"
+        multiplier = 0.95
+    elif 85 <= comp <= 100 and user_rpe in (7, 8):
         strategy = "maintenance"
         rec_title = "Khuyến nghị Giữ nguyên Nhịp độ (Optimal Maintenance) 😊"
         rec_action = "Duy trì khối lượng và nhịp tập hiện tại để xây dựng nền tảng bền vững cho chu kỳ tuần tới!"
         rec_badge = "badge-intermediate"
-        
+        multiplier = 1.00
+    else:  # comp >= 90 and user_rpe <= 6
+        strategy = "overload"
+        rec_title = "Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥"
+        rec_action = "Xuất sắc! Buổi sau sẽ tự động tăng 2 reps/set hoặc gợi ý biến thể nâng cao để bứt phá giới hạn!"
+        rec_badge = "badge-emerald"
+        multiplier = 1.10
+
+    # Lời khuyên phục hồi giãn cơ & bù nước (Yêu cầu 69)
+    recovery_items = []
+    soreness_targets = payload.soreness if payload.soreness else ["Không đau mỏi gì đặc biệt"]
+    for s in soreness_targets:
+        rec_info = STRETCHING_RECOMMENDATIONS.get(s, STRETCHING_RECOMMENDATIONS["Không đau mỏi gì đặc biệt"])
+        recovery_items.append({
+            "target": s,
+            "rest_hours": rec_info["rest_hours"],
+            "stretch_name": rec_info["stretch_name"],
+            "guide": rec_info["guide"],
+        })
+    
+    minutes = max(1, duration_sec // 60)
+    hydration_ml = min(800, max(300, round(minutes * 18 / 50) * 50))
+    hydration_advice = f"Uống từng ngụm nhỏ khoảng {hydration_ml}ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."
+
     eval_record = {
         "id": f"eval-{len(EVALUATION_HISTORY) + 1:02d}",
         "session_id": payload.session_id,
@@ -193,6 +272,9 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
         "rpe": user_rpe,
         "rpe_desc": RPE_DESCRIPTIONS.get(user_rpe, ""),
         "soreness": payload.soreness,
+        "doms_severity": payload.doms_severity or "moderate",
+        "satisfaction": payload.satisfaction or "satisfied",
+        "duration_sec": duration_sec,
         "note": payload.note,
         "auto_apply": payload.auto_apply,
         "recommendation": {
@@ -200,7 +282,11 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             "title": rec_title,
             "action": rec_action,
             "badge": rec_badge,
+            "multiplier": multiplier,
         },
+        "recovery_items": recovery_items,
+        "hydration_ml": hydration_ml,
+        "hydration_advice": hydration_advice,
         "created_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
     }
     EVALUATION_HISTORY.insert(0, eval_record)
@@ -211,7 +297,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
         record_workout(
             exercise_id="evaluated_workout",
             reps=est_reps,
-            duration_sec=900,
+            duration_sec=duration_sec,
             rpe=user_rpe,
             notes=payload.note or f"Đánh giá hoàn thành {comp}% (RPE {user_rpe}/10)",
             calories=round(est_reps * 0.4 + 45.0, 1),
@@ -219,7 +305,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
         )
 
     # Adaptive AI schedule adjustment if user selected auto_apply
-    if payload.auto_apply:
+    if payload.auto_apply and strategy != "maintenance":
         try:
             from backend.routers.planner import USER_SCHEDULES
             from backend.routers.auth import CURRENT_SESSION
@@ -227,17 +313,19 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             schedule = USER_SCHEDULES.get(email)
             if schedule:
                 for d in schedule:
+                    if d.get("is_rest"):
+                        continue
                     for ex in d.get("exercises", []):
                         curr_reps = ex.get("reps")
                         if isinstance(curr_reps, int):
-                            if strategy == "deload":
-                                ex["reps"] = max(5, round(curr_reps * 0.85))
+                            if strategy in ("deload", "minor_deload"):
+                                ex["reps"] = max(5, round(curr_reps * multiplier))
                             elif strategy == "overload":
                                 ex["reps"] = min(50, curr_reps + 2)
                         elif isinstance(curr_reps, str) and curr_reps.isdigit():
                             val = int(curr_reps)
-                            if strategy == "deload":
-                                ex["reps"] = max(5, round(val * 0.85))
+                            if strategy in ("deload", "minor_deload"):
+                                ex["reps"] = max(5, round(val * multiplier))
                             elif strategy == "overload":
                                 ex["reps"] = min(50, val + 2)
         except Exception:
