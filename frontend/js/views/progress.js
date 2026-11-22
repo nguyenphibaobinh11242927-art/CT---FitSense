@@ -34,9 +34,10 @@ export const ProgressView = {
       this.evalMeta = evalMetaData;
       const muscles = heatmapData.muscles || [];
       const history = historyData.history || [];
-      const latestHistoryComp = history.length > 0 && history[0].completion_rate !== undefined
+      const hasHistory = history.length > 0;
+      const latestHistoryComp = hasHistory && history[0].completion_rate !== undefined
         ? Math.round(history[0].completion_rate)
-        : 100;
+        : 0;
       const evals = evalsData?.evaluations || [];
       const latestEval = this.latestEvaluation || (evals.length > 0 ? evals[0] : null);
       const hasEvaluated = Boolean(latestEval);
@@ -238,11 +239,11 @@ export const ProgressView = {
               <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label" style="font-weight: 700;">Chọn buổi tập cần đánh giá:</label>
                 <select class="form-control" id="eval-session-select">
-                  ${history.length > 0 ? history.map((h, i) => `
-                    <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 100}">
-                      ${h.exercise_name} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 100}%)
+                  ${hasHistory ? history.map((h, i) => `
+                    <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}">
+                      ${h.exercise_name} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
                     </option>
-                  `).join("") : `<option value="current" data-comp="100">Buổi tập vừa thực hiện (Mặc định)</option>`}
+                  `).join("") : `<option value="none" data-comp="0">Chưa ghi nhận dữ liệu buổi tập (0%)</option>`}
                 </select>
               </div>
 
@@ -251,7 +252,7 @@ export const ProgressView = {
                 <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; font-weight: 700;">
                   <span>🤖 Tỉ lệ hoàn thành do AI đối chiếu:</span>
                   <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-intermediate" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;">🔒 AI Verified</span>
+                    <span class="badge ${hasHistory ? 'badge-intermediate' : 'badge-outline'}" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;">${hasHistory ? '🔒 AI Verified' : 'Chưa có dữ liệu'}</span>
                     <strong id="eval-comp-rate-val" style="color: var(--accent-cyan); font-size: 1.15rem;">${latestHistoryComp}%</strong>
                   </div>
                 </label>
@@ -261,7 +262,7 @@ export const ProgressView = {
                 </div>
                 <input type="hidden" id="eval-comp-rate" value="${latestHistoryComp}" />
                 <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
-                  <span>🔒 Số liệu được AI đo đạc khách quan từ buổi tập và tự động cố định.</span>
+                  <span>${hasHistory ? "🔒 Số liệu được AI đo đạc khách quan từ buổi tập và tự động cố định." : "⚠️ Chưa ghi nhận dữ liệu buổi tập. Hãy hoàn thành buổi tập tại Phòng tập để AI đo đạc tỉ lệ thực tế."}</span>
                 </div>
               </div>
             </div>
