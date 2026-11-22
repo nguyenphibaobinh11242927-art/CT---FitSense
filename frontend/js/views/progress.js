@@ -40,8 +40,25 @@ export const ProgressView = {
         ? Math.round(history[0].completion_rate)
         : 0;
       const evals = evalsData?.evaluations || [];
-      const latestEval = this.latestEvaluation || (evals.length > 0 ? evals[0] : null);
-      const hasEvaluated = Boolean(latestEval);
+      this.evalsBySession = {};
+      evals.forEach((ev) => {
+        if (ev.session_id) {
+          this.evalsBySession[ev.session_id] = ev;
+        }
+      });
+      if (this.latestEvaluation && this.latestEvaluation.session_id) {
+        this.evalsBySession[this.latestEvaluation.session_id] = this.latestEvaluation;
+      }
+
+      // Xác định buổi tập đang chọn và kiểm tra xem buổi đó đã từng gửi khảo sát chưa
+      const initialSelectedSessionId = this.selectedSessionId || (history.length > 0 ? history[0].id : null);
+      this.selectedSessionId = initialSelectedSessionId;
+      const initialEval = initialSelectedSessionId ? this.evalsBySession[initialSelectedSessionId] : null;
+      const hasEvaluated = Boolean(initialEval);
+      const selectedHistoryItem = history.find((h) => h.id === initialSelectedSessionId) || (history.length > 0 ? history[0] : null);
+      const initialCompRate = selectedHistoryItem && selectedHistoryItem.completion_rate !== undefined
+        ? Math.round(selectedHistoryItem.completion_rate)
+        : latestHistoryComp;
 
       // Kiểm tra ngày nghỉ phục hồi (Rest Day) & điều kiện hiển thị khảo sát
       const schedule = weekData?.schedule || [];
@@ -62,14 +79,15 @@ export const ProgressView = {
       let recDesc = "Duy trì khối lượng và nhịp tập hiện tại để xây dựng nền tảng bền vững cho chu kỳ tuần tới!";
       let evalTime = "Vừa cập nhật";
 
-      if (latestEval && latestEval.recommendation) {
-        recBadge = latestEval.recommendation.badge || "badge-intermediate";
-        recTitle = latestEval.recommendation.title || recTitle;
-        recDesc = latestEval.recommendation.action || recDesc;
-        recStrategy = latestEval.recommendation.strategy === "deload"
+      if (initialEval && initialEval.recommendation) {
+        recBadge = initialEval.recommendation.badge || "badge-intermediate";
+        recTitle = initialEval.recommendation.title || recTitle;
+        recDesc = initialEval.recommendation.action || recDesc;
+        const strat = initialEval.recommendation.strategy || initialEval.strategy || "maintenance";
+        recStrategy = strat === "deload"
           ? "Deload -15%"
-          : (latestEval.recommendation.strategy === "overload" ? "Overload +10%" : "Optimal Maintenance");
-        evalTime = latestEval.created_at || "Vừa cập nhật";
+          : (strat === "overload" ? "Overload +10%" : (strat === "minor_deload" ? "Minor Deload -5%" : "Optimal Maintenance"));
+        evalTime = initialEval.created_at || "Vừa cập nhật";
       }
 
       const prs = statsData.personal_records || {
@@ -274,11 +292,13 @@ export const ProgressView = {
                 <div class="form-group" style="margin-bottom: 0;">
                   <label class="form-label" style="font-weight: 700;">Chọn buổi tập cần đánh giá:</label>
                   <select class="form-control" id="eval-session-select">
-                    ${hasHistory ? history.map((h, i) => `
-                      <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}">
+                    ${hasHistory ? history.map((h, i) => {
+                      const isSelected = initialSelectedSessionId ? (h.id === initialSelectedSessionId) : (i === 0);
+                      return `
+                      <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}" ${isSelected ? "selected" : ""}>
                         ${h.exercise_name} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
                       </option>
-                    `).join("") : `<option value="none" data-comp="0">Chưa ghi nhận dữ liệu buổi tập (0%)</option>`}
+                    `;}).join("") : `<option value="none" data-comp="0">Chưa ghi nhận dữ liệu buổi tập (0%)</option>`}
                   </select>
                 </div>
 
@@ -288,14 +308,14 @@ export const ProgressView = {
                     <span>🤖 Tỉ lệ hoàn thành của buổi tập này:</span>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                       <span class="badge ${hasHistory ? 'badge-intermediate' : 'badge-outline'}" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;">${hasHistory ? '🔒 AI Verified (1 Buổi)' : 'Chưa có dữ liệu'}</span>
-                      <strong id="eval-comp-rate-val" style="color: var(--accent-cyan); font-size: 1.15rem;">${latestHistoryComp}%</strong>
+                      <strong id="eval-comp-rate-val" style="color: var(--accent-cyan); font-size: 1.15rem;">${initialCompRate}%</strong>
                     </div>
                   </label>
                   <!-- Thanh tiến trình cố định - đo đạc riêng cho 1 buổi tập -->
                   <div style="background: var(--bg-card); border-radius: 999px; height: 10px; overflow: hidden; margin-top: 0.6rem; border: 1px solid var(--border-color); position: relative;">
-                    <div id="eval-comp-progress-fill" style="width: ${latestHistoryComp}%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald)); border-radius: 999px; transition: width 0.35s ease;"></div>
+                    <div id="eval-comp-progress-fill" style="width: ${initialCompRate}%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald)); border-radius: 999px; transition: width 0.35s ease;"></div>
                   </div>
-                  <input type="hidden" id="eval-comp-rate" value="${latestHistoryComp}" />
+                  <input type="hidden" id="eval-comp-rate" value="${initialCompRate}" />
                   <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
                     <span>${hasHistory ? "🔒 Đo đạc độc lập cho 1 buổi tập được chọn (không cộng dồn hay chia trung bình)." : "⚠️ Chưa ghi nhận dữ liệu buổi tập. Hãy hoàn thành buổi tập tại Phòng tập để AI đo đạc tỉ lệ thực tế."}</span>
                   </div>
@@ -473,10 +493,10 @@ export const ProgressView = {
                   🧘 Lời khuyên Phục hồi Sinh học (Cool-down & Bù nước)
                 </div>
                 <div id="rec-stretches-list" style="font-size: 0.86rem; color: var(--text-secondary); line-height: 1.6;">
-                  ${latestEval?.recovery_items?.length ? latestEval.recovery_items.map(it => `<div>• <b>${it.target}:</b> ${it.stretch_name} (${it.guide}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("") : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>"}
+                  ${initialEval?.recovery_items?.length ? initialEval.recovery_items.map(it => `<div>• <b>${it.target || it.muscle || "Vùng cơ"}:</b> ${it.stretch_name} (${it.guide}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("") : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>"}
                 </div>
                 <div id="rec-hydration-text" style="font-size: 0.84rem; color: var(--accent-cyan); margin-top: 0.5rem; font-weight: 600;">
-                  💧 ${latestEval?.hydration_advice || "Uống từng ngụm nhỏ 350ml–500ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."}
+                  💧 ${initialEval?.hydration_advice || "Uống từng ngụm nhỏ 350ml–500ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."}
                 </div>
               </div>
 
@@ -692,6 +712,8 @@ export const ProgressView = {
 
     const sessionSelect = document.getElementById("eval-session-select");
     sessionSelect?.addEventListener("change", () => {
+      const selectedId = sessionSelect.value;
+      this.selectedSessionId = selectedId;
       const opt = sessionSelect.selectedOptions?.[0];
       const compVal = opt?.getAttribute("data-comp");
       if (compVal !== null && compVal !== undefined) {
@@ -700,7 +722,102 @@ export const ProgressView = {
         if (compDisplay) compDisplay.textContent = `${compNum}%`;
         const fillBar = document.getElementById("eval-comp-progress-fill");
         if (fillBar) fillBar.style.width = `${compNum}%`;
-        updateAdaptivePreview();
+      }
+
+      const targetEval = this.evalsBySession ? this.evalsBySession[selectedId] : null;
+      const recContainer = document.getElementById("eval-recommendation-container");
+
+      if (targetEval) {
+        // Buổi này ĐÃ TỪNG gửi khảo sát: hiển thị đúng khuyến nghị của buổi đó!
+        if (recContainer) recContainer.style.display = "block";
+
+        const badgeEl = document.getElementById("badge-rec-status");
+        const titleEl = document.getElementById("rec-title");
+        const descEl = document.getElementById("rec-desc");
+        const stretchesList = document.getElementById("rec-stretches-list");
+        const hydrationText = document.getElementById("rec-hydration-text");
+        const timeEl = document.getElementById("rec-timestamp");
+
+        const strat = targetEval.recommendation?.strategy || targetEval.strategy || "maintenance";
+        const badgeClass = targetEval.recommendation?.badge || (strat === "deload" ? "badge-advanced" : (strat === "overload" ? "badge-emerald" : (strat === "minor_deload" ? "badge-warning" : "badge-intermediate")));
+        const stratLabel = strat === "deload" ? "Deload -15%" : (strat === "overload" ? "Overload +10%" : (strat === "minor_deload" ? "Minor Deload -5%" : "Optimal Maintenance"));
+
+        if (badgeEl) {
+          badgeEl.className = `badge ${badgeClass}`;
+          badgeEl.textContent = stratLabel;
+        }
+        if (titleEl) {
+          titleEl.textContent = targetEval.recommendation?.title || "Khuyến nghị Adaptive AI";
+          titleEl.style.color = strat === "deload" ? "var(--accent-crimson)" : (strat === "overload" ? "var(--accent-emerald)" : (strat === "minor_deload" ? "var(--accent-amber)" : "var(--accent-cyan)"));
+        }
+        if (descEl) {
+          descEl.textContent = targetEval.recommendation?.action || "Duy trì khối lượng và nhịp tập hiện tại!";
+        }
+        if (stretchesList) {
+          const items = targetEval.recovery_items || [];
+          stretchesList.innerHTML = items.length > 0
+            ? items.map(it => `<div>• <b>${it.target || it.muscle || "Vùng cơ"}:</b> ${it.stretch_name} (${it.guide}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("")
+            : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>";
+        }
+        if (hydrationText) {
+          hydrationText.textContent = `💧 ${targetEval.hydration_advice || "Uống từng ngụm nhỏ 350ml–500ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."}`;
+        }
+        if (timeEl) {
+          timeEl.textContent = `🕒 ${targetEval.created_at || targetEval.timestamp || "Đã ghi nhận"}`;
+        }
+
+        // Cập nhật lại form khảo sát theo dữ liệu buổi đó
+        if (rpeSlider && targetEval.rpe) {
+          rpeSlider.value = targetEval.rpe;
+          if (rpeDisplay) rpeDisplay.textContent = `${targetEval.rpe}/10`;
+          if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${targetEval.rpe}/10:</b> ${rpeDescriptions[targetEval.rpe] || ""}`;
+          updateRpePillActive(targetEval.rpe);
+        }
+        if (targetEval.doms_severity) {
+          const domsSelect = document.getElementById("eval-doms-severity");
+          if (domsSelect) domsSelect.value = targetEval.doms_severity;
+        }
+        if (targetEval.satisfaction) {
+          const satSelect = document.getElementById("eval-satisfaction");
+          if (satSelect) satSelect.value = targetEval.satisfaction;
+        }
+        if (targetEval.note !== undefined) {
+          const noteArea = document.getElementById("eval-user-note");
+          if (noteArea) noteArea.value = targetEval.note || "";
+        }
+        const targetSoreness = targetEval.soreness || targetEval.muscle_soreness || [];
+        sorenessCards.forEach(card => {
+          const val = card.getAttribute("data-val");
+          const shouldBeActive = targetSoreness.includes(val);
+          card.classList.toggle("active", shouldBeActive);
+          const chk = card.querySelector("input[type='checkbox']");
+          if (chk) chk.checked = shouldBeActive;
+        });
+      } else {
+        // Buổi này CHƯA TỪNG gửi khảo sát: ẨN HOÀN TOÀN KHUYẾN NGHỊ!
+        if (recContainer) recContainer.style.display = "none";
+
+        // Reset form về trạng thái ban đầu để người dùng điền mới
+        if (rpeSlider) {
+          rpeSlider.value = 5;
+          if (rpeDisplay) rpeDisplay.textContent = "5/10";
+          if (rpeDescBox) rpeDescBox.innerHTML = `😤 <b>Mức RPE 5/10:</b> ${rpeDescriptions[5] || ""}`;
+          updateRpePillActive(5);
+        }
+        const domsSelect = document.getElementById("eval-doms-severity");
+        if (domsSelect) domsSelect.value = "moderate";
+        const satSelect = document.getElementById("eval-satisfaction");
+        if (satSelect) satSelect.value = "satisfied";
+        const noteArea = document.getElementById("eval-user-note");
+        if (noteArea) noteArea.value = "";
+
+        sorenessCards.forEach(card => {
+          const val = card.getAttribute("data-val");
+          const isNone = val === "Không đau mỏi gì đặc biệt";
+          card.classList.toggle("active", isNone);
+          const chk = card.querySelector("input[type='checkbox']");
+          if (chk) chk.checked = isNone;
+        });
       }
     });
 
@@ -733,6 +850,9 @@ export const ProgressView = {
         });
 
         this.latestEvaluation = res.evaluation;
+        if (!this.evalsBySession) this.evalsBySession = {};
+        this.evalsBySession[sessionId] = res.evaluation;
+        this.selectedSessionId = sessionId;
         Toast.success(res.message || "🎉 Đã ghi nhận đánh giá thành công!");
         import("../components/capybara.js").then((m) => m.Capybara.refresh());
         await this.render();

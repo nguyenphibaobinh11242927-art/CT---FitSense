@@ -238,6 +238,41 @@ class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
         self.assertEqual(len(dummy_state["workout_results"]), 4)
         self.assertEqual(len(dummy_state["session_history"]), 4)
 
+    def test_evaluation_per_session_isolation_and_hidden_when_unsubmitted(self):
+        """10. Khuyến nghị chỉ xuất hiện cho buổi đã đánh giá, ẩn hoàn toàn với buổi chưa khảo sát."""
+        res_list = self.client.get("/api/progress/evaluations").json()
+        evals = res_list["evaluations"]
+        eval_sessions = {e.get("session_id") for e in evals if e.get("session_id")}
+
+        # w-04 và w-03 đã có đánh giá
+        self.assertIn("w-04", eval_sessions)
+        self.assertIn("w-03", eval_sessions)
+        # w-02 (Squat) và w-01 (Push-up) chưa có đánh giá
+        self.assertNotIn("w-02", eval_sessions)
+        self.assertNotIn("w-01", eval_sessions)
+
+        # Gửi đánh giá mới cho w-02
+        res_eval = self.client.post("/api/progress/evaluate", json={
+            "session_id": "w-02",
+            "session_label": "Squat Thể dục (Bodyweight Squat)",
+            "completion_rate": 90,
+            "rpe": 5,
+            "soreness": ["Cơ đùi trước (Quads)"],
+            "doms_severity": "normal",
+            "satisfaction": "very_satisfied",
+            "duration_sec": 960,
+        })
+        self.assertEqual(res_eval.status_code, 200)
+        self.assertEqual(res_eval.json()["evaluation"]["session_id"], "w-02")
+        self.assertEqual(res_eval.json()["evaluation"]["recommendation"]["strategy"], "overload")
+
+        # Kiểm tra w-02 giờ đã có đánh giá trong danh sách
+        updated_list = self.client.get("/api/progress/evaluations").json()["evaluations"]
+        updated_sessions = {e.get("session_id") for e in updated_list if e.get("session_id")}
+        self.assertIn("w-02", updated_sessions)
+        # w-01 vẫn chưa có đánh giá
+        self.assertNotIn("w-01", updated_sessions)
+
 
 if __name__ == "__main__":
     unittest.main()

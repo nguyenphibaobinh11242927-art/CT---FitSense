@@ -103,6 +103,32 @@ def populate_demo_user_session(state: dict) -> None:
         {"session_id": "demo-sess-03", "actual_date": "2026-11-20", "source_day": "Thứ 6", "focus": "Thân trên: Tay sau & Ngực", "muscle_tags": ["Tay sau (Triceps)"], "reps": 30, "status": "completed", "finished_at": "18:00 20/11/2026", "completion_rate": 85.7},
         {"session_id": "demo-sess-04", "actual_date": "2026-11-22", "source_day": "Chủ Nhật", "focus": "Bụng & Core Thể lực", "muscle_tags": ["Bụng & Core"], "reps": 60, "status": "completed", "finished_at": "17:45 22/11/2026", "completion_rate": 100.0},
     ]
+    state["evaluations_by_session"] = {
+        "demo-sess-04": {
+            "session_id": "demo-sess-04",
+            "completion_rate": 100,
+            "rpe": 5,
+            "soreness": ["Lưng & Cột sống"],
+            "strategy": {
+                "strategy": "overload",
+                "title": "Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥",
+                "action": "Xuất sắc! Buổi sau sẽ tự động tăng 2 reps/set hoặc gợi ý biến thể nâng cao để bứt phá giới hạn!",
+                "badge_type": "success",
+            },
+        },
+        "demo-sess-03": {
+            "session_id": "demo-sess-03",
+            "completion_rate": 86,
+            "rpe": 8,
+            "soreness": ["Cơ ngực (Chest)", "Cổ tay"],
+            "strategy": {
+                "strategy": "minor_deload",
+                "title": "🛡️ Khuyến nghị Giảm nhẹ Củng cố Thể lực (-5%) 📉",
+                "action": "Khối lượng tập vừa qua hơi vượt ngưỡng nhẹ. Tự động tinh chỉnh giảm nhẹ -5% số reps và chuẩn hóa form động tác!",
+                "badge_type": "warning",
+            },
+        },
+    }
     try:
         from src.weekly_plan_storage import load_week_state
         load_week_state(state)

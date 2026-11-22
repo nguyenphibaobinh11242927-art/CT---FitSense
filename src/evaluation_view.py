@@ -439,6 +439,10 @@ def render_evaluation_view():
             }
 
             st.session_state["last_eval"] = eval_record
+            if "evaluations_by_session" not in st.session_state:
+                st.session_state["evaluations_by_session"] = {}
+            if selected_id:
+                st.session_state["evaluations_by_session"][selected_id] = eval_record
 
             # Lưu vào danh sách lịch sử đánh giá CSDL
             eval_history = st.session_state.setdefault("evaluation_history", [])
@@ -471,43 +475,46 @@ def render_evaluation_view():
     with col2:
         st.subheader("2. Khuyến nghị Tự động của Adaptive AI")
 
-        eval_data = st.session_state.get("last_eval")
-        if eval_data:
-            comp = eval_data.get("completion_rate", completion_rate)
-            user_rpe = eval_data.get("rpe", rpe)
-            soreness_selected = eval_data.get("soreness", muscle_soreness)
-            strat = eval_data.get("strategy") or compute_adaptive_adjustment(comp, user_rpe)
+        eval_by_session = st.session_state.get("evaluations_by_session", {})
+        current_session_eval = eval_by_session.get(selected_id) if selected_id else st.session_state.get("last_eval")
+
+        if not current_session_eval:
+            st.info(
+                "ℹ️ **Buổi tập này chưa gửi khảo sát đánh giá.**\n\n"
+                "Khung khuyến nghị và bài tập phục hồi sẽ tự động hiển thị sau khi bạn chọn mức RPE, "
+                "nhóm cơ mỏi bên cạnh và bấm **💾 Gửi Đánh giá & Cập nhật Kế hoạch**!"
+            )
         else:
-            comp = completion_rate
-            user_rpe = rpe
-            soreness_selected = muscle_soreness
-            strat = compute_adaptive_adjustment(comp, user_rpe)
+            comp = current_session_eval.get("completion_rate", completion_rate)
+            user_rpe = current_session_eval.get("rpe", rpe)
+            soreness_selected = current_session_eval.get("soreness", muscle_soreness)
+            strat = current_session_eval.get("strategy") or compute_adaptive_adjustment(comp, user_rpe)
 
-        with st.container(border=True):
-            if strat["strategy"] == "deload":
-                st.error(f"{strat['title']}")
-                st.write(f"- **Chỉ số:** Hoàn thành **{comp}%** · Độ gắng sức **RPE {user_rpe}/10** 😮‍💨.")
-                st.write(f"- **Hành động AI:** {strat['action']}")
-            elif strat["strategy"] == "minor_deload":
-                st.warning(f"{strat['title']}")
-                st.write(f"- **Chỉ số:** Hoàn thành **{comp}%** · Độ gắng sức **RPE {user_rpe}/10** 😐.")
-                st.write(f"- **Hành động AI:** {strat['action']}")
-            elif strat["strategy"] == "overload":
-                st.success(f"{strat['title']}")
-                st.write(f"- **Chỉ số:** Hoàn thành **{comp}%** · Độ gắng sức **RPE {user_rpe}/10** 💪.")
-                st.write(f"- **Hành động AI:** {strat['action']}")
-            else:
-                st.info(f"{strat['title']}")
-                st.write(f"- **Chỉ số:** Hoàn thành **{comp}%** · Độ gắng sức **RPE {user_rpe}/10** ✨.")
-                st.write(f"- **Hành động AI:** {strat['action']}")
+            with st.container(border=True):
+                if strat["strategy"] == "deload":
+                    st.error(f"{strat['title']}")
+                    st.write(f"- **Chỉ số:** Hoàn thành **{comp}%** · Độ gắng sức **RPE {user_rpe}/10** 😮‍💨.")
+                    st.write(f"- **Hành động AI:** {strat['action']}")
+                elif strat["strategy"] == "minor_deload":
+                    st.warning(f"{strat['title']}")
+                    st.write(f"- **Chỉ số:** Hoàn thành **{comp}%** · Độ gắng sức **RPE {user_rpe}/10** 😐.")
+                    st.write(f"- **Hành động AI:** {strat['action']}")
+                elif strat["strategy"] == "overload":
+                    st.success(f"{strat['title']}")
+                    st.write(f"- **Chỉ số:** Hoàn thành **{comp}%** · Độ gắng sức **RPE {user_rpe}/10** 💪.")
+                    st.write(f"- **Hành động AI:** {strat['action']}")
+                else:
+                    st.info(f"{strat['title']}")
+                    st.write(f"- **Chỉ số:** Hoàn thành **{comp}%** · Độ gắng sức **RPE {user_rpe}/10** ✨.")
+                    st.write(f"- **Hành động AI:** {strat['action']}")
 
-        # Khối Lời khuyên Phục hồi cá nhân hóa từ AI (Yêu cầu 69)
-        with st.container(border=True):
-            st.subheader("🧘 Lời khuyên Phục hồi Sinh học (Recovery Advice)")
-            rec_items = get_recovery_advice(soreness_selected)
-            for item in rec_items:
-                st.markdown(f"**• {item['target']}** (Nghỉ sinh học khuyến nghị: **{item['rest_hours']}h**):")
-                st.caption(f"👉 *{item['stretch_name']}:* {item['guide']}")
+            # Khối Lời khuyên Phục hồi cá nhân hóa từ AI (Yêu cầu 69)
+            with st.container(border=True):
+                st.subheader("🧘 Lời khuyên Phục hồi Sinh học (Recovery Advice)")
+                rec_items = get_recovery_advice(soreness_selected)
+                for item in rec_items:
+                    st.markdown(f"**• {item['target']}** (Nghỉ sinh học khuyến nghị: **{item['rest_hours']}h**):")
+                    st.caption(f"👉 *{item['stretch_name']}:* {item['guide']}")
 
-            hyd_ml, hyd_text = calculate_hydration_advice(duration_sec)
-            st.info(f"💧 **Nhắc nhở bù nước:** {hyd_text}")
+                hyd_ml, hyd_text = calculate_hydration_advice(duration_sec)
+                st.info(f"💧 **Nhắc nhở bù nước:** {hyd_text}")
