@@ -46,8 +46,8 @@ def populate_demo_user_session(state: dict) -> None:
     }
     state["has_worked_out_today"] = True
     state["session_history"] = [
-        {"Ngày": "16/11/2026", "Bài tập": "Thân trên: Ngực & Tay sau (3 bài)", "Số reps": 96, "Thời lượng": "14 phút", "Calo (kcal)": 78.5, "RPE": "Chưa khảo sát", "Tỉ lệ hoàn thành": "100%"},
-        {"Ngày": "17/11/2026", "Bài tập": "Thân dưới & Mông (3 bài)", "Số reps": 115, "Thời lượng": "16 phút", "Calo (kcal)": 95.0, "RPE": "Chưa khảo sát", "Tỉ lệ hoàn thành": "90%"},
+        {"Ngày": "16/11/2026", "Bài tập": "Thân trên: Ngực & Tay sau (3 bài)", "Số reps": 96, "Thời lượng": "14 phút", "Calo (kcal)": 78.5, "RPE": "—", "Tỉ lệ hoàn thành": "100%"},
+        {"Ngày": "17/11/2026", "Bài tập": "Thân dưới & Mông (3 bài)", "Số reps": 115, "Thời lượng": "16 phút", "Calo (kcal)": 95.0, "RPE": "—", "Tỉ lệ hoàn thành": "90%"},
         {"Ngày": "20/11/2026", "Bài tập": "Toàn thân & Sức bền tim mạch (2 bài)", "Số reps": 70, "Thời lượng": "12 phút", "Calo (kcal)": 65.0, "RPE": "8/10", "Tỉ lệ hoàn thành": "85%"},
         {"Ngày": "22/11/2026", "Bài tập": "Giãn cơ & Khớp dẻo dai (2 bài)", "Số reps": 60, "Thời lượng": "10 phút", "Calo (kcal)": 55.0, "RPE": "5/10", "Tỉ lệ hoàn thành": "100%"},
     ]

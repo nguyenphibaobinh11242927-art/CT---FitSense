@@ -603,8 +603,8 @@ export const ProgressView = {
                     <td><strong>${item.reps}</strong> reps</td>
                     <td>${Math.floor((item.duration_sec || 0) / 60)}p ${(item.duration_sec || 0) % 60}s</td>
                     <td><span style="color: var(--accent-emerald); font-weight: 700;">${item.calories || 0} kcal</span></td>
-                    <td>
-                      ${item.rpe === null || item.rpe === undefined ? `<span class="badge badge-outline" style="font-size: 0.72rem; color: var(--text-muted); border-style: dashed;">Chưa khảo sát</span>` : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}">
+                    <td style="text-align: center;">
+                      ${item.rpe === null || item.rpe === undefined ? `<span style="color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">—</span>` : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}">
                         RPE ${item.rpe}/10
                       </span>`}
                     </td>
