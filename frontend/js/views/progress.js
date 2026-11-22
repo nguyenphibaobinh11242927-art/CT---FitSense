@@ -998,13 +998,6 @@ export const ProgressView = {
         Toast.error("Lỗi gửi đánh giá: " + err.message);
       }
     });
-
-        if (recContainer) {
-          recContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        }
-      } catch (err) {
-        Toast.error("Lỗi gửi đánh giá: " + err.message);
-      }
-    });
   },
 };
+
