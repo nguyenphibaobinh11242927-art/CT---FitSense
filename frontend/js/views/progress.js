@@ -573,7 +573,7 @@ export const ProgressView = {
                   <th>Số Reps</th>
                   <th>Thời lượng</th>
                   <th>Calo tiêu hao</th>
-                  <th>RPE</th>
+                  <th style="text-align: center; min-width: 75px;">RPE</th>
                   <th>Ghi chú</th>
                 </tr>
               </thead>
@@ -603,10 +603,8 @@ export const ProgressView = {
                     <td><strong>${item.reps}</strong> reps</td>
                     <td>${Math.floor((item.duration_sec || 0) / 60)}p ${(item.duration_sec || 0) % 60}s</td>
                     <td><span style="color: var(--accent-emerald); font-weight: 700;">${item.calories || 0} kcal</span></td>
-                    <td style="text-align: center;">
-                      ${item.rpe === null || item.rpe === undefined ? `<span style="color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">—</span>` : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}">
-                        RPE ${item.rpe}/10
-                      </span>`}
+                    <td style="text-align: center; white-space: nowrap;">
+                      ${item.rpe === null || item.rpe === undefined ? `<span style="color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">—</span>` : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}" style="white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; padding: 0.2rem 0.55rem; font-weight: 700;" title="Thang đo mức độ gắng sức: RPE ${item.rpe}/10">${item.rpe}/10</span>`}
                     </td>
                     <td style="color: var(--text-secondary); font-size: 0.82rem;">${item.notes || "—"}</td>
                   </tr>
