@@ -155,9 +155,9 @@ WORKOUT_HISTORY: list[dict[str, Any]] = [
         "reps": 45,
         "duration_sec": 960,
         "calories": 95.0,
-        "rpe": 7,
+        "rpe": None,
         "day": "Thứ 4",
-        "notes": "Góc gối mở đều, đùi song song mặt sàn",
+        "notes": "Góc gối mở đều, đùi song song mặt sàn (Chờ khảo sát)",
         "completion_rate": 90.0,
         "status": "completed",
     },
@@ -170,9 +170,9 @@ WORKOUT_HISTORY: list[dict[str, Any]] = [
         "reps": 36,
         "duration_sec": 840,
         "calories": 78.5,
-        "rpe": 6,
+        "rpe": None,
         "day": "Thứ 2",
-        "notes": "Chuẩn form 3 hiệp 12 reps, ngực chạm sàn tốt",
+        "notes": "Chuẩn form 3 hiệp 12 reps, ngực chạm sàn tốt (Chờ khảo sát)",
         "completion_rate": 100.0,
         "status": "completed",
     },
@@ -427,8 +427,13 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
     }
     EVALUATION_HISTORY.insert(0, eval_record)
 
-    # Record into workout history so it dynamically shows up in user history
-    if comp > 0:
+    # Update existing workout in WORKOUT_HISTORY if matched by session_id
+    target_w = next((w for w in WORKOUT_HISTORY if w.get("id") == payload.session_id), None) if payload.session_id else None
+    if target_w:
+        target_w["rpe"] = user_rpe
+        if payload.note:
+            target_w["notes"] = payload.note
+    elif comp > 0:
         est_reps = max(10, round(36 * comp / 100))
         record_workout(
             exercise_id="evaluated_workout",

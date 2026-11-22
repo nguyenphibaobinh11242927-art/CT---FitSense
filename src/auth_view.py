@@ -46,10 +46,10 @@ def populate_demo_user_session(state: dict) -> None:
     }
     state["has_worked_out_today"] = True
     state["session_history"] = [
-        {"Ngày": "16/11/2026", "Bài tập": "Standard Push-up", "Số reps": 36, "Thời lượng": "14 phút", "Calo (kcal)": 78.5, "RPE": 6, "Tỉ lệ hoàn thành": "100%"},
-        {"Ngày": "17/11/2026", "Bài tập": "Squat Thể dục", "Số reps": 45, "Thời lượng": "16 phút", "Calo (kcal)": 95.0, "RPE": 7, "Tỉ lệ hoàn thành": "90%"},
-        {"Ngày": "20/11/2026", "Bài tập": "Dips trên ghế", "Số reps": 30, "Thời lượng": "12 phút", "Calo (kcal)": 65.0, "RPE": 8, "Tỉ lệ hoàn thành": "85%"},
-        {"Ngày": "22/11/2026", "Bài tập": "Plank Tĩnh", "Số reps": 60, "Thời lượng": "10 phút", "Calo (kcal)": 55.0, "RPE": 5, "Tỉ lệ hoàn thành": "100%"},
+        {"Ngày": "16/11/2026", "Bài tập": "Standard Push-up", "Số reps": 36, "Thời lượng": "14 phút", "Calo (kcal)": 78.5, "RPE": "Chưa khảo sát", "Tỉ lệ hoàn thành": "100%"},
+        {"Ngày": "17/11/2026", "Bài tập": "Squat Thể dục", "Số reps": 45, "Thời lượng": "16 phút", "Calo (kcal)": 95.0, "RPE": "Chưa khảo sát", "Tỉ lệ hoàn thành": "90%"},
+        {"Ngày": "20/11/2026", "Bài tập": "Dips trên ghế", "Số reps": 30, "Thời lượng": "12 phút", "Calo (kcal)": 65.0, "RPE": "8/10", "Tỉ lệ hoàn thành": "85%"},
+        {"Ngày": "22/11/2026", "Bài tập": "Plank Tĩnh", "Số reps": 60, "Thời lượng": "10 phút", "Calo (kcal)": 55.0, "RPE": "5/10", "Tỉ lệ hoàn thành": "100%"},
     ]
     state["workout_results"] = {
         "demo-sess-04": {
