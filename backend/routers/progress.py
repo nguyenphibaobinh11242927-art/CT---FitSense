@@ -483,9 +483,8 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
     target_w = next((w for w in WORKOUT_HISTORY if w.get("id") == payload.session_id), None) if payload.session_id else None
     duration_sec = payload.duration_sec
     if (duration_sec is None or duration_sec == 0) and target_w:
-        duration_sec = target_w.get("duration_sec", 0)
-    if duration_sec is None or duration_sec == 0:
-        duration_sec = 600
+        duration_sec = target_w.get("duration_sec") or target_w.get("duration_seconds") or 0
+    duration_sec = duration_sec or 0
 
     # CT Section 4.5 Streak condition: rho >= 50% OR T_active >= 600 seconds
     if comp >= 50 or duration_sec >= 600:
@@ -592,6 +591,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
     elif comp > 0:
         est_reps = max(10, round(36 * comp / 100))
         fallback_exercise_id = payload.exercise_id or "push_up"
+        is_completed = comp >= 50 or duration_sec >= 600
         record_workout(
             exercise_id=fallback_exercise_id,
             reps=est_reps,
@@ -600,6 +600,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             notes=payload.note or f"Đánh giá hoàn thành {comp}% (RPE {user_rpe}/10)",
             calories=round(est_reps * 0.4 + 45.0, 1),
             day=payload.session_label or "Buổi tập vừa thực hiện",
+            status="completed" if is_completed else "abandoned",
         )
 
     EVALUATION_HISTORY.insert(0, eval_record)

@@ -601,7 +601,7 @@ export const ProgressView = {
                     <td><span class="badge badge-beginner">${item.day || "Tập tự do"}</span></td>
                     <td>${item.status === "abandoned" ? "Bỏ dở" : "Hoàn thành"}</td>
                     <td><strong>${item.reps}</strong> reps</td>
-                    <td>${Math.floor((item.duration_sec || 0) / 60)}p ${(item.duration_sec || 0) % 60}s</td>
+                    <td>${Math.floor(((item.duration_sec ?? item.duration_seconds) || 0) / 60)}p ${((item.duration_sec ?? item.duration_seconds) || 0) % 60}s</td>
                     <td><span style="color: var(--accent-emerald); font-weight: 700;">${item.calories || 0} kcal</span></td>
                     <td style="text-align: center; white-space: nowrap;">
                       ${item.rpe === null || item.rpe === undefined ? `<span style="color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">—</span>` : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}" style="white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; padding: 0.2rem 0.55rem; font-weight: 700;" title="Thang đo mức độ gắng sức: RPE ${item.rpe}/10">${item.rpe}/10</span>`}
@@ -956,7 +956,7 @@ export const ProgressView = {
       const exerciseId = isExerciseScope ? exSelect?.value : null;
       const exerciseOpt = exSelect?.selectedOptions?.[0];
       const exerciseName = isExerciseScope ? (exerciseOpt?.getAttribute("data-name") || exerciseOpt?.text || "") : null;
-      const durationSec = selectedSession?.duration_sec || 0;
+      const durationSec = selectedSession?.duration_sec ?? selectedSession?.duration_seconds ?? 0;
 
       const comp = parseInt(compSlider?.value || 90, 10);
       const rpe = parseInt(rpeSlider?.value || 5, 10);

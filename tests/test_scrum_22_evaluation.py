@@ -397,6 +397,34 @@ class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
         mon_w1 = res_reset.json()["schedule"][0]
         self.assertIn("Thân trên: Ngực", mon_w1["focus"])
 
+    def test_streak_condition_not_bypassed_by_zero_duration(self):
+        """15. Kiểm tra thời lượng 0s / bỏ dở không bị ép lên 600s để lọt qua điều kiện Streak (CT 4.5)."""
+        import backend.routers.progress as progress_mod
+        progress_mod.HAS_WORKED_OUT_TODAY = False
+
+        # Người dùng bỏ dở sau 30s với completion_rate = 20%
+        res = self.client.post("/api/progress/evaluate", json={
+            "session_id": "test-abandoned-sess",
+            "completion_rate": 20,
+            "rpe": 5,
+            "duration_sec": 30,
+        })
+        self.assertEqual(res.status_code, 200)
+        # Vì comp < 50 và duration_sec < 600, HAS_WORKED_OUT_TODAY KHÔNG được gán True
+        self.assertFalse(progress_mod.HAS_WORKED_OUT_TODAY)
+        self.assertEqual(res.json()["evaluation"]["duration_sec"], 30)
+
+        # Đánh giá không truyền duration_sec và comp = 25% -> duration_sec = 0, không được streak
+        progress_mod.HAS_WORKED_OUT_TODAY = False
+        res_zero = self.client.post("/api/progress/evaluate", json={
+            "session_id": "test-zero-dur",
+            "completion_rate": 25,
+            "rpe": 4,
+        })
+        self.assertEqual(res_zero.status_code, 200)
+        self.assertFalse(progress_mod.HAS_WORKED_OUT_TODAY)
+        self.assertEqual(res_zero.json()["evaluation"]["duration_sec"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
