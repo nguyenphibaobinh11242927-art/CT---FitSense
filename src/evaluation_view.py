@@ -303,6 +303,24 @@ def render_evaluation_view():
     result = None
     selected_id = None
 
+    # Kiểm tra ngày nghỉ phục hồi (Rest Day) & điều kiện hiển thị
+    schedule = st.session_state.get("weekly_schedule")
+    from src.adaptive_weekly_plan import DAYS
+    today_name = DAYS[datetime.now().weekday()]
+    today_plan = next((d for d in schedule if d.get("day") == today_name), None) if isinstance(schedule, list) else None
+    is_today_rest = bool(today_plan.get("is_rest") or not today_plan.get("exercises")) if today_plan else False
+    has_workout_today = st.session_state.get("has_worked_out_today", False) or bool(results)
+
+    if is_today_rest and not has_workout_today:
+        st.info(
+            f"🛌 **Hôm nay là Ngày Nghỉ Phục Hồi Sinh Học ({today_name})**\n\n"
+            "Theo giáo án rèn luyện hiện tại, hôm nay bạn không có lịch tập để cơ bắp có thời gian tái tạo và tổng hợp protein, "
+            "do đó bảng khảo sát đánh giá sau buổi tập sẽ không xuất hiện.\n\n"
+            "💡 *Nếu bạn muốn tập hôm nay:* Hãy chuyển sang tab **Kế hoạch Tuần** để đổi giáo án sang có bài tập. "
+            "Sau khi đổi giáo án, bảng đánh giá sẽ tự động hiển thị bình thường!"
+        )
+        return
+
     if isinstance(results, dict) and results:
         ids = list(reversed(results))
         selected_id = st.selectbox(
@@ -331,11 +349,11 @@ def render_evaluation_view():
         m1.metric("🏋️ Reps thực hiện", f"{reps_done} reps")
         m2.metric("⏱️ Thời gian tập", f"{minutes}p {seconds}s")
         m3.metric("🔥 Calo tiêu hao", f"{calories} kcal")
-        m4.metric("🤖 Tỉ lệ hoàn thành (ρ)", f"{completion_rate}%")
+        m4.metric("🤖 Tỉ lệ hoàn thành buổi này (ρ)", f"{completion_rate}%")
 
         st.progress(
             max(0.0, min(1.0, completion_rate / 100.0)),
-            text=f"🔒 AI Verified: {session_detail}",
+            text=f"🔒 AI Verified (1 Buổi): {session_detail}",
         )
 
     col1, col2 = st.columns([1.2, 1], gap="medium")

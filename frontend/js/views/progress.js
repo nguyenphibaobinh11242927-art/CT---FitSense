@@ -22,12 +22,13 @@ export const ProgressView = {
     }
 
     try {
-      const [heatmapData, historyData, statsData, evalMetaData, evalsData] = await Promise.all([
+      const [heatmapData, historyData, statsData, evalMetaData, evalsData, weekData] = await Promise.all([
         API.progress.heatmap(),
         API.progress.history(),
         API.progress.stats(),
         API.progress.evaluationMeta(),
         API.progress.evaluations(),
+        API.planner.getWeek().catch(() => null),
       ]);
       this.lastRenderTime = Date.now();
 
@@ -41,6 +42,19 @@ export const ProgressView = {
       const evals = evalsData?.evaluations || [];
       const latestEval = this.latestEvaluation || (evals.length > 0 ? evals[0] : null);
       const hasEvaluated = Boolean(latestEval);
+
+      // Kiểm tra ngày nghỉ phục hồi (Rest Day) & điều kiện hiển thị khảo sát
+      const schedule = weekData?.schedule || [];
+      const todayName = weekData?.today_name || "";
+      const todayPlan = schedule.find((d) => d.day === todayName);
+      const isTodayRestDay = todayPlan
+        ? Boolean(todayPlan.is_rest || !todayPlan.exercises || todayPlan.exercises.length === 0)
+        : false;
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const hasWorkoutToday = history.some((h) => {
+        return h.actual_date === todayIso || h.day === todayName || h.day === "Hôm nay";
+      }) || Boolean(statsData?.has_worked_out_today);
+      const shouldShowSurvey = !isTodayRestDay || hasWorkoutToday;
 
       let recBadge = "badge-intermediate";
       let recStrategy = "Optimal Maintenance";
@@ -222,50 +236,72 @@ export const ProgressView = {
           </div>
         </div>
 
-        <!-- 5. Post-Workout Survey & Adaptive AI Recommendations Section -->
-        <div class="fitsense-card" style="margin-bottom: 2rem;" id="section-evaluation-survey">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
-            <div>
-              <h3 style="font-size: 1.25rem; font-weight: 800;">📝 Khảo sát Đánh giá Sau Buổi tập & Tối ưu Thích ứng Thể lực</h3>
-              <p style="font-size: 0.85rem; color: var(--text-secondary);">
-                AI tự động đối chiếu tỉ lệ hoàn thành, kết hợp thang đo Borg RPE (1-10) để tự động điều chỉnh giáo án kế tiếp (Deload hoặc Tăng tiến).
-              </p>
+        <!-- 5. Rest Day Notice or Post-Workout Survey Section -->
+        ${!shouldShowSurvey ? `
+          <div class="fitsense-card" style="margin-bottom: 2rem; border-left: 4px solid var(--accent-cyan); background: rgba(56, 189, 248, 0.04);" id="section-rest-day-card">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+              <div style="display: flex; align-items: center; gap: 1.15rem;">
+                <span style="font-size: 2.2rem;">🛌</span>
+                <div>
+                  <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0 0 0.35rem 0; color: var(--text-primary);">
+                    Hôm nay là Ngày Nghỉ Phục Hồi Sinh Học (${todayName || "Hôm nay"})
+                  </h3>
+                  <p style="font-size: 0.88rem; color: var(--text-secondary); margin: 0; line-height: 1.55;">
+                    Theo giáo án rèn luyện hiện tại, hôm nay bạn không có lịch tập để cơ bắp có thời gian tái tạo và phục hồi sinh học. Do đó bảng khảo sát đánh giá sau buổi tập sẽ không xuất hiện.<br>
+                    <i>💡 <b>Bạn muốn tập hôm nay?</b> Hãy vào tab <b>Kế hoạch</b> để đổi giáo án sang có bài tập. Sau khi đổi giáo án, bảng đánh giá sẽ tự động hiển thị bình thường!</i>
+                  </p>
+                </div>
+              </div>
+              <button class="btn btn-primary btn-sm" id="btn-goto-planner" style="white-space: nowrap; border-radius: var(--radius-full); padding: 0.5rem 1.25rem;">
+                📅 Mở Kế hoạch Tuần
+              </button>
             </div>
-            <span class="badge badge-intermediate">Adaptive AI Engine</span>
           </div>
-
-          <form id="form-post-workout-evaluation" onsubmit="return false;">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" style="font-weight: 700;">Chọn buổi tập cần đánh giá:</label>
-                <select class="form-control" id="eval-session-select">
-                  ${hasHistory ? history.map((h, i) => `
-                    <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}">
-                      ${h.exercise_name} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
-                    </option>
-                  `).join("") : `<option value="none" data-comp="0">Chưa ghi nhận dữ liệu buổi tập (0%)</option>`}
-                </select>
+        ` : `
+          <!-- 5. Post-Workout Survey & Adaptive AI Recommendations Section -->
+          <div class="fitsense-card" style="margin-bottom: 2rem;" id="section-evaluation-survey">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <h3 style="font-size: 1.25rem; font-weight: 800;">📝 Khảo sát Đánh giá Sau Buổi tập & Tối ưu Thích ứng Thể lực</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                  AI tự động đối chiếu tỉ lệ hoàn thành của <b>buổi tập được chọn</b>, kết hợp thang đo Borg RPE (1-10) để tự động điều chỉnh giáo án kế tiếp (Deload hoặc Tăng tiến).
+                </p>
               </div>
-
-              <!-- AI Estimated Completion Rate (Cố định khách quan theo dữ liệu AI) -->
-              <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; font-weight: 700;">
-                  <span>🤖 Tỉ lệ hoàn thành do AI đối chiếu:</span>
-                  <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge ${hasHistory ? 'badge-intermediate' : 'badge-outline'}" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;">${hasHistory ? '🔒 AI Verified' : 'Chưa có dữ liệu'}</span>
-                    <strong id="eval-comp-rate-val" style="color: var(--accent-cyan); font-size: 1.15rem;">${latestHistoryComp}%</strong>
-                  </div>
-                </label>
-                <!-- Thanh tiến trình cố định - không cho phép kéo chỉnh sửa thủ công -->
-                <div style="background: var(--bg-card); border-radius: 999px; height: 10px; overflow: hidden; margin-top: 0.6rem; border: 1px solid var(--border-color); position: relative;">
-                  <div id="eval-comp-progress-fill" style="width: ${latestHistoryComp}%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald)); border-radius: 999px; transition: width 0.35s ease;"></div>
-                </div>
-                <input type="hidden" id="eval-comp-rate" value="${latestHistoryComp}" />
-                <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
-                  <span>${hasHistory ? "🔒 Số liệu được AI đo đạc khách quan từ buổi tập và tự động cố định." : "⚠️ Chưa ghi nhận dữ liệu buổi tập. Hãy hoàn thành buổi tập tại Phòng tập để AI đo đạc tỉ lệ thực tế."}</span>
-                </div>
-              </div>
+              <span class="badge badge-intermediate">Adaptive AI Engine</span>
             </div>
+
+            <form id="form-post-workout-evaluation" onsubmit="return false;">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 700;">Chọn buổi tập cần đánh giá:</label>
+                  <select class="form-control" id="eval-session-select">
+                    ${hasHistory ? history.map((h, i) => `
+                      <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}">
+                        ${h.exercise_name} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
+                      </option>
+                    `).join("") : `<option value="none" data-comp="0">Chưa ghi nhận dữ liệu buổi tập (0%)</option>`}
+                  </select>
+                </div>
+
+                <!-- AI Estimated Completion Rate (Cố định khách quan cho 1 buổi tập được chọn) -->
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; font-weight: 700;">
+                    <span>🤖 Tỉ lệ hoàn thành của buổi tập này:</span>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                      <span class="badge ${hasHistory ? 'badge-intermediate' : 'badge-outline'}" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;">${hasHistory ? '🔒 AI Verified (1 Buổi)' : 'Chưa có dữ liệu'}</span>
+                      <strong id="eval-comp-rate-val" style="color: var(--accent-cyan); font-size: 1.15rem;">${latestHistoryComp}%</strong>
+                    </div>
+                  </label>
+                  <!-- Thanh tiến trình cố định - đo đạc riêng cho 1 buổi tập -->
+                  <div style="background: var(--bg-card); border-radius: 999px; height: 10px; overflow: hidden; margin-top: 0.6rem; border: 1px solid var(--border-color); position: relative;">
+                    <div id="eval-comp-progress-fill" style="width: ${latestHistoryComp}%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald)); border-radius: 999px; transition: width 0.35s ease;"></div>
+                  </div>
+                  <input type="hidden" id="eval-comp-rate" value="${latestHistoryComp}" />
+                  <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
+                    <span>${hasHistory ? "🔒 Đo đạc độc lập cho 1 buổi tập được chọn (không cộng dồn hay chia trung bình)." : "⚠️ Chưa ghi nhận dữ liệu buổi tập. Hãy hoàn thành buổi tập tại Phòng tập để AI đo đạc tỉ lệ thực tế."}</span>
+                  </div>
+                </div>
+              </div>
 
             <!-- Borg RPE Slider (1 - 10) & Interactive Stepper -->
             <div class="form-group">
@@ -456,6 +492,7 @@ export const ProgressView = {
             </div>
           </div>
         </div>
+        `}
 
         <!-- 6. Detailed Workout History Table -->
         <div class="fitsense-card">
@@ -526,7 +563,13 @@ export const ProgressView = {
   bindEvaluationEvents(container) {
     if (!container) container = document.getElementById("view-progress");
     if (!container) return;
+
+    container.querySelector("#btn-goto-planner")?.addEventListener("click", () => {
+      if (window.navigateTo) window.navigateTo("planner");
+    });
+
     const rpeSlider = document.getElementById("eval-rpe-slider");
+    if (!rpeSlider) return;
     const rpeDisplay = document.getElementById("eval-rpe-display");
     const rpeDescBox = document.getElementById("eval-rpe-desc-box");
     const compSlider = document.getElementById("eval-comp-rate");
