@@ -772,12 +772,18 @@ export const ProgressView = {
     const refreshExerciseSelectOptions = () => {
       const selectedId = sessionSelect?.value;
       const selectedSession = history.find((h) => h.id === selectedId);
-      if (exSelect && selectedSession?.exercises && selectedSession.exercises.length > 0) {
+      if (!exSelect) return;
+      if (selectedSession?.exercises && selectedSession.exercises.length > 0) {
+        const hasCurrentEx = selectedSession.exercises.some((e) => e.id === this.selectedExerciseId);
+        const activeExId = hasCurrentEx ? this.selectedExerciseId : selectedSession.exercises[0].id;
+        this.selectedExerciseId = activeExId;
         exSelect.innerHTML = selectedSession.exercises.map((ex, idx) => `
-          <option value="${ex.id}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${ex.primary_muscle || ''}" data-substitute="${ex.substitute || ''}" ${this.selectedExerciseId === ex.id || idx === 0 ? 'selected' : ''}>
+          <option value="${ex.id}" data-name="${ex.name}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${ex.primary_muscle || ''}" data-substitute="${ex.substitute || ''}" ${ex.id === activeExId ? 'selected' : ''}>
             Bài ${idx + 1}: ${ex.name.split('(')[0].trim()} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
           </option>
         `).join("");
+      } else {
+        exSelect.innerHTML = `<option value="">(Không có bài tập con)</option>`;
       }
     };
 
@@ -946,11 +952,13 @@ export const ProgressView = {
 
     document.getElementById("btn-submit-evaluation")?.addEventListener("click", async () => {
       const sessionId = sessionSelect?.value;
+      const selectedSession = history.find((h) => h.id === sessionId);
       const sessionLabel = sessionSelect?.options[sessionSelect.selectedIndex]?.text || "Buổi tập vừa thực hiện";
       const isExerciseScope = this.evalScope === "exercise";
       const exerciseId = isExerciseScope ? exSelect?.value : null;
       const exerciseOpt = exSelect?.selectedOptions?.[0];
-      const exerciseName = isExerciseScope ? (exerciseOpt?.text || "") : null;
+      const exerciseName = isExerciseScope ? (exerciseOpt?.getAttribute("data-name") || exerciseOpt?.text || "") : null;
+      const durationSec = selectedSession?.duration_sec || 0;
 
       const comp = parseInt(compSlider?.value || 90, 10);
       const rpe = parseInt(rpeSlider?.value || 5, 10);
@@ -973,6 +981,7 @@ export const ProgressView = {
           exercise_name: exerciseName,
           completion_rate: comp,
           rpe,
+          duration_sec: durationSec,
           soreness: checkedSoreness,
           doms_severity: domsSeverity,
           satisfaction: satisfaction,

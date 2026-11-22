@@ -478,12 +478,19 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
     global HAS_WORKED_OUT_TODAY
     comp = payload.completion_rate
     user_rpe = payload.rpe
-    duration_sec = payload.duration_sec or 900
     
+    # Locate target workout if session_id provided to obtain duration and context
+    target_w = next((w for w in WORKOUT_HISTORY if w.get("id") == payload.session_id), None) if payload.session_id else None
+    duration_sec = payload.duration_sec
+    if (duration_sec is None or duration_sec == 0) and target_w:
+        duration_sec = target_w.get("duration_sec", 0)
+    if duration_sec is None or duration_sec == 0:
+        duration_sec = 600
+
     # CT Section 4.5 Streak condition: rho >= 50% OR T_active >= 600 seconds
     if comp >= 50 or duration_sec >= 600:
         HAS_WORKED_OUT_TODAY = True
-    
+
     # CT Section 4.4 4-Tier Adaptive Formulation
     if comp < 70 or user_rpe >= 9:
         strategy = "deload"
@@ -497,18 +504,19 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
         rec_action = "Tự động tinh chỉnh nhẹ -5% số reps và tập trung chuẩn hóa kỹ thuật form trước khi tăng tải trở lại."
         rec_badge = "badge-warning"
         multiplier = 0.95
-    elif 85 <= comp <= 100 and user_rpe in (7, 8):
-        strategy = "maintenance"
-        rec_title = "Khuyến nghị Giữ nguyên Nhịp độ (Optimal Maintenance) 😊"
-        rec_action = "Duy trì khối lượng và nhịp tập hiện tại để xây dựng nền tảng bền vững cho chu kỳ tuần tới!"
-        rec_badge = "badge-intermediate"
-        multiplier = 1.00
-    else:  # comp >= 90 and user_rpe <= 6
+    elif comp >= 90 and user_rpe <= 6:
         strategy = "overload"
         rec_title = "Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥"
         rec_action = "Xuất sắc! Buổi sau sẽ tự động tăng 2 reps/set hoặc gợi ý biến thể nâng cao để bứt phá giới hạn!"
         rec_badge = "badge-emerald"
         multiplier = 1.10
+    else:
+        # Tier 3 & Balanced Effort (Optimal Maintenance)
+        strategy = "maintenance"
+        rec_title = "Khuyến nghị Giữ nguyên Nhịp độ (Optimal Maintenance) 😊"
+        rec_action = "Hiệu suất cân bằng tuyệt vời! Duy trì khối lượng và nhịp tập hiện tại để xây dựng nền tảng bền vững cho chu kỳ tuần tới!"
+        rec_badge = "badge-intermediate"
+        multiplier = 1.00
 
     # Lời khuyên phục hồi giãn cơ & bù nước (Yêu cầu 69)
     recovery_items = []
@@ -521,7 +529,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             "stretch_name": rec_info["stretch_name"],
             "guide": rec_info["guide"],
         })
-    
+
     minutes = max(1, duration_sec // 60)
     hydration_ml = min(800, max(300, round(minutes * 18 / 50) * 50))
     hydration_advice = f"Uống từng ngụm nhỏ khoảng {hydration_ml}ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."
@@ -556,7 +564,6 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
     }
 
     # Update existing workout in WORKOUT_HISTORY if matched by session_id
-    target_w = next((w for w in WORKOUT_HISTORY if w.get("id") == payload.session_id), None) if payload.session_id else None
     if target_w:
         if payload.scope == "exercise" and payload.exercise_id and "exercises" in target_w:
             target_ex = next((e for e in target_w["exercises"] if e.get("id") == payload.exercise_id), None)
@@ -584,8 +591,9 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
                 target_w["notes"] = payload.note
     elif comp > 0:
         est_reps = max(10, round(36 * comp / 100))
+        fallback_exercise_id = payload.exercise_id or "push_up"
         record_workout(
-            exercise_id="evaluated_workout",
+            exercise_id=fallback_exercise_id,
             reps=est_reps,
             duration_sec=duration_sec,
             rpe=user_rpe,
@@ -608,7 +616,21 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
                 for d in schedule:
                     if d.get("is_rest"):
                         continue
+                    # Protect completed workouts from being modified retrospectively
+                    if d.get("workout_status") == "completed" or d.get("is_completed"):
+                        continue
                     for ex in d.get("exercises", []):
+                        # Respect scope: if scope is 'exercise', only adjust the targeted exercise
+                        if payload.scope == "exercise":
+                            matched = False
+                            if payload.exercise_id and ex.get("id") == payload.exercise_id:
+                                matched = True
+                            elif payload.exercise_name and ex.get("name") == payload.exercise_name:
+                                matched = True
+                            elif payload.exercise_id and payload.exercise_id in (ex.get("id"), ex.get("name")):
+                                matched = True
+                            if not matched:
+                                continue
                         curr_reps = ex.get("reps")
                         if isinstance(curr_reps, int):
                             if strategy in ("deload", "minor_deload"):

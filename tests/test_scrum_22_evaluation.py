@@ -301,6 +301,102 @@ class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
         self.assertIn("Knee Push-up", eval_data["recommendation"]["action"])
         self.assertIn("Tối ưu Động tác", eval_data["recommendation"]["title"])
 
+    def test_adaptive_formulation_maintenance_boundary(self):
+        """12. Kiểm tra tính chặt chẽ của 4 bậc CT Section 4.4: Không để lọt vào Overload bừa bãi."""
+        # Trường hợp 86% giáo án, RPE 5 (vừa sức): Phải là Maintenance (không được ép tăng tải)
+        res_86_rpe5 = evaluation_view.compute_adaptive_adjustment(rho=86, rpe=5)
+        self.assertEqual(res_86_rpe5["strategy"], "maintenance")
+        self.assertEqual(res_86_rpe5["multiplier"], 1.00)
+
+        # Trường hợp hoàn thành vượt mức 105%, nhưng RPE 7 (khá mệt): Phải là Maintenance
+        res_105_rpe7 = evaluation_view.compute_adaptive_adjustment(rho=105, rpe=7)
+        self.assertEqual(res_105_rpe7["strategy"], "maintenance")
+        self.assertEqual(res_105_rpe7["multiplier"], 1.00)
+
+        # Trường hợp đạt chỉ tiêu >= 90% VÀ RPE <= 6: Mới được kích hoạt Overload +10%
+        res_90_rpe6 = evaluation_view.compute_adaptive_adjustment(rho=90, rpe=6)
+        self.assertEqual(res_90_rpe6["strategy"], "overload")
+        self.assertEqual(res_90_rpe6["multiplier"], 1.10)
+
+    def test_auto_apply_protects_completed_and_respects_exercise_scope(self):
+        """13. Kiểm tra auto_apply không sửa lùi quá khứ và chỉ áp dụng đúng bài tập con khi chọn scope exercise."""
+        from backend.routers.planner import USER_SCHEDULES
+        test_email = "test_user_scrum22@fitsense.vn"
+        USER_SCHEDULES[test_email] = [
+            {
+                "day": "Thứ 2",
+                "workout_status": "completed",
+                "is_completed": True,
+                "is_rest": False,
+                "exercises": [{"id": "push_up", "name": "Push-up", "reps": 12}],
+            },
+            {
+                "day": "Thứ 4",
+                "workout_status": "planned",
+                "is_completed": False,
+                "is_rest": False,
+                "exercises": [
+                    {"id": "push_up", "name": "Push-up", "reps": 20},
+                    {"id": "squat", "name": "Squat", "reps": 30},
+                ],
+            },
+        ]
+
+        from backend.routers.auth import CURRENT_SESSION
+        orig_email = CURRENT_SESSION.get("user_email")
+        CURRENT_SESSION["user_email"] = test_email
+        try:
+            res = self.client.post("/api/progress/evaluate", json={
+                "session_id": "test-session",
+                "scope": "exercise",
+                "exercise_id": "push_up",
+                "exercise_name": "Push-up",
+                "completion_rate": 60,
+                "rpe": 9,
+                "auto_apply": True,
+            })
+            self.assertEqual(res.status_code, 200)
+
+            sched = USER_SCHEDULES[test_email]
+            # Thứ 2 đã completed -> reps giữ nguyên 12, không bị sửa lùi
+            self.assertEqual(sched[0]["exercises"][0]["reps"], 12)
+            # Thứ 4 planned -> push_up bị Deload -15%: round(20 * 0.85) = 17
+            self.assertEqual(sched[1]["exercises"][0]["reps"], 17)
+            # Thứ 4 planned -> squat KHÔNG bị ảnh hưởng vì scope là exercise push_up
+            self.assertEqual(sched[1]["exercises"][1]["reps"], 30)
+        finally:
+            CURRENT_SESSION["user_email"] = orig_email
+
+    def test_weekly_plan_transition_and_split_rotation(self):
+        """14. Kiểm tra đổi kế hoạch sang tuần mới, xoay chuyển nhóm cơ triệt tiêu xung đột cuối tuần - đầu tuần."""
+        # 1. Chuyển sang Tuần 2
+        res_next = self.client.post("/api/planner/next-week")
+        self.assertEqual(res_next.status_code, 200)
+        data = res_next.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["week_number"], 2)
+
+        sched_w2 = data["schedule"]
+        # Kiểm tra Thứ 2 tuần 2: Được xoay sang Thân dưới & Mông (Lower Body)
+        # để cơ ngực/tay sau không bị xung đột với bài tập cuối tuần trước
+        mon_w2 = sched_w2[0]
+        self.assertEqual(mon_w2["day"], "Thứ 2")
+        self.assertIn("Thân dưới", mon_w2["focus"])
+        self.assertEqual(mon_w2["workout_status"], "planned")
+        self.assertFalse(mon_w2["is_completed"])
+
+        # Kiểm tra Thứ 3 tuần 2: Chuyển sang Push focus
+        tue_w2 = sched_w2[1]
+        self.assertEqual(tue_w2["day"], "Thứ 3")
+        self.assertIn("Thân trên: Ngực", tue_w2["focus"])
+
+        # 2. Reset về tuần 1
+        res_reset = self.client.post("/api/planner/reset")
+        self.assertEqual(res_reset.status_code, 200)
+        self.assertEqual(res_reset.json()["week_number"], 1)
+        mon_w1 = res_reset.json()["schedule"][0]
+        self.assertIn("Thân trên: Ngực", mon_w1["focus"])
+
 
 if __name__ == "__main__":
     unittest.main()

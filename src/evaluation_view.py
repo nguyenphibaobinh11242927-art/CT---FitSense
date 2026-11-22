@@ -204,19 +204,7 @@ def compute_adaptive_adjustment(rho: float, rpe: int) -> dict[str, Any]:
             "rep_delta": -1,
             "badge_type": "warning",
         }
-    elif 85 <= rho <= 100 and rpe in (7, 8):
-        return {
-            "strategy": "maintenance",
-            "multiplier": 1.00,
-            "title": "⚖️ Khuyến nghị Giữ nguyên Nhịp độ (Optimal Maintenance) 😊",
-            "action": (
-                "Hiệu suất vận động của bạn đạt điểm cân bằng sinh học hoàn hảo! "
-                "Duy trì nguyên khối lượng và nhịp tập hiện tại để xây dựng nền tảng thể lực bền vững."
-            ),
-            "rep_delta": 0,
-            "badge_type": "info",
-        }
-    else:  # rho >= 90 and rpe <= 6
+    elif rho >= 90 and rpe <= 6:
         return {
             "strategy": "overload",
             "multiplier": 1.10,
@@ -227,6 +215,18 @@ def compute_adaptive_adjustment(rho: float, rpe: int) -> dict[str, Any]:
             ),
             "rep_delta": 2,
             "badge_type": "success",
+        }
+    else:  # Baseline optimal maintenance for balanced effort (e.g. 85 <= rho <= 100 with RPE 7-8, or moderate RPE)
+        return {
+            "strategy": "maintenance",
+            "multiplier": 1.00,
+            "title": "⚖️ Khuyến nghị Giữ nguyên Nhịp độ (Optimal Maintenance) 😊",
+            "action": (
+                "Hiệu suất vận động của bạn đạt điểm cân bằng sinh học hoàn hảo! "
+                "Duy trì nguyên khối lượng và nhịp tập hiện tại để xây dựng nền tảng thể lực bền vững."
+            ),
+            "rep_delta": 0,
+            "badge_type": "info",
         }
 
 

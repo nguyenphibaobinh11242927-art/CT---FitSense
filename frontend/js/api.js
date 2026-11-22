@@ -96,6 +96,7 @@ export const API = {
       }),
     }),
     reset: () => request("/api/planner/reset", { method: "POST" }),
+    nextWeek: () => request("/api/planner/next-week", { method: "POST" }),
     template: () => request("/api/planner/template"),
     upload: (content, filename) => request("/api/planner/upload", {
       method: "POST",

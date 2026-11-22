@@ -64,7 +64,7 @@ export const PlannerView = {
     container.innerHTML = `
       <div class="view-header">
         <div class="view-title-group">
-          <h2>📅 Kế hoạch Tuần & Trợ lý AI</h2>
+          <h2>📅 Kế hoạch Tuần & Trợ lý AI <span class="badge badge-primary" style="font-size: 0.82rem; vertical-align: middle; margin-left: 0.5rem; font-weight: 600;">Tuần ${this.scheduleData.week_number || 1}</span></h2>
           <p>Lịch phân bổ nhóm cơ tối ưu phục hồi sinh học và rèn luyện Calisthenics chuẩn khoa học.</p>
         </div>
         <div class="planner-toolbar">
@@ -82,6 +82,9 @@ export const PlannerView = {
           </select>
           <button class="btn btn-primary" id="btn-generate-ai" title="AI tự động phân tích và tạo lịch tập tối ưu">
             🤖 Tạo lịch bằng AI
+          </button>
+          <button class="btn btn-emerald" id="btn-next-week" title="Xoay chuyển giáo án và bước sang tuần mới (tránh xung đột nhóm cơ)">
+            🗓️ Sang tuần mới (Tuần ${(this.scheduleData.week_number || 1) + 1})
           </button>
           <button class="btn btn-outline" id="btn-reset-planner" title="Khôi phục về giáo án chuẩn ban đầu">
             🔄 Đặt lại mẫu
@@ -342,6 +345,32 @@ export const PlannerView = {
           this.renderContent();
         } catch (e) {
           Toast.error(e.message);
+        }
+      }
+    });
+
+    // Advance to next week button
+    container.querySelector("#btn-next-week")?.addEventListener("click", async () => {
+      const currentWeek = this.scheduleData?.week_number || 1;
+      const nextWeek = currentWeek + 1;
+      const confirmed = await showConfirmModal({
+        title: `Bước Sang Tuần Mới (Tuần ${nextWeek})`,
+        subtitle: "Xoay chuyển nhóm cơ & Tránh xung đột",
+        icon: "🗓️",
+        message: `Hệ thống sẽ tự động xoay chuyển thứ tự các nhóm cơ (Split Rotation) cho Tuần ${nextWeek} nhằm giúp các nhóm cơ tập cuối tuần trước có đủ 48h-72h phục hồi, triệt tiêu 100% xung đột cơ bắp giữa cuối tuần và đầu tuần. Bạn có muốn chuyển sang tuần mới ngay?`,
+        confirmText: `Bắt đầu Tuần ${nextWeek}`,
+        cancelText: "Hủy bỏ",
+        confirmClass: "btn btn-emerald",
+      });
+      if (confirmed) {
+        try {
+          const res = await API.planner.nextWeek();
+          Toast.success(res.message || `🎉 Đã chuyển sang Tuần ${nextWeek} thành công!`);
+          this.scheduleData = await API.planner.getWeek();
+          this.activeDayIndex = 0;
+          this.renderContent();
+        } catch (e) {
+          Toast.error("Lỗi chuyển tuần: " + e.message);
         }
       }
     });

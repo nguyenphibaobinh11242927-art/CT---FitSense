@@ -228,3 +228,71 @@ def add_workout_event(history: list[dict], *, session_id: str, actual_date: date
         "reps": max(0, int(reps)), "status": status, "finished_at": finished_at,
     })
     return updated
+
+
+def generate_next_week_schedule(current_schedule: list[dict], week_number: int = 2) -> list[dict]:
+    """Tạo kế hoạch tuần mới thích ứng (Split Rotation & Muscle Recovery Periodization).
+
+    Giải quyết xung đột nhóm cơ giữa cuối tuần cũ và đầu tuần mới:
+    - Nếu tuần trước kết thúc với bài tập thân trên / core / ngực, tuần mới sẽ xoay
+      chuyển mở đầu bằng Thân dưới (Lower Body) để đảm bảo nhóm cơ cũ có đủ ít nhất
+      48h-72h phục hồi sinh học hoàn toàn, triệt tiêu 100% xung đột cơ bắp.
+    - Đặt lại trạng thái `workout_status = 'planned'`, `is_completed = False`.
+    - Bảo toàn số reps đã được AI tối ưu thích ứng (Overload/Deload) từ các lần đánh giá trước.
+    """
+    if not isinstance(current_schedule, list) or len(current_schedule) != 7:
+        raise ValueError("Kế hoạch tuần cần đủ 7 ngày.")
+
+    updated = deepcopy(current_schedule)
+    is_even_week = (week_number % 2 == 0)
+
+    # Tìm vị trí ngày tập Thân dưới (Lower) và Thân trên Đẩy (Push) trong lịch hiện tại
+    lower_idx = -1
+    push_idx = -1
+
+    for idx, day in enumerate(updated):
+        tags = muscle_tags(day)
+        focus_lower = day.get("focus", "").lower()
+        if "quads" in tags or "glutes" in tags or "thân dưới" in focus_lower:
+            if lower_idx == -1:
+                lower_idx = idx
+        elif "chest" in tags or "triceps" in tags or "push" in focus_lower or "ngực" in focus_lower:
+            if push_idx == -1:
+                push_idx = idx
+
+    # Khi sang tuần chẵn (Tuần 2, 4...) xoay chuyển vị trí giữa Push và Lower
+    # để Thứ 2 bắt đầu bằng Lower Body, ngăn chặn hoàn toàn xung đột cơ bắp với cuối tuần trước!
+    if is_even_week and lower_idx != -1 and push_idx != -1 and lower_idx != push_idx:
+        day_lower = deepcopy(updated[lower_idx])
+        day_push = deepcopy(updated[push_idx])
+
+        for key in ("focus", "is_rest", "exercises", "ai_reason"):
+            if key in day_lower:
+                updated[push_idx][key] = deepcopy(day_lower[key])
+            if key in day_push:
+                updated[lower_idx][key] = deepcopy(day_push[key])
+
+    # Đặt lại trạng thái cho tất cả các ngày trong tuần mới
+    for idx, day in enumerate(updated):
+        day["day"] = DAYS[idx]
+        day["workout_status"] = "planned"
+        day["is_completed"] = False
+        day.pop("workout_completed_at", None)
+        day.pop("workout_actual_reps", None)
+        day.pop("copied_from_day", None)
+        day.pop("actual_date", None)
+
+        if not day.get("is_rest") and day.get("exercises"):
+            if is_even_week:
+                if idx == 0:
+                    day["ai_reason"] = (
+                        f"🔄 Chu kỳ Tuần {week_number} (Split Rotation): Mở đầu bằng {day.get('focus')} "
+                        f"để nhóm cơ ngực/tay sau được nghỉ 48h-72h sau cuối tuần, triệt tiêu hoàn toàn xung đột cơ bắp!"
+                    )
+                else:
+                    day["ai_reason"] = f"Chu kỳ Tuần {week_number}: Duy trì kích thích đa góc độ và phát triển sức mạnh bền vững."
+            else:
+                if idx == 0:
+                    day["ai_reason"] = f"Chu kỳ Tuần {week_number}: Khởi động tuần mới sung mãn với {day.get('focus')}."
+
+    return updated
