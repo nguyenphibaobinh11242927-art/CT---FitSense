@@ -314,10 +314,7 @@ def render_evaluation_view():
     if is_today_rest and not has_workout_today:
         st.info(
             f"🛌 **Hôm nay là Ngày Nghỉ Phục Hồi Sinh Học ({today_name})**\n\n"
-            "Theo giáo án rèn luyện hiện tại, hôm nay bạn không có lịch tập để cơ bắp có thời gian tái tạo và tổng hợp protein, "
-            "do đó bảng khảo sát đánh giá sau buổi tập sẽ không xuất hiện.\n\n"
-            "💡 *Nếu bạn muốn tập hôm nay:* Hãy chuyển sang tab **Kế hoạch Tuần** để đổi giáo án sang có bài tập. "
-            "Sau khi đổi giáo án, bảng đánh giá sẽ tự động hiển thị bình thường!"
+            "💡 **Bạn muốn tập hôm nay?** Hãy vào tab **Kế hoạch** để đổi giáo án sang có bài tập."
         )
         return
 

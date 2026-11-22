@@ -247,8 +247,7 @@ export const ProgressView = {
                     Hôm nay là Ngày Nghỉ Phục Hồi Sinh Học (${todayName || "Hôm nay"})
                   </h3>
                   <p style="font-size: 0.88rem; color: var(--text-secondary); margin: 0; line-height: 1.55;">
-                    Theo giáo án rèn luyện hiện tại, hôm nay bạn không có lịch tập để cơ bắp có thời gian tái tạo và phục hồi sinh học. Do đó bảng khảo sát đánh giá sau buổi tập sẽ không xuất hiện.<br>
-                    <i>💡 <b>Bạn muốn tập hôm nay?</b> Hãy vào tab <b>Kế hoạch</b> để đổi giáo án sang có bài tập. Sau khi đổi giáo án, bảng đánh giá sẽ tự động hiển thị bình thường!</i>
+                    💡 <b>Bạn muốn tập hôm nay?</b> Hãy vào tab <b>Kế hoạch</b> để đổi giáo án sang có bài tập.
                   </p>
                 </div>
               </div>
