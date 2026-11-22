@@ -273,6 +273,34 @@ class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
         # w-01 vẫn chưa có đánh giá
         self.assertNotIn("w-01", updated_sessions)
 
+    def test_multi_exercise_evaluation_and_substitute_recommendation(self):
+        """11. Kiểm tra đánh giá theo bài tập con trong buổi và đề xuất bài biến thể thay thế."""
+        # Kiểm tra dữ liệu lịch sử buổi tập có chứa danh sách bài tập con (2-3 bài/buổi)
+        res_hist = self.client.get("/api/progress/history").json()
+        w01 = next(w for w in res_hist["history"] if w["id"] == "w-01")
+        self.assertTrue(len(w01.get("exercises", [])) >= 3)
+        self.assertEqual(w01["exercises"][0]["id"], "push_up")
+
+        # Gửi đánh giá riêng cho bài 'push_up' trong w-01 với RPE = 9 (quá tải)
+        res_ex_eval = self.client.post("/api/progress/evaluate", json={
+            "session_id": "w-01",
+            "session_label": "Thứ 2: Thân trên: Ngực & Tay sau (3 bài)",
+            "scope": "exercise",
+            "exercise_id": "push_up",
+            "exercise_name": "Standard Push-up",
+            "completion_rate": 65,
+            "rpe": 9,
+            "soreness": ["Cơ ngực (Chest)", "Cổ tay"],
+            "doms_severity": "intense",
+            "satisfaction": "unsatisfied",
+        })
+        self.assertEqual(res_ex_eval.status_code, 200)
+        eval_data = res_ex_eval.json()["evaluation"]
+        self.assertEqual(eval_data["scope"], "exercise")
+        self.assertEqual(eval_data["exercise_id"], "push_up")
+        self.assertIn("Knee Push-up", eval_data["recommendation"]["action"])
+        self.assertIn("Tối ưu Động tác", eval_data["recommendation"]["title"])
+
 
 if __name__ == "__main__":
     unittest.main()

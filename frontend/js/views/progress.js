@@ -43,11 +43,19 @@ export const ProgressView = {
       this.evalsBySession = {};
       evals.forEach((ev) => {
         if (ev.session_id) {
-          this.evalsBySession[ev.session_id] = ev;
+          if (ev.scope === "exercise" && ev.exercise_id) {
+            this.evalsBySession[`${ev.session_id}_${ev.exercise_id}`] = ev;
+          } else {
+            this.evalsBySession[ev.session_id] = ev;
+          }
         }
       });
       if (this.latestEvaluation && this.latestEvaluation.session_id) {
-        this.evalsBySession[this.latestEvaluation.session_id] = this.latestEvaluation;
+        if (this.latestEvaluation.scope === "exercise" && this.latestEvaluation.exercise_id) {
+          this.evalsBySession[`${this.latestEvaluation.session_id}_${this.latestEvaluation.exercise_id}`] = this.latestEvaluation;
+        } else {
+          this.evalsBySession[this.latestEvaluation.session_id] = this.latestEvaluation;
+        }
       }
 
       // Xác định buổi tập đang chọn và kiểm tra xem buổi đó đã từng gửi khảo sát chưa
@@ -59,6 +67,7 @@ export const ProgressView = {
       const initialCompRate = selectedHistoryItem && selectedHistoryItem.completion_rate !== undefined
         ? Math.round(selectedHistoryItem.completion_rate)
         : latestHistoryComp;
+
 
       // Kiểm tra ngày nghỉ phục hồi (Rest Day) & điều kiện hiển thị khảo sát
       const schedule = weekData?.schedule || [];
@@ -288,39 +297,67 @@ export const ProgressView = {
             </div>
 
             <form id="form-post-workout-evaluation" onsubmit="return false;">
+              <!-- Scope Selector (Theo Buổi / Theo Bài) -->
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; padding: 0.65rem 0.9rem; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 0.65rem;">
+                  <span style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary);">🎯 Phạm vi khảo sát:</span>
+                  <div style="display: inline-flex; background: var(--bg-surface); padding: 3px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <button type="button" id="eval-scope-session-btn" class="btn btn-sm ${this.evalScope !== 'exercise' ? 'btn-primary' : 'btn-ghost'}" style="font-size: 0.78rem; padding: 0.25rem 0.75rem; border-radius: 6px; font-weight: 700;">
+                      📋 Toàn bộ Buổi tập
+                    </button>
+                    <button type="button" id="eval-scope-exercise-btn" class="btn btn-sm ${this.evalScope === 'exercise' ? 'btn-primary' : 'btn-ghost'}" style="font-size: 0.78rem; padding: 0.25rem 0.75rem; border-radius: 6px; font-weight: 700;">
+                      🎯 Từng Bài tập trong buổi
+                    </button>
+                  </div>
+                </div>
+
+                <div id="eval-exercise-select-wrapper" style="display: ${this.evalScope === 'exercise' ? 'flex' : 'none'}; align-items: center; gap: 0.5rem; flex: 1; min-width: 260px; justify-content: flex-end;">
+                  <label style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan); white-space: nowrap;">Chọn bài tập:</label>
+                  <select class="form-control" id="eval-exercise-select" style="padding: 0.35rem 0.65rem; font-size: 0.85rem; max-width: 340px;">
+                    ${selectedHistoryItem?.exercises?.map((ex, idx) => `
+                      <option value="${ex.id}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${ex.primary_muscle || ''}" data-substitute="${ex.substitute || ''}" ${this.selectedExerciseId === ex.id || idx === 0 ? 'selected' : ''}>
+                        Bài ${idx + 1}: ${ex.name.split('(')[0].trim()} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
+                      </option>
+                    `).join("") || '<option value="none">Buổi này chưa có danh sách bài</option>'}
+                  </select>
+                </div>
+              </div>
+
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
                 <div class="form-group" style="margin-bottom: 0;">
                   <label class="form-label" style="font-weight: 700;">Chọn buổi tập cần đánh giá:</label>
                   <select class="form-control" id="eval-session-select">
                     ${hasHistory ? history.map((h, i) => {
                       const isSelected = initialSelectedSessionId ? (h.id === initialSelectedSessionId) : (i === 0);
+                      const displayTitle = h.session_name || h.exercise_name;
                       return `
                       <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}" ${isSelected ? "selected" : ""}>
-                        ${h.exercise_name} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
+                        ${displayTitle} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
                       </option>
                     `;}).join("") : `<option value="none" data-comp="0">Chưa ghi nhận dữ liệu buổi tập (0%)</option>`}
                   </select>
                 </div>
 
-                <!-- AI Estimated Completion Rate (Cố định khách quan cho 1 buổi tập được chọn) -->
+                <!-- AI Estimated Completion Rate (Cố định khách quan cho 1 buổi tập hoặc 1 bài tập được chọn) -->
                 <div class="form-group" style="margin-bottom: 0;">
                   <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; font-weight: 700;">
-                    <span>🤖 Tỉ lệ hoàn thành của buổi tập này:</span>
+                    <span id="eval-comp-label">🤖 ${this.evalScope === 'exercise' ? 'Tỉ lệ hoàn thành của bài tập này:' : 'Tỉ lệ hoàn thành của buổi tập này:'}</span>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                      <span class="badge ${hasHistory ? 'badge-intermediate' : 'badge-outline'}" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;">${hasHistory ? '🔒 AI Verified (1 Buổi)' : 'Chưa có dữ liệu'}</span>
+                      <span class="badge ${hasHistory ? 'badge-intermediate' : 'badge-outline'}" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="eval-comp-badge">${hasHistory ? '🔒 AI Verified' : 'Chưa có dữ liệu'}</span>
                       <strong id="eval-comp-rate-val" style="color: var(--accent-cyan); font-size: 1.15rem;">${initialCompRate}%</strong>
                     </div>
                   </label>
-                  <!-- Thanh tiến trình cố định - đo đạc riêng cho 1 buổi tập -->
+                  <!-- Thanh tiến trình cố định - đo đạc riêng cho 1 buổi tập hoặc bài tập -->
                   <div style="background: var(--bg-card); border-radius: 999px; height: 10px; overflow: hidden; margin-top: 0.6rem; border: 1px solid var(--border-color); position: relative;">
                     <div id="eval-comp-progress-fill" style="width: ${initialCompRate}%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald)); border-radius: 999px; transition: width 0.35s ease;"></div>
                   </div>
                   <input type="hidden" id="eval-comp-rate" value="${initialCompRate}" />
                   <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
-                    <span>${hasHistory ? "🔒 Đo đạc độc lập cho 1 buổi tập được chọn (không cộng dồn hay chia trung bình)." : "⚠️ Chưa ghi nhận dữ liệu buổi tập. Hãy hoàn thành buổi tập tại Phòng tập để AI đo đạc tỉ lệ thực tế."}</span>
+                    <span id="eval-comp-hint">${hasHistory ? "🔒 Đo đạc độc lập cho mục tiêu được chọn (không cộng dồn hay chia trung bình)." : "⚠️ Chưa ghi nhận dữ liệu buổi tập. Hãy hoàn thành buổi tập tại Phòng tập để AI đo đạc tỉ lệ thực tế."}</span>
                   </div>
                 </div>
               </div>
+
 
             <!-- Borg RPE Slider (1 - 10) & Interactive Stepper -->
             <div class="form-group">
@@ -544,7 +581,23 @@ export const ProgressView = {
                 ${history.length > 0 ? history.map((item) => `
                   <tr>
                     <td><b>${item.timestamp || item.actual_date}</b></td>
-                    <td><span style="color: var(--accent-cyan); font-weight: 700;">${item.exercise_name}</span></td>
+                    <td>
+                      <div style="font-weight: 700; color: var(--accent-cyan); display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                        <span>${item.session_name || item.exercise_name}</span>
+                        ${item.exercises && item.exercises.length > 0 ? `<span class="badge badge-outline" style="font-size: 0.68rem; padding: 0.1rem 0.4rem;">${item.exercises.length} bài</span>` : ''}
+                      </div>
+                      ${item.exercises && item.exercises.length > 0 ? `
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem;">
+                          ${item.exercises.map(ex => `
+                            <span style="font-size: 0.72rem; background: var(--bg-card); border: 1px solid var(--border-color); padding: 0.15rem 0.45rem; border-radius: 4px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 0.3rem;">
+                              <span>${ex.name.split('(')[0].trim()}</span>
+                              <b style="color: var(--accent-emerald); font-weight: 700;">${ex.reps} reps</b>
+                              ${ex.rpe ? `<span class="badge ${ex.rpe >= 8 ? 'badge-advanced' : ex.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}" style="font-size: 0.65rem; padding: 0.05rem 0.25rem;">RPE ${ex.rpe}</span>` : ''}
+                            </span>
+                          `).join("")}
+                        </div>
+                      ` : ''}
+                    </td>
                     <td><span class="badge badge-beginner">${item.day || "Tập tự do"}</span></td>
                     <td>${item.status === "abandoned" ? "Bỏ dở" : "Hoàn thành"}</td>
                     <td><strong>${item.reps}</strong> reps</td>
@@ -711,26 +764,58 @@ export const ProgressView = {
     });
 
     const sessionSelect = document.getElementById("eval-session-select");
-    sessionSelect?.addEventListener("change", () => {
-      const selectedId = sessionSelect.value;
-      this.selectedSessionId = selectedId;
-      const opt = sessionSelect.selectedOptions?.[0];
-      const compVal = opt?.getAttribute("data-comp");
-      if (compVal !== null && compVal !== undefined) {
-        const compNum = Math.round(parseFloat(compVal));
-        if (compSlider) compSlider.value = compNum;
-        if (compDisplay) compDisplay.textContent = `${compNum}%`;
-        const fillBar = document.getElementById("eval-comp-progress-fill");
-        if (fillBar) fillBar.style.width = `${compNum}%`;
+    const scopeSessionBtn = document.getElementById("eval-scope-session-btn");
+    const scopeExerciseBtn = document.getElementById("eval-scope-exercise-btn");
+    const exSelectWrapper = document.getElementById("eval-exercise-select-wrapper");
+    const exSelect = document.getElementById("eval-exercise-select");
+
+    const refreshExerciseSelectOptions = () => {
+      const selectedId = sessionSelect?.value;
+      const selectedSession = history.find((h) => h.id === selectedId);
+      if (exSelect && selectedSession?.exercises && selectedSession.exercises.length > 0) {
+        exSelect.innerHTML = selectedSession.exercises.map((ex, idx) => `
+          <option value="${ex.id}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${ex.primary_muscle || ''}" data-substitute="${ex.substitute || ''}" ${this.selectedExerciseId === ex.id || idx === 0 ? 'selected' : ''}>
+            Bài ${idx + 1}: ${ex.name.split('(')[0].trim()} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
+          </option>
+        `).join("");
+      }
+    };
+
+    const updateEvaluationViewForCurrentScope = () => {
+      const selectedId = sessionSelect?.value;
+      const selectedSession = history.find((h) => h.id === selectedId);
+      const isExerciseScope = this.evalScope === "exercise";
+      const currentExId = isExerciseScope ? exSelect?.value : null;
+
+      // Update completion rate progress
+      let compNum = 0;
+      let labelText = "🤖 Tỉ lệ hoàn thành của buổi tập này:";
+      if (isExerciseScope) {
+        const opt = exSelect?.selectedOptions?.[0];
+        const val = opt?.getAttribute("data-comp");
+        compNum = val !== null && val !== undefined ? Math.round(parseFloat(val)) : 100;
+        labelText = "🤖 Tỉ lệ hoàn thành của bài tập này:";
+      } else {
+        const opt = sessionSelect?.selectedOptions?.[0];
+        const val = opt?.getAttribute("data-comp");
+        compNum = val !== null && val !== undefined ? Math.round(parseFloat(val)) : 100;
+        labelText = "🤖 Tỉ lệ hoàn thành của buổi tập này:";
       }
 
-      const targetEval = this.evalsBySession ? this.evalsBySession[selectedId] : null;
+      const compLabel = document.getElementById("eval-comp-label");
+      if (compLabel) compLabel.textContent = labelText;
+      if (compSlider) compSlider.value = compNum;
+      if (compDisplay) compDisplay.textContent = `${compNum}%`;
+      const fillBar = document.getElementById("eval-comp-progress-fill");
+      if (fillBar) fillBar.style.width = `${compNum}%`;
+
+      // Determine target evaluation key
+      const targetEvalKey = isExerciseScope && currentExId ? `${selectedId}_${currentExId}` : selectedId;
+      const targetEval = this.evalsBySession ? this.evalsBySession[targetEvalKey] : null;
       const recContainer = document.getElementById("eval-recommendation-container");
 
       if (targetEval) {
-        // Buổi này ĐÃ TỪNG gửi khảo sát: hiển thị đúng khuyến nghị của buổi đó!
         if (recContainer) recContainer.style.display = "block";
-
         const badgeEl = document.getElementById("badge-rec-status");
         const titleEl = document.getElementById("rec-title");
         const descEl = document.getElementById("rec-desc");
@@ -766,7 +851,6 @@ export const ProgressView = {
           timeEl.textContent = `🕒 ${targetEval.created_at || targetEval.timestamp || "Đã ghi nhận"}`;
         }
 
-        // Cập nhật lại form khảo sát theo dữ liệu buổi đó
         if (rpeSlider && targetEval.rpe) {
           rpeSlider.value = targetEval.rpe;
           if (rpeDisplay) rpeDisplay.textContent = `${targetEval.rpe}/10`;
@@ -794,15 +878,23 @@ export const ProgressView = {
           if (chk) chk.checked = shouldBeActive;
         });
       } else {
-        // Buổi này CHƯA TỪNG gửi khảo sát: ẨN HOÀN TOÀN KHUYẾN NGHỊ!
+        // Chưa đánh giá: ẩn khuyến nghị
         if (recContainer) recContainer.style.display = "none";
 
-        // Reset form về trạng thái ban đầu để người dùng điền mới
+        let defaultRpe = 5;
+        let defaultMuscle = "Không đau mỏi gì đặc biệt";
+        if (isExerciseScope && selectedSession?.exercises) {
+          const exObj = selectedSession.exercises.find((e) => e.id === currentExId);
+          if (exObj) {
+            defaultRpe = exObj.rpe || 5;
+            defaultMuscle = exObj.primary_muscle || defaultMuscle;
+          }
+        }
         if (rpeSlider) {
-          rpeSlider.value = 5;
-          if (rpeDisplay) rpeDisplay.textContent = "5/10";
-          if (rpeDescBox) rpeDescBox.innerHTML = `😤 <b>Mức RPE 5/10:</b> ${rpeDescriptions[5] || ""}`;
-          updateRpePillActive(5);
+          rpeSlider.value = defaultRpe;
+          if (rpeDisplay) rpeDisplay.textContent = `${defaultRpe}/10`;
+          if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${defaultRpe}/10:</b> ${rpeDescriptions[defaultRpe] || ""}`;
+          updateRpePillActive(defaultRpe);
         }
         const domsSelect = document.getElementById("eval-doms-severity");
         if (domsSelect) domsSelect.value = "moderate";
@@ -813,17 +905,53 @@ export const ProgressView = {
 
         sorenessCards.forEach(card => {
           const val = card.getAttribute("data-val");
-          const isNone = val === "Không đau mỏi gì đặc biệt";
-          card.classList.toggle("active", isNone);
+          const isMatch = val === defaultMuscle || (defaultMuscle === "Không đau mỏi gì đặc biệt" && val === "Không đau mỏi gì đặc biệt");
+          card.classList.toggle("active", isMatch);
           const chk = card.querySelector("input[type='checkbox']");
-          if (chk) chk.checked = isNone;
+          if (chk) chk.checked = isMatch;
         });
       }
+    };
+
+    scopeSessionBtn?.addEventListener("click", () => {
+      this.evalScope = "session";
+      scopeSessionBtn.className = "btn btn-sm btn-primary";
+      scopeExerciseBtn.className = "btn btn-sm btn-ghost";
+      if (exSelectWrapper) exSelectWrapper.style.display = "none";
+      updateEvaluationViewForCurrentScope();
+    });
+
+    scopeExerciseBtn?.addEventListener("click", () => {
+      this.evalScope = "exercise";
+      scopeExerciseBtn.className = "btn btn-sm btn-primary";
+      scopeSessionBtn.className = "btn btn-sm btn-ghost";
+      if (exSelectWrapper) exSelectWrapper.style.display = "flex";
+      refreshExerciseSelectOptions();
+      updateEvaluationViewForCurrentScope();
+    });
+
+    exSelect?.addEventListener("change", () => {
+      this.selectedExerciseId = exSelect.value;
+      updateEvaluationViewForCurrentScope();
+    });
+
+    sessionSelect?.addEventListener("change", () => {
+      const selectedId = sessionSelect.value;
+      this.selectedSessionId = selectedId;
+      if (this.evalScope === "exercise") {
+        refreshExerciseSelectOptions();
+      }
+      updateEvaluationViewForCurrentScope();
     });
 
     document.getElementById("btn-submit-evaluation")?.addEventListener("click", async () => {
       const sessionId = sessionSelect?.value;
       const sessionLabel = sessionSelect?.options[sessionSelect.selectedIndex]?.text || "Buổi tập vừa thực hiện";
+      const isExerciseScope = this.evalScope === "exercise";
+      const exerciseId = isExerciseScope ? exSelect?.value : null;
+      const exerciseOpt = exSelect?.selectedOptions?.[0];
+      const exerciseName = isExerciseScope ? (exerciseOpt?.text || "") : null;
+
       const comp = parseInt(compSlider?.value || 90, 10);
       const rpe = parseInt(rpeSlider?.value || 5, 10);
       const domsSeverity = document.getElementById("eval-doms-severity")?.value || "moderate";
@@ -840,6 +968,9 @@ export const ProgressView = {
         const res = await API.progress.submitEvaluation({
           session_id: sessionId,
           session_label: sessionLabel,
+          scope: isExerciseScope ? "exercise" : "session",
+          exercise_id: exerciseId,
+          exercise_name: exerciseName,
           completion_rate: comp,
           rpe,
           soreness: checkedSoreness,
@@ -851,13 +982,23 @@ export const ProgressView = {
 
         this.latestEvaluation = res.evaluation;
         if (!this.evalsBySession) this.evalsBySession = {};
-        this.evalsBySession[sessionId] = res.evaluation;
+        const evalKey = isExerciseScope && exerciseId ? `${sessionId}_${exerciseId}` : sessionId;
+        this.evalsBySession[evalKey] = res.evaluation;
         this.selectedSessionId = sessionId;
+        if (isExerciseScope) this.selectedExerciseId = exerciseId;
         Toast.success(res.message || "🎉 Đã ghi nhận đánh giá thành công!");
         import("../components/capybara.js").then((m) => m.Capybara.refresh());
         await this.render();
 
         const recContainer = document.getElementById("eval-recommendation-container");
+        if (recContainer) {
+          recContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      } catch (err) {
+        Toast.error("Lỗi gửi đánh giá: " + err.message);
+      }
+    });
+
         if (recContainer) {
           recContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }

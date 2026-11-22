@@ -328,12 +328,40 @@ def render_evaluation_view():
         )
         result = results[selected_id]
 
-    # Tính toán thông số buổi tập
-    completion_rate, session_label, session_detail = compute_ai_completion_rate(
-        st.session_state, selected_result=result
-    )
+    exercises_list = result.get("exercises", []) if isinstance(result, dict) else []
+    scope_mode = "session"
+    selected_exercise = None
 
-    reps_done = result.get("reps", 0) if result else 0
+    if len(exercises_list) > 1:
+        scope_choice = st.radio(
+            "Phạm vi khảo sát:",
+            options=["📋 Toàn bộ Buổi tập", "🎯 Chi tiết Từng Bài tập trong buổi"],
+            horizontal=True,
+            key="eval_scope_choice",
+        )
+        if scope_choice == "🎯 Chi tiết Từng Bài tập trong buổi":
+            scope_mode = "exercise"
+            ex_options = list(range(len(exercises_list)))
+            selected_idx = st.selectbox(
+                "Chọn bài tập trong buổi để đánh giá:",
+                ex_options,
+                format_func=lambda i: f"Bài {i+1}: {exercises_list[i]['name']} ({exercises_list[i].get('reps', 0)} reps · AI: {exercises_list[i].get('completion_rate', 100)}%)",
+                key="eval_selected_ex_idx",
+            )
+            selected_exercise = exercises_list[selected_idx]
+
+    # Tính toán thông số buổi tập hoặc bài tập
+    if selected_exercise:
+        completion_rate = int(selected_exercise.get("completion_rate", 100))
+        reps_done = int(selected_exercise.get("reps", 0))
+        session_label = f"{selected_exercise['name']} ({format_session_label(result)})"
+        session_detail = f"AI đối chiếu bài tập riêng: {reps_done}/{selected_exercise.get('target_reps', reps_done)} reps."
+    else:
+        completion_rate, session_label, session_detail = compute_ai_completion_rate(
+            st.session_state, selected_result=result
+        )
+        reps_done = result.get("reps", 0) if result else 0
+
     duration_sec = result.get("duration_seconds", result.get("duration_sec", 900)) if result else 900
     minutes = duration_sec // 60
     seconds = duration_sec % 60
@@ -341,17 +369,18 @@ def render_evaluation_view():
 
     # Bảng tóm tắt thành tích buổi tập (Yêu cầu 69)
     with st.container(border=True):
-        st.subheader("📊 Bảng Tóm tắt Thành tích Buổi tập (AI Performance Summary)")
+        st.subheader("📊 Bảng Tóm tắt Thành tích (AI Performance Summary)")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("🏋️ Reps thực hiện", f"{reps_done} reps")
         m2.metric("⏱️ Thời gian tập", f"{minutes}p {seconds}s")
         m3.metric("🔥 Calo tiêu hao", f"{calories} kcal")
-        m4.metric("🤖 Tỉ lệ hoàn thành buổi này (ρ)", f"{completion_rate}%")
+        m4.metric("🤖 Tỉ lệ hoàn thành mục tiêu (ρ)", f"{completion_rate}%")
 
         st.progress(
             max(0.0, min(1.0, completion_rate / 100.0)),
-            text=f"🔒 AI Verified (1 Buổi): {session_detail}",
+            text=f"🔒 AI Verified: {session_detail}",
         )
+
 
     col1, col2 = st.columns([1.2, 1], gap="medium")
 
@@ -417,12 +446,33 @@ def render_evaluation_view():
 
             # 2. Tính toán khuyến nghị thích ứng tải trọng
             strategy_info = compute_adaptive_adjustment(completion_rate, rpe)
+            if selected_exercise:
+                substitute = selected_exercise.get("substitute") or "biến thể nhẹ hơn"
+                if rpe >= 8 or completion_rate < 85:
+                    strategy_info["title"] = f"Khuyến nghị Tối ưu Động tác ({selected_exercise['name']}) 🔄"
+                    strategy_info["action"] = (
+                        f"Phát hiện động tác có tải trọng cao hoặc mỏi rõ rệt (RPE {rpe}/10). "
+                        f"Buổi tới AI đề xuất chuyển sang biến thể nhẹ hơn: {substitute} để phục hồi khớp & bảo vệ cơ!"
+                    )
+                    strategy_info["badge_type"] = "warning"
+                elif completion_rate >= 90 and rpe <= 6:
+                    strategy_info["title"] = f"Khuyến nghị Tăng tiến Động tác ({selected_exercise['name']}) 🔥"
+                    strategy_info["action"] = (
+                        f"Xuất sắc! Bạn làm chủ kỹ thuật {selected_exercise['name']} hoàn hảo (RPE {rpe}/10). "
+                        f"Buổi sau đề xuất tăng 2 reps/set hoặc thử thách biến thể nâng cao để bứt phá!"
+                    )
+                    strategy_info["badge_type"] = "success"
+
             recovery_items = get_recovery_advice(muscle_soreness)
             hyd_ml, hyd_text = calculate_hydration_advice(duration_sec)
 
+            eval_key = f"{selected_id}_{selected_exercise['id']}" if (selected_id and selected_exercise) else (selected_id or "current")
             eval_record = {
                 "session_id": selected_id or "current",
                 "session_label": session_label,
+                "scope": "exercise" if selected_exercise else "session",
+                "exercise_id": selected_exercise.get("id") if selected_exercise else None,
+                "exercise_name": selected_exercise.get("name") if selected_exercise else None,
                 "completion_rate": completion_rate,
                 "rpe": rpe,
                 "rpe_desc": RPE_DESCRIPTIONS.get(rpe),
@@ -441,21 +491,22 @@ def render_evaluation_view():
             st.session_state["last_eval"] = eval_record
             if "evaluations_by_session" not in st.session_state:
                 st.session_state["evaluations_by_session"] = {}
-            if selected_id:
-                st.session_state["evaluations_by_session"][selected_id] = eval_record
+            st.session_state["evaluations_by_session"][eval_key] = eval_record
 
             # Lưu vào danh sách lịch sử đánh giá CSDL
             eval_history = st.session_state.setdefault("evaluation_history", [])
             eval_history.insert(0, eval_record)
 
-            # Cập nhật kết quả buổi tập nếu có
-            if result is not None:
+            # Cập nhật kết quả buổi tập hoặc bài tập nếu có
+            if selected_exercise:
+                selected_exercise["rpe"] = rpe
+            elif result is not None:
                 result["rpe"] = rpe
                 result["evaluation"] = eval_record
 
-            # 3. Tự động áp dụng vào kế hoạch tuần nếu người dùng đồng ý
+            # 3. Tự động áp dụng vào kế hoạch tuần nếu người dùng đồng ý (cho session scope)
             modified_count = 0
-            if auto_apply:
+            if auto_apply and not selected_exercise:
                 schedule = st.session_state.get("weekly_schedule")
                 if isinstance(schedule, list):
                     updated_schedule, modified_count = apply_adaptive_adjustment_to_schedule(
@@ -475,15 +526,18 @@ def render_evaluation_view():
     with col2:
         st.subheader("2. Khuyến nghị Tự động của Adaptive AI")
 
+        eval_key = f"{selected_id}_{selected_exercise['id']}" if (selected_id and selected_exercise) else (selected_id or "current")
         eval_by_session = st.session_state.get("evaluations_by_session", {})
-        current_session_eval = eval_by_session.get(selected_id) if selected_id else st.session_state.get("last_eval")
+        current_session_eval = eval_by_session.get(eval_key) if eval_key else st.session_state.get("last_eval")
 
         if not current_session_eval:
+            target_scope_name = f"Bài tập '{selected_exercise['name']}'" if selected_exercise else "Buổi tập này"
             st.info(
-                "ℹ️ **Buổi tập này chưa gửi khảo sát đánh giá.**\n\n"
+                f"ℹ️ **{target_scope_name} chưa gửi khảo sát đánh giá.**\n\n"
                 "Khung khuyến nghị và bài tập phục hồi sẽ tự động hiển thị sau khi bạn chọn mức RPE, "
                 "nhóm cơ mỏi bên cạnh và bấm **💾 Gửi Đánh giá & Cập nhật Kế hoạch**!"
             )
+
         else:
             comp = current_session_eval.get("completion_rate", completion_rate)
             user_rpe = current_session_eval.get("rpe", rpe)

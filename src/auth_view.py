@@ -46,15 +46,15 @@ def populate_demo_user_session(state: dict) -> None:
     }
     state["has_worked_out_today"] = True
     state["session_history"] = [
-        {"Ngày": "16/11/2026", "Bài tập": "Standard Push-up", "Số reps": 36, "Thời lượng": "14 phút", "Calo (kcal)": 78.5, "RPE": "Chưa khảo sát", "Tỉ lệ hoàn thành": "100%"},
-        {"Ngày": "17/11/2026", "Bài tập": "Squat Thể dục", "Số reps": 45, "Thời lượng": "16 phút", "Calo (kcal)": 95.0, "RPE": "Chưa khảo sát", "Tỉ lệ hoàn thành": "90%"},
-        {"Ngày": "20/11/2026", "Bài tập": "Dips trên ghế", "Số reps": 30, "Thời lượng": "12 phút", "Calo (kcal)": 65.0, "RPE": "8/10", "Tỉ lệ hoàn thành": "85%"},
-        {"Ngày": "22/11/2026", "Bài tập": "Plank Tĩnh", "Số reps": 60, "Thời lượng": "10 phút", "Calo (kcal)": 55.0, "RPE": "5/10", "Tỉ lệ hoàn thành": "100%"},
+        {"Ngày": "16/11/2026", "Bài tập": "Thân trên: Ngực & Tay sau (3 bài)", "Số reps": 96, "Thời lượng": "14 phút", "Calo (kcal)": 78.5, "RPE": "Chưa khảo sát", "Tỉ lệ hoàn thành": "100%"},
+        {"Ngày": "17/11/2026", "Bài tập": "Thân dưới & Mông (3 bài)", "Số reps": 115, "Thời lượng": "16 phút", "Calo (kcal)": 95.0, "RPE": "Chưa khảo sát", "Tỉ lệ hoàn thành": "90%"},
+        {"Ngày": "20/11/2026", "Bài tập": "Toàn thân & Sức bền tim mạch (2 bài)", "Số reps": 70, "Thời lượng": "12 phút", "Calo (kcal)": 65.0, "RPE": "8/10", "Tỉ lệ hoàn thành": "85%"},
+        {"Ngày": "22/11/2026", "Bài tập": "Giãn cơ & Khớp dẻo dai (2 bài)", "Số reps": 60, "Thời lượng": "10 phút", "Calo (kcal)": 55.0, "RPE": "5/10", "Tỉ lệ hoàn thành": "100%"},
     ]
     state["workout_results"] = {
         "demo-sess-04": {
             "session_id": "demo-sess-04",
-            "session_name": "Plank Tĩnh (Core Stability)",
+            "session_name": "Chủ Nhật: Giãn cơ & Khớp dẻo dai (2 bài)",
             "mode": "ai",
             "reps": 60,
             "target_reps": 60,
@@ -62,39 +62,57 @@ def populate_demo_user_session(state: dict) -> None:
             "calories": 55.0,
             "finished_at": "17:45 22/11/2026",
             "completion_rate": 100.0,
+            "exercises": [
+                {"id": "plank", "name": "Plank Tĩnh (Core Stability)", "reps": 60, "target_reps": 60, "sets": 3, "primary_muscle": "Bụng & Core", "rpe": 5, "completion_rate": 100.0, "substitute": "Dead Bug"},
+                {"id": "stretch", "name": "Giãn cơ toàn thân (Full Body Stretch)", "reps": 60, "target_reps": 60, "sets": 2, "primary_muscle": "Toàn thân & Tim mạch", "rpe": 5, "completion_rate": 100.0, "substitute": "Child Pose"},
+            ],
         },
         "demo-sess-03": {
             "session_id": "demo-sess-03",
-            "session_name": "Dips trên ghế (Bench Dips)",
+            "session_name": "Thứ 6: Toàn thân & Sức bền tim mạch (2 bài)",
             "mode": "ai",
-            "reps": 30,
-            "target_reps": 35,
+            "reps": 70,
+            "target_reps": 75,
             "duration_seconds": 720,
             "calories": 65.0,
             "finished_at": "18:00 20/11/2026",
             "completion_rate": 85.7,
+            "exercises": [
+                {"id": "jumping_jacks", "name": "Jumping Jacks (Nhảy dang tay nhẹ)", "reps": 40, "target_reps": 40, "sets": 3, "primary_muscle": "Toàn thân & Tim mạch", "rpe": 7, "completion_rate": 100.0, "substitute": "Step Jacks"},
+                {"id": "mountain_climbers", "name": "Mountain Climbers (Leo núi trên thảm)", "reps": 30, "target_reps": 35, "sets": 3, "primary_muscle": "Bụng & Core", "rpe": 8, "completion_rate": 85.7, "substitute": "Plank Shoulder Tap"},
+            ],
         },
         "demo-sess-02": {
             "session_id": "demo-sess-02",
-            "session_name": "Squat Thể dục (Bodyweight Squat)",
+            "session_name": "Thứ 3: Thân dưới & Mông (3 bài)",
             "mode": "ai",
-            "reps": 45,
-            "target_reps": 50,
+            "reps": 115,
+            "target_reps": 125,
             "duration_seconds": 960,
             "calories": 95.0,
             "finished_at": "19:15 17/11/2026",
             "completion_rate": 90.0,
+            "exercises": [
+                {"id": "squat", "name": "Squat Thể dục (Bodyweight Squat)", "reps": 45, "target_reps": 50, "sets": 4, "primary_muscle": "Cơ đùi trước (Quads)", "rpe": None, "completion_rate": 90.0, "substitute": "Wall Sit (Ngồi tựa tường)"},
+                {"id": "glute_bridge", "name": "Glute Bridge (Nâng mông trên thảm)", "reps": 40, "target_reps": 40, "sets": 3, "primary_muscle": "Cơ mông (Glutes)", "rpe": None, "completion_rate": 100.0, "substitute": "Single Leg Bridge"},
+                {"id": "calf_raises", "name": "Calf Raises (Nhón bắp chân)", "reps": 30, "target_reps": 35, "sets": 3, "primary_muscle": "Bắp chân", "rpe": None, "completion_rate": 85.7, "substitute": "Seated Calf Raise"},
+            ],
         },
         "demo-sess-01": {
             "session_id": "demo-sess-01",
-            "session_name": "Standard Push-up (Hít đất chuẩn)",
+            "session_name": "Thứ 2: Thân trên: Ngực & Tay sau (3 bài)",
             "mode": "ai",
-            "reps": 36,
-            "target_reps": 36,
+            "reps": 96,
+            "target_reps": 96,
             "duration_seconds": 840,
             "calories": 78.5,
             "finished_at": "18:30 16/11/2026",
             "completion_rate": 100.0,
+            "exercises": [
+                {"id": "push_up", "name": "Standard Push-up (Hít đất chuẩn)", "reps": 36, "target_reps": 36, "sets": 3, "primary_muscle": "Cơ ngực (Chest)", "rpe": None, "completion_rate": 100.0, "substitute": "Knee Push-up"},
+                {"id": "bench_dip", "name": "Dips trên ghế (Bench Dips)", "reps": 30, "target_reps": 30, "sets": 3, "primary_muscle": "Tay sau (Triceps)", "rpe": None, "completion_rate": 100.0, "substitute": "Diamond Push-up"},
+                {"id": "plank", "name": "Plank Tĩnh (Core Stability)", "reps": 30, "target_reps": 30, "sets": 3, "primary_muscle": "Bụng & Core", "rpe": None, "completion_rate": 100.0, "substitute": "Dead Bug"},
+            ],
         },
     }
     state["workout_event_history"] = [
