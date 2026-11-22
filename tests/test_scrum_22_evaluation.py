@@ -203,6 +203,41 @@ class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
         self.assertEqual(res_list.status_code, 200)
         self.assertTrue(res_list.json()["count"] >= 1)
 
+    def test_demo_account_auth_and_seeded_data(self):
+        """9. Kiểm tra tài khoản Demo (demo@fitsense.vn) đăng nhập và có đầy đủ dữ liệu mẫu."""
+        # Test login API with demo credentials
+        res_login = self.client.post("/api/auth/login", json={
+            "email": "demo@fitsense.vn",
+            "password": "demo123",
+        })
+        self.assertEqual(res_login.status_code, 200)
+        user = res_login.json()["user"]
+        self.assertEqual(user["email"], "demo@fitsense.vn")
+        self.assertEqual(user["name"], "Vận Động Viên Trải Nghiệm")
+
+        # Test pre-seeded workout history
+        res_hist = self.client.get("/api/progress/history")
+        self.assertEqual(res_hist.status_code, 200)
+        self.assertTrue(res_hist.json()["count"] >= 4)
+
+        # Test pre-seeded stats & PRs
+        res_stats = self.client.get("/api/progress/stats")
+        self.assertEqual(res_stats.status_code, 200)
+        stats = res_stats.json()
+        self.assertTrue(stats["total_workouts"] >= 4)
+        self.assertIn("Standard Push-up", stats["personal_records"])
+        self.assertEqual(stats["personal_records"]["Standard Push-up"], "36 Reps")
+
+        # Test Streamlit session populator
+        dummy_state = {}
+        import src.auth_view as auth_view
+        auth_view.populate_demo_user_session(dummy_state)
+        self.assertTrue(dummy_state["is_logged_in"])
+        self.assertEqual(dummy_state["user_profile"]["email"], "demo@fitsense.vn")
+        self.assertEqual(dummy_state["streak_info"]["current_streak"], 4)
+        self.assertEqual(len(dummy_state["workout_results"]), 4)
+        self.assertEqual(len(dummy_state["session_history"]), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

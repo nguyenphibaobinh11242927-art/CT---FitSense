@@ -23,26 +23,152 @@ RPE_DESCRIPTIONS = {
 }
 
 PERSONAL_RECORDS = {
-    "Squat Thể dục": "Chưa ghi nhận",
-    "Standard Push-up": "Chưa ghi nhận",
-    "Plank Tĩnh": "Chưa ghi nhận",
-    "Dips trên ghế": "Chưa ghi nhận",
+    "Squat Thể dục": "45 Reps",
+    "Standard Push-up": "36 Reps",
+    "Plank Tĩnh": "75 Giây",
+    "Dips trên ghế": "30 Reps",
 }
 
 WEEKLY_VOLUME = [
-    {"week": "Tuần 1", "reps": 0, "minutes": 0},
-    {"week": "Tuần 2", "reps": 0, "minutes": 0},
-    {"week": "Tuần 3", "reps": 0, "minutes": 0},
-    {"week": "Tuần 4", "reps": 0, "minutes": 0},
-    {"week": "Tuần này", "reps": 0, "minutes": 0},
+    {"week": "Tuần 1", "reps": 120, "minutes": 45},
+    {"week": "Tuần 2", "reps": 150, "minutes": 60},
+    {"week": "Tuần 3", "reps": 180, "minutes": 75},
+    {"week": "Tuần 4", "reps": 210, "minutes": 90},
+    {"week": "Tuần này", "reps": 171, "minutes": 68},
 ]
 
-EVALUATION_HISTORY: list[dict[str, Any]] = []
+EVALUATION_HISTORY: list[dict[str, Any]] = [
+    {
+        "id": "eval-02",
+        "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "date": datetime.now().strftime("%d/%m/%Y"),
+        "completion_rate": 100.0,
+        "rpe": 5,
+        "rpe_description": "😤 Vừa sức lý tưởng (Nhịp tập ổn định)",
+        "muscle_soreness": ["Lưng & Cột sống"],
+        "doms_severity": "normal",
+        "doms_severity_label": "🟢 Bình thường (Căng cơ nhẹ, phục hồi nhanh)",
+        "satisfaction": "very_satisfied",
+        "satisfaction_label": "🌟 Rất hài lòng (Đúng kế hoạch, thể lực sung mãn)",
+        "strategy": "overload",
+        "recommendation": {
+            "title": "Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥",
+            "action": "Xuất sắc! Buổi sau sẽ tự động tăng 2 reps/set hoặc gợi ý biến thể nâng cao để bứt phá giới hạn!",
+            "badge": "badge-emerald",
+        },
+        "streak_maintained": True,
+        "recovery_items": [
+            {
+                "muscle": "Lưng & Cột sống",
+                "rest_hours": 48,
+                "stretch_name": "Cat-Cow & Child's Pose (Tư thế đứa trẻ & Con mèo)",
+                "guide": "Quỳ gối hạ mông chạm gót chân, vươn dài hai tay ra phía trước thả lỏng toàn bộ sống lưng trong 45–60 giây.",
+            }
+        ],
+        "hydration_advice": "Uống bổ sung ~350ml nước lọc hoặc oresol để bù dịch và chất điện giải đã mất.",
+    },
+    {
+        "id": "eval-01",
+        "timestamp": (datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y 18:20"),
+        "date": (datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y"),
+        "completion_rate": 85.7,
+        "rpe": 8,
+        "rpe_description": "😫 Rất mệt (Cần tập trung cao độ, thở dốc)",
+        "muscle_soreness": ["Cơ ngực (Chest)", "Cổ tay"],
+        "doms_severity": "moderate",
+        "doms_severity_label": "🟡 Vừa phải (Mỏi rõ rệt sau bài tập, cần nghỉ ngơi)",
+        "satisfaction": "satisfied",
+        "satisfaction_label": "👍 Hài lòng (Hoàn thành tốt các hiệp chính)",
+        "strategy": "minor_deload",
+        "recommendation": {
+            "title": "Khuyến nghị Giảm nhẹ Củng cố Thể lực (-5%) 📉",
+            "action": "Tự động tinh chỉnh nhẹ -5% số reps và tập trung chuẩn hóa kỹ thuật form trước khi tăng tải trở lại.",
+            "badge": "badge-warning",
+        },
+        "streak_maintained": True,
+        "recovery_items": [
+            {
+                "muscle": "Cơ ngực (Chest)",
+                "rest_hours": 48,
+                "stretch_name": "Doorway Chest Stretch (Giãn ngực khung cửa)",
+                "guide": "Đặt cẳng tay vuông góc vào mép cửa, bước nhẹ một chân lên trước và xoay người mở rộng lồng ngực 30 giây.",
+            },
+            {
+                "muscle": "Cổ tay",
+                "rest_hours": 24,
+                "stretch_name": "Wrist Flexor & Extensor Stretch (Giãn duỗi cổ tay)",
+                "guide": "Duỗi thẳng một tay về trước, dùng tay kia bẻ nhẹ các ngón tay ngược về sau rồi gập xuống dưới, 20 giây mỗi chiều.",
+            }
+        ],
+        "hydration_advice": "Uống bổ sung ~400ml nước lọc hoặc oresol để bù dịch và chất điện giải đã mất.",
+    }
+]
 
-# Global workout events and history storage (starts empty for genuine user data)
-WORKOUT_HISTORY: list[dict[str, Any]] = []
+# Workout history with pre-populated demo sessions
+WORKOUT_HISTORY: list[dict[str, Any]] = [
+    {
+        "id": "w-04",
+        "exercise_id": "plank",
+        "exercise_name": "Plank Tĩnh (Core Stability)",
+        "actual_date": date.today().isoformat(),
+        "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "reps": 60,
+        "duration_sec": 600,
+        "calories": 55.0,
+        "rpe": 5,
+        "day": "Chủ Nhật",
+        "notes": "Siết cơ bụng tốt, nhịp thở đều",
+        "completion_rate": 100.0,
+        "status": "completed",
+    },
+    {
+        "id": "w-03",
+        "exercise_id": "bench_dip",
+        "exercise_name": "Dips trên ghế (Bench Dips)",
+        "actual_date": (date.today() - timedelta(days=2)).isoformat(),
+        "timestamp": (datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y 18:00"),
+        "reps": 30,
+        "duration_sec": 720,
+        "calories": 65.0,
+        "rpe": 8,
+        "day": "Thứ 6",
+        "notes": "Hiệp 3 hơi mỏi tay sau, hoàn thành 30/35 reps",
+        "completion_rate": 85.7,
+        "status": "completed",
+    },
+    {
+        "id": "w-02",
+        "exercise_id": "squat",
+        "exercise_name": "Squat Thể dục (Bodyweight Squat)",
+        "actual_date": (date.today() - timedelta(days=4)).isoformat(),
+        "timestamp": (datetime.now() - timedelta(days=4)).strftime("%d/%m/%Y 19:15"),
+        "reps": 45,
+        "duration_sec": 960,
+        "calories": 95.0,
+        "rpe": 7,
+        "day": "Thứ 4",
+        "notes": "Góc gối mở đều, đùi song song mặt sàn",
+        "completion_rate": 90.0,
+        "status": "completed",
+    },
+    {
+        "id": "w-01",
+        "exercise_id": "push_up",
+        "exercise_name": "Standard Push-up (Hít đất chuẩn)",
+        "actual_date": (date.today() - timedelta(days=6)).isoformat(),
+        "timestamp": (datetime.now() - timedelta(days=6)).strftime("%d/%m/%Y 18:30"),
+        "reps": 36,
+        "duration_sec": 840,
+        "calories": 78.5,
+        "rpe": 6,
+        "day": "Thứ 2",
+        "notes": "Chuẩn form 3 hiệp 12 reps, ngực chạm sàn tốt",
+        "completion_rate": 100.0,
+        "status": "completed",
+    },
+]
 
-HAS_WORKED_OUT_TODAY = False
+HAS_WORKED_OUT_TODAY = True
 
 
 def record_workout(
