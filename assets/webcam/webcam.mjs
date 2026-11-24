@@ -9,6 +9,7 @@ import {
   jointZone,
   kneeValgus,
 } from "./overlay.mjs";
+import {createTooCloseDebouncer, getPoseDiagnostics} from "./pose_diagnostics.mjs";
 
 const MAX_BATCH_SEND_INTERVAL_MS = 200;
 const FRAME_STALL_TIMEOUT_MS = 600;
@@ -33,9 +34,11 @@ let pendingFrames = [], frameSequence = 0, lastBatchAt = 0, cameraRun = 0;
 const frameBatchFilter = createFrameBatchFilter();
 const landmarkSmoother = createLandmarkSmoother({minCutoff: 1.0, beta: 3.0});
 const fpsStats = createFpsStats(10);
+const tooCloseDebouncer = createTooCloseDebouncer();
 let awaitingAckSequence = null, awaitingAckSince = 0;
 let detectCostMs = 0, skipNextDetection = false, lastPose = [], lastFrameHeight = 0;
 let trackingInterrupted = true;
+let exerciseType = "squat";
 const streamId = globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let lastVoiceSequence = 0;
@@ -108,7 +111,21 @@ if (window.parent === window) {
 window.addEventListener("message", event => {
   if (event.source !== parent || event.origin !== location.origin ||
       event.data?.type !== "streamlit:render") return;
-  const {model, session_id: renderSessionId, last_event_id: acknowledged, voice_feedback: feedback, show_metrics: visibleMetrics} = event.data.args;
+  const {
+    model,
+    session_id: renderSessionId,
+    last_event_id: acknowledged,
+    voice_feedback: feedback,
+    show_metrics: visibleMetrics,
+    exercise_type: visibleExerciseType,
+  } = event.data.args;
+  if (visibleExerciseType === "squat" || visibleExerciseType === "push_up") {
+    if (visibleExerciseType !== exerciseType) {
+      exerciseType = visibleExerciseType;
+      tooCloseDebouncer.reset();
+      frameBatchFilter.reset();
+    }
+  }
   applyMetricsVisibility(visibleMetrics);
   if (!encodedModel && model && renderSessionId) {
     encodedModel = model;
@@ -221,7 +238,7 @@ function drawSkeleton(points) {
     ctx.fillText(text, point.x + 12, point.y - 8);
   }
 }
-function getPoseFeatures(pose) {
+function getPoseFeatures(pose, capturedAt = performance.now(), frameWidth = 1) {
   const nose = pose[0];
   const leftShoulder = pose[11], rightShoulder = pose[12];
   const leftElbow = pose[13], rightElbow = pose[14];
@@ -264,11 +281,14 @@ function getPoseFeatures(pose) {
       Math.abs(leftWrist.x - rightWrist.x) < 0.15 * bodyWidth;
   }
 
+  const diagnostics = getPoseDiagnostics(pose, exerciseType, frameWidth);
   return {
     knee_angle: kneeAngle,
     start_detected: startDetected,
     x_detected: xDetected,
-    head_detected: Boolean(nose)
+    head_detected: Boolean(nose),
+    is_too_close: tooCloseDebouncer.update(diagnostics.tooCloseCandidate, capturedAt),
+    is_bad_angle: diagnostics.isBadAngle,
   };
 }
 function queueFrame(frame) {
@@ -291,6 +311,7 @@ function sendFrameBatch(force = false, now = performance.now()) {
 function sendTrackingLoss() {
   trackingInterrupted = true;
   landmarkSmoother.reset();
+  tooCloseDebouncer.reset();
   lastPose = [];
   const frame = {...getPoseFeatures([]), tracking_interrupted: true};
   queueFrame(frame);
@@ -374,7 +395,7 @@ function draw(now) {
       drawSkeleton(points);
       if (showMetrics) updateAngles(points);
       if (shouldDetect) {
-        const features = getPoseFeatures(points);
+        const features = getPoseFeatures(points, now, w);
         const hand = features.start_detected ? "Đã thấy tay giơ cao" : "Chưa thấy tay giơ cao";
         const knee = features.knee_angle === null ? "chưa thấy rõ chân" : Math.round(features.knee_angle) + "°";
         setStatus(pose.length ? hand + " · Góc gối dùng để đếm: " + knee : "Hãy đứng trong khung hình.");
@@ -462,6 +483,7 @@ get("camera-toggle").onclick = async () => {
     detectCostMs = 0;
     skipNextDetection = false;
     landmarkSmoother.reset();
+    tooCloseDebouncer.reset();
     fpsStats.reset();
     lastPose = [];
     frameBatchFilter.reset();

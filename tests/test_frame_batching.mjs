@@ -36,3 +36,16 @@ test("heartbeat and tracking transitions are sent even without pose movement", (
   filter.noteQueued(standing, 1000);
   assert.equal(filter.shouldQueue({...standing, knee_angle: null}, 1050), true);
 });
+
+test("diagnostic flag transitions are batched immediately", () => {
+  const filter = createFrameBatchFilter();
+  filter.noteQueued({...standing, is_too_close: false, is_bad_angle: false}, 0);
+
+  const tooClose = {...standing, is_too_close: true, is_bad_angle: false};
+  assert.equal(filter.shouldQueue(tooClose, 10), true);
+  filter.noteQueued(tooClose, 10);
+  assert.equal(filter.shouldQueue(tooClose, 20), false);
+
+  const badAngle = {...tooClose, is_bad_angle: true};
+  assert.equal(filter.shouldQueue(badAngle, 30), true);
+});
