@@ -106,12 +106,11 @@ export const Capybara = {
           // Resume wandering after 15s of idle in new position
           setTimeout(() => { this.isPaused = false; }, 15000);
         } else if (elapsed < 350 && dragDistance < 6) {
-          // Plain click on Capybara!
-          this.isDismissedByUser = false;
-          this.nextQuote(true);
-          this.showBubble();
-          this.restartTimer();
-          setTimeout(() => { this.isPaused = false; }, 8000);
+          // Plain click on Capybara: Open Capybara AI Chat Dialog (SCRUM-31)!
+          this.isDismissedByUser = true;
+          this.hideBubble(true);
+          this.isPaused = true;
+          import("./capybara_chat.js?v=3.0.0").then((m) => m.CapybaraChat?.open());
         }
       };
 

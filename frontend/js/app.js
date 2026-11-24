@@ -7,6 +7,7 @@ import { API } from "./api.js?v=3.0.0";
 import { Store } from "./state.js?v=3.0.0";
 import { Toast } from "./components/toast.js?v=3.0.0";
 import { Capybara } from "./components/capybara.js?v=3.0.0";
+import { CapybaraChat } from "./components/capybara_chat.js?v=3.0.0";
 
 import { DashboardView } from "./views/dashboard.js?v=3.0.0";
 import { PlannerView } from "./views/planner.js?v=3.0.0";
@@ -45,6 +46,9 @@ class FitSenseApp {
 
     // Close Modals when clicking backdrop or close buttons
     this.setupModals();
+
+    // Initialize Capybara AI Chat Component (SCRUM-31)
+    CapybaraChat.init();
 
     // Global helper methods for cross-view navigation
     window.navigateTo = (viewName, forceRefresh = false) => this.switchView(viewName, true, forceRefresh);

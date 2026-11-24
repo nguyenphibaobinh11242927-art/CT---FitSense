@@ -794,6 +794,53 @@
     </div>
   </div>
 
+  <!-- Modal 6: Capybara AI Assistant Chat Dialog -->
+  <div class="modal-backdrop capy-chat-backdrop" id="modal-capybara-chat">
+    <div class="modal-dialog capy-chat-dialog" id="capy-chat-dialog-box">
+      <!-- Chat Header -->
+      <div class="capy-chat-header">
+        <div class="capy-chat-header-info">
+          <div class="capy-header-avatar" id="capy-header-avatar">🦫</div>
+          <div>
+            <h3 class="capy-chat-title">Trợ lý Capybara AI 🦫💬</h3>
+            <span class="capy-chat-subtitle">Đồng hành Calisthenics &amp; Lịch tập FitSense</span>
+          </div>
+        </div>
+        <div class="capy-chat-header-actions">
+          <button type="button" class="btn-clear-chat" id="btn-capy-clear-chat" title="Xóa lịch sử chat và bắt đầu lại">
+            <span class="clear-icon">🗑️</span> <span class="clear-text">Làm mới</span>
+          </button>
+          <span class="modal-close-btn" id="btn-capy-chat-close" title="Đóng">&times;</span>
+        </div>
+      </div>
+
+      <!-- Quick Prompt Chips Row -->
+      <div class="capy-chips-wrapper" id="capy-chips-wrapper">
+        <div class="capy-chips-label">💡 Gợi ý nhanh:</div>
+        <div class="capy-chips-list" id="capy-chips-list">
+          <!-- Dynamically populated via capybara_chat.js -->
+        </div>
+      </div>
+
+      <!-- Chat Messages Container -->
+      <div class="capy-messages-container" id="capy-messages-container">
+        <!-- Messages dynamically rendered here -->
+      </div>
+
+      <!-- Chat Input Form -->
+      <div class="capy-input-container">
+        <form id="capy-chat-form" class="capy-chat-form" onsubmit="return false;">
+          <input type="text" id="capy-chat-input" class="capy-chat-input" placeholder="Nhắn tin cho Capy (ví dụ: đau gối khi squat, dời lịch thứ 4 sang thứ 5)..." autocomplete="off" />
+          <button type="submit" id="capy-chat-send-btn" class="capy-chat-send-btn" title="Gửi tin nhắn">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Main ES6 Application Script with Cache-Busting Version -->
   <script type="module" src="/js/app.js?v=3.0.0"></script>
 </body>
