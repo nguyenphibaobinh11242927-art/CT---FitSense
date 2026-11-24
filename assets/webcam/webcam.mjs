@@ -1,4 +1,4 @@
-import {createVoiceCoach} from "./voice_coach.mjs";
+import {createVoiceCoach} from "./voice_coach.mjs?v=voice-feedback-1";
 import {createFrameBatchFilter} from "./frame_batching.mjs";
 import {
   boneColor,

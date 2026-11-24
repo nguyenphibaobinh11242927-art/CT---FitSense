@@ -3,17 +3,17 @@
  * SPA View Router, Authentication Controller, Theme Manager & Event Coordinator
  */
 
-import { API } from "./api.js?v=2.2.0";
-import { Store } from "./state.js?v=2.2.0";
-import { Toast } from "./components/toast.js?v=2.2.0";
-import { Capybara } from "./components/capybara.js?v=2.2.0";
+import { API } from "./api.js?v=3.0.0";
+import { Store } from "./state.js?v=3.0.0";
+import { Toast } from "./components/toast.js?v=3.0.0";
+import { Capybara } from "./components/capybara.js?v=3.0.0";
 
-import { DashboardView } from "./views/dashboard.js?v=2.2.0";
-import { PlannerView } from "./views/planner.js?v=2.2.0";
-import { LibraryView } from "./views/library.js?v=2.2.0";
-import { WorkoutView } from "./views/workout.js?v=2.2.0";
-import { ProgressView } from "./views/progress.js?v=2.2.0";
-import { ProfileView } from "./views/profile.js?v=2.2.0";
+import { DashboardView } from "./views/dashboard.js?v=3.0.0";
+import { PlannerView } from "./views/planner.js?v=3.0.0";
+import { LibraryView } from "./views/library.js?v=3.0.0";
+import { WorkoutView } from "./views/workout.js?v=3.0.0";
+import { ProgressView } from "./views/progress.js?v=3.0.0";
+import { ProfileView } from "./views/profile.js?v=3.0.0";
 
 const VIEWS = {
   dashboard: DashboardView,
@@ -47,14 +47,23 @@ class FitSenseApp {
     this.setupModals();
 
     // Global helper methods for cross-view navigation
-    window.navigateTo = (viewName) => this.switchView(viewName);
-    window.startWorkoutSession = (exId, exName, reps, day, prescription) => {
-      if (!exId) {
-        Toast.error("Bài tập này chưa có trong thư viện.");
-        return;
-      }
+    window.navigateTo = (viewName, forceRefresh = false) => this.switchView(viewName, true, forceRefresh);
+    window.startWorkoutSession = (
+      exId,
+      exName,
+      reps,
+      day,
+      exerciseListOrPrescription = [],
+      prescription = {}
+    ) => {
+      const exerciseList = Array.isArray(exerciseListOrPrescription)
+        ? exerciseListOrPrescription
+        : [];
+      const selectedPrescription = Array.isArray(exerciseListOrPrescription)
+        ? prescription
+        : exerciseListOrPrescription || prescription;
       this.switchView("workout");
-      WorkoutView.startSession(exId, exName, reps, day, prescription);
+      WorkoutView.startSession(exId, exName, reps, day, exerciseList, selectedPrescription);
     };
 
     // Check Authentication Status:
@@ -98,8 +107,24 @@ class FitSenseApp {
     const initialHash = window.location.hash.replace("#", "") || "dashboard";
     await this.switchView(VIEWS[initialHash] ? initialHash : "dashboard");
 
+    // Pre-warm other tabs silently in background so switching tabs is 0ms instantaneous
+    this.prewarmAllViews();
+
     // Check and show daily welcome popup
     await this.checkAndShowDailyWelcome();
+  }
+
+  prewarmAllViews() {
+    const order = ["workout", "planner", "library", "progress", "profile", "dashboard"];
+    order.forEach((viewKey, idx) => {
+      if (viewKey === this.currentView) return;
+      setTimeout(() => {
+        const sec = document.getElementById(`view-${viewKey}`);
+        if (sec && sec.children.length === 0 && VIEWS[viewKey]) {
+          VIEWS[viewKey].render(false).catch(() => {});
+        }
+      }, 150 + idx * 180);
+    });
   }
 
   async checkAndShowDailyWelcome() {
@@ -194,7 +219,7 @@ class FitSenseApp {
         modal.classList.remove("active");
         const firstEx = todayDay.exercises?.[0];
         if (firstEx) {
-          window.startWorkoutSession(firstEx.id, firstEx.name, parseInt(firstEx.reps, 10) || 12, todayDay.day, firstEx);
+          window.startWorkoutSession(firstEx.id || "squat", firstEx.name, parseInt(firstEx.reps) || 12, todayDay.day);
         }
       });
     } catch (e) {
@@ -222,10 +247,21 @@ class FitSenseApp {
 
   setupNavigation() {
     document.querySelectorAll(".nav-item").forEach((btn) => {
+      // Switch immediately on pointerdown for 0ms perceived latency
+      btn.addEventListener("pointerdown", (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        const view = btn.getAttribute("data-view");
+        if (view && view !== this.currentView) {
+          this.switchView(view);
+        }
+      });
+
       btn.addEventListener("click", (e) => {
         e.preventDefault();
         const view = btn.getAttribute("data-view");
-        if (view) this.switchView(view);
+        if (view && view !== this.currentView) {
+          this.switchView(view);
+        }
       });
     });
 
@@ -237,35 +273,54 @@ class FitSenseApp {
     });
   }
 
-  async switchView(viewName, updateHash = true) {
+  async switchView(viewName, updateHash = true, forceRefresh = false) {
     if (!VIEWS[viewName]) return;
 
     if (this.currentView === "workout" && viewName !== "workout") WorkoutView.leave();
     this.currentView = viewName;
-    if (updateHash) {
-      window.location.hash = viewName;
+    if (updateHash && window.location.hash !== `#${viewName}`) {
+      history.replaceState(null, "", `#${viewName}`);
     }
 
-    // Update active nav button
+    // Update active nav button immediately
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.classList.toggle("active", btn.getAttribute("data-view") === viewName);
     });
 
-    // Hide all view sections, show target view
+    const targetSection = document.getElementById(`view-${viewName}`);
+    const isFirstTime = !targetSection || targetSection.children.length === 0;
+
+    // Immediately show target section and hide other sections (0ms latency)
     document.querySelectorAll(".view-section").forEach((sec) => {
-      sec.classList.remove("active");
+      if (sec !== targetSection) {
+        sec.classList.remove("active");
+      }
     });
 
-    const targetSection = document.getElementById(`view-${viewName}`);
     if (targetSection) {
       targetSection.classList.add("active");
     }
 
-    // Render View Content
-    await VIEWS[viewName].render();
+    // Fast scroll reset without locking smooth animation hitch
+    if (window.scrollY > 40) {
+      window.scrollTo(0, 0);
+    }
 
-    // Scroll to top
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Yield one frame so the browser paints the newly switched tab at 0ms before running any render logic
+    if (!isFirstTime && !forceRefresh) {
+      setTimeout(() => {
+        VIEWS[viewName].render(false).catch((err) => {
+          console.error(`Error refreshing view ${viewName}:`, err);
+        });
+      }, 0);
+    } else {
+      try {
+        await VIEWS[viewName].render(true);
+        if (forceRefresh && viewName === "progress") void Capybara.refresh();
+      } catch (err) {
+        console.error(`Error rendering view ${viewName}:`, err);
+      }
+    }
   }
 
   async checkSystemHealth() {

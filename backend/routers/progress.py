@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from backend.schemas import EvaluationSubmitRequest
+from src.progress_analytics import build_progress_analytics, compute_personal_records
 
 router = APIRouter(prefix="/api/progress", tags=["Progress & Evaluation"])
 
@@ -49,14 +50,18 @@ def record_workout(
     exercise_id: str,
     reps: int,
     duration_sec: int,
-    rpe: int,
+    rpe: Optional[int],
     notes: str = "",
     calories: float = 0.0,
     day: Optional[str] = None,
     completion_rate: Optional[float] = None,
+    status: str = "completed",
+    mode: Optional[str] = None,
+    sets: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     global HAS_WORKED_OUT_TODAY
-    HAS_WORKED_OUT_TODAY = True
+    if status == "completed":
+        HAS_WORKED_OUT_TODAY = True
     
     from backend.routers.exercises import get_catalog
     catalog = get_catalog()
@@ -78,7 +83,12 @@ def record_workout(
         "day": day or "Hôm nay",
         "notes": notes,
         "completion_rate": comp_rate,
+        "status": status,
     }
+    if mode is not None:
+        record["mode"] = mode
+    if sets is not None:
+        record["sets"] = sets
     WORKOUT_HISTORY.insert(0, record)
     return record
 
@@ -90,6 +100,10 @@ def get_history():
         "history": WORKOUT_HISTORY,
     }
 
+@router.get("/analytics")
+def get_analytics(timeframe: str = "week"):
+    """SCRUM-21: Dynamic Pandas analytics by timeframe (week | month | all) for Plotly charts."""
+    return build_progress_analytics(WORKOUT_HISTORY, timeframe=timeframe)
 
 @router.get("/stats")
 def get_stats():
@@ -97,10 +111,12 @@ def get_stats():
     total_reps = sum(w.get("reps", 0) for w in WORKOUT_HISTORY)
     total_calories = round(sum(w.get("calories", 0) for w in WORKOUT_HISTORY), 1)
     total_duration_min = round(sum(w.get("duration_sec", 0) for w in WORKOUT_HISTORY) / 60, 1)
-    avg_rpe = round(sum(w.get("rpe", 7) for w in WORKOUT_HISTORY) / max(1, total_workouts), 1) if total_workouts > 0 else 0.0
+    rpe_scores = [w.get("rpe", 7) for w in WORKOUT_HISTORY if w.get("rpe", 7) is not None]
+    avg_rpe = round(sum(rpe_scores) / len(rpe_scores), 1) if rpe_scores else 0.0
     
     # Calculate consecutive workout streak
-    streak = 1 if HAS_WORKED_OUT_TODAY else (min(total_workouts, 1) if total_workouts > 0 else 0)
+    has_completed_workout = any(w.get("status", "completed") == "completed" for w in WORKOUT_HISTORY)
+    streak = int(HAS_WORKED_OUT_TODAY or has_completed_workout)
     longest = max(streak, 0)
     
     # Calculate average completion rate
@@ -120,7 +136,7 @@ def get_stats():
         "current_streak_days": streak,
         "longest_streak_days": longest,
         "has_worked_out_today": HAS_WORKED_OUT_TODAY,
-        "personal_records": PERSONAL_RECORDS,
+        "personal_records": compute_personal_records(WORKOUT_HISTORY),
         "weekly_volume": WEEKLY_VOLUME,
     }
 

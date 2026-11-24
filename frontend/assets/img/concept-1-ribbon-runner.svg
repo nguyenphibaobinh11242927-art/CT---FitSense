@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <linearGradient id="bgGlow1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="c1Pink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="100%" stop-color="#fb7185" />
+    </linearGradient>
+    <linearGradient id="c1Blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0ea5e9" />
+    </linearGradient>
+    <filter id="shadow1" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="512" height="512" rx="48" fill="url(#bgGlow1)" />
+  <rect x="2" y="2" width="508" height="508" rx="46" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+
+  <!-- Title Badge -->
+  <text x="256" y="58" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="16" font-weight="700" fill="#94a3b8" letter-spacing="3">Ý TƯỞNG 1: DẢI LỤA BỨT TỐC</text>
+
+  <!-- Graphic Container -->
+  <g filter="url(#shadow1)" transform="translate(40, 40)">
+    <!-- 1. Pastel Blue Motion Ground Wave & Forward Leg -->
+    <path d="M60 360 C120 370 180 340 230 310 C270 286 295 240 315 195 C320 185 330 180 340 190 C345 195 330 230 305 275 C275 330 215 385 140 395 C90 402 40 385 10 365 C5 362 25 355 60 360 Z" fill="url(#c1Blue)" opacity="0.9" />
+
+    <!-- 2. Pastel Pink Torso Ribbons & Trailing Leg Drive -->
+    <path d="M120 320 C160 270 200 230 240 200 C275 174 300 150 290 135 C280 120 250 140 220 175 C180 220 135 270 95 315 C85 326 100 335 120 320 Z" fill="url(#c1Pink)" />
+    <!-- Pink Back Arm Swish -->
+    <path d="M190 180 C150 160 110 165 80 185 C70 192 65 175 80 165 C115 140 165 140 205 165 C215 171 205 188 190 180 Z" fill="url(#c1Pink)" opacity="0.85" />
+
+    <!-- 3. Pure White Core: Runner Head & Forward Arm & Chest -->
+    <!-- Head -->
+    <circle cx="310" cy="95" r="28" fill="#ffffff" />
+    
+    <!-- Powerful Chest & Forward Driving Arm -->
+    <path d="M285 125 C310 135 340 160 375 175 C390 181 385 195 370 192 C335 185 305 160 280 145 C270 140 275 120 285 125 Z" fill="#ffffff" />
+    
+    <!-- Torso Spine Connection -->
+    <path d="M295 130 C275 160 250 205 240 250 C235 270 215 265 220 245 C230 200 260 150 280 125 C288 115 300 120 295 130 Z" fill="#ffffff" />
+    
+    <!-- Speed streaks -->
+    <circle cx="105" cy="120" r="4" fill="#38bdf8" opacity="0.6" />
+    <circle cx="70" cy="140" r="5" fill="#f472b6" opacity="0.6" />
+    <circle cx="45" cy="220" r="3.5" fill="#ffffff" opacity="0.7" />
+  </g>
+
+  <!-- Caption -->
+  <text x="256" y="475" text-anchor="middle" font-family="'Inter', system-ui, sans-serif" font-size="14" font-weight="600" fill="#cbd5e1">Nét lụa gió bất đối xứng · Dáng chạy bứt phá tốc độ</text>
+</svg>

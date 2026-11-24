@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import {existsSync} from "node:fs";
 import test from "node:test";
 import {createVoiceCoach} from "../assets/webcam/voice_coach.mjs";
 import {VI_CUES} from "../assets/webcam/voice/vi_cues.mjs";
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function setup(response) {
+function setup(response, onPlaybackChange) {
   const played = [], cues = [], status = [], calls = [], enabledStates = [], corrections = [];
   let now = 250;
   const coach = createVoiceCoach({
@@ -23,7 +24,8 @@ function setup(response) {
       }
     },
     fetchAudio: async url => {
-      assert.match(url.pathname, /\/voice\/vi\.mp3$/);
+      assert.match(url.pathname, /\/voice\/vi-mai-anh\.mp3$/);
+      assert.ok(existsSync(url), "the Voice Coach MP3 exists at the configured URL");
       calls.push("fetch");
       return response?.() ?? {ok: true, arrayBuffer: () => new ArrayBuffer(1)};
     },
@@ -31,10 +33,33 @@ function setup(response) {
     showStatus: text => status.push(text),
     onEnabledChange: enabled => enabledStates.push(enabled),
     onCorrection: (event, decision) => corrections.push([event.frame_sequence, decision]),
+    onPlaybackChange,
     now: () => now,
   });
   return {coach, played, cues, status, calls, enabledStates, corrections, advance(ms) { now += ms; }};
 }
+
+test("keeps the mic blocked across queued clips and releases it when muted", async () => {
+  const states = [];
+  const {coach, played} = setup(undefined, playing => states.push(playing));
+  coach.toggle();
+  await flush();
+  played.shift().onended();
+  coach.receive({kind: "rep", count: 1});
+  await flush();
+  coach.receive({kind: "rep", count: 2});
+  played[0].onended();
+  await flush();
+  assert.deepEqual(states, [true, false, true]);
+  played[1].onended();
+  assert.deepEqual(states, [true, false, true, false]);
+
+  coach.receive({kind: "rep", count: 3});
+  await flush();
+  coach.toggle();
+  played[2].onended();
+  assert.deepEqual(states, [true, false, true, false, true, false]);
+});
 
 test("plays Vietnamese rep and form clips with only one audio download", async () => {
   const {coach, played, cues, status, calls} = setup();
@@ -140,6 +165,27 @@ test("plays bundled camera warnings twelve seconds apart without cutting current
   await flush();
   assert.deepEqual(played[1].args, [3, ...VI_CUES[104]]);
   assert.equal(played[0].stopped, undefined);
+});
+
+test("plays fresh rep and form feedback without waiting behind long guidance", async () => {
+  const {coach, played, advance, status} = setup();
+  coach.toggle();
+  await flush();
+  played.shift().onended();
+
+  assert.equal(coach.warnPosition("wrong_angle"), true);
+  await flush();
+  advance(100);
+  coach.receive({kind: "rep", count: 2, captured_at: 350});
+  await flush();
+  assert.ok(played[0].stopped);
+  assert.deepEqual(played[1].args.slice(1), VI_CUES[2]);
+  assert.match(status.at(-1), /: 0 ms/);
+
+  coach.receive({kind: "shallow_squat", captured_at: 350});
+  await flush();
+  assert.ok(played[1].stopped);
+  assert.deepEqual(played[2].args.slice(1), VI_CUES[102]);
 });
 
 test("reads the latest completed rep before coaching on a newer attempt in the same batch", async () => {

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" width="800" height="240" fill="none">
+  <defs>
+    
+    <linearGradient id="bgLinearB1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#111827" />
+    </linearGradient>
+    <linearGradient id="pinkGradB1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="100%" stop-color="#fb7185" />
+    </linearGradient>
+    <linearGradient id="blueGradB1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+    <linearGradient id="textGradB1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f472b6" />
+      <stop offset="48%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+    <filter id="shadowB1" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.4" />
+    </filter>
+
+  </defs>
+  <rect width="800" height="240" rx="24" fill="url(#bgLinearB1)" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" />
+  
+  <!-- Left Logo Mark (Scaled & Centered around x=130, y=120) -->
+  <g transform="translate(60, 42) scale(0.48)">
+    <path d="M70 300 C60 260 70 200 95 140 C115 95 140 60 165 30 C175 18 190 28 182 40 C160 75 140 120 125 170 C105 230 100 280 115 305 C120 318 100 325 85 318 C75 313 72 308 70 300 Z" fill="url(#pinkGradB1)" />
+    <path d="M150 48 C185 40 230 45 275 60 C290 65 285 85 270 82 C230 72 190 70 145 78 C135 80 130 65 140 55 C143 51 146 49 150 48 Z" fill="#ffffff" />
+    <circle cx="288" cy="65" r="7" fill="#ffffff" />
+    <path d="M125 155 C160 145 205 148 245 160 C258 164 255 182 240 180 C205 172 165 172 120 180 C110 182 108 168 118 160 C120 158 122 156 125 155 Z" fill="url(#blueGradB1)" />
+  </g>
+
+  <!-- Typography -->
+  <text x="245" y="132" font-family="'Inter', system-ui, sans-serif" font-size="76" font-weight="900" letter-spacing="-1.5" fill="url(#textGradB1)">FitSense</text>
+  <text x="248" y="172" font-family="'Inter', system-ui, sans-serif" font-size="16" font-weight="700" letter-spacing="4" fill="#94a3b8">CALISTHENICS &amp; AI VISION</text>
+</svg>
