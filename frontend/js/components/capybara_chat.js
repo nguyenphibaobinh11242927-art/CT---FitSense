@@ -1,15 +1,17 @@
 /**
- * Capybara AI Assistant Chat Dialog Component (SCRUM-31)
+ * Capybara AI Assistant Chat Dialog Component (SCRUM-31 & SCRUM-32)
  * Features:
  * - Interactive Dialog Modal with smooth pop-from-capy animation
  * - Quick Prompt Chips with 1-click send & inline direct editing (✏️)
  * - Persistent chat history via localStorage
- * - Seamless integration with Action Card (SCRUM-32) & Audio Feedback
+ * - Seamless integration with Action Card & 4 Dynamic SVG Expressions (SCRUM-32)
  * - Full Dark / Light Theme & Responsive Mobile Compatibility
  */
 
 import { API } from "../api.js";
 import { Toast } from "./toast.js";
+import { createCapyAvatarElement, resolveCapyMood } from "./capybara_expressions.js";
+import { createActionCardElement, normalizeActionCard } from "./capybara_action_card.js";
 
 const STORAGE_KEY = "fitsense_capy_chat_history";
 
@@ -40,15 +42,6 @@ const DEFAULT_CHIPS = [
     prompt: "Mục Thư viện bài tập ở đâu vậy bạn?",
   },
 ];
-
-// Vector SVG avatar expressions (Modular hook for SCRUM-32)
-const CAPY_AVATARS = {
-  happy: "🥰",
-  worried: "🥺",
-  thinking: "🤔",
-  proud: "😎",
-  default: "🦫",
-};
 
 export const CapybaraChat = {
   modal: null,
@@ -168,6 +161,7 @@ export const CapybaraChat = {
         role: "assistant",
         content: "Xin chào! Tớ là CapyHeo 🦫✨, huấn luyện viên đồng hành Calisthenics của bạn. Tớ có thể giúp bạn giải đáp thắc mắc về bài tập, đổi bài an toàn khi đau chấn thương, hoặc điều chỉnh lịch tập. Bạn cần Capy giúp gì hôm nay?",
         time: this.getCurrentTime(),
+        mood: "happy",
         emotion: "happy",
         actionCard: null,
       },
@@ -189,6 +183,7 @@ export const CapybaraChat = {
         role: "assistant",
         content: "Cuộc trò chuyện đã được làm mới! CapyHeo đã sẵn sàng hỗ trợ bạn. Bạn cần tư vấn bài tập hay điều chỉnh lịch tập nào? 🦫✨",
         time: this.getCurrentTime(),
+        mood: "happy",
         emotion: "happy",
         actionCard: null,
       },
@@ -213,19 +208,16 @@ export const CapybaraChat = {
       chipEl.className = "capy-chip";
       chipEl.dataset.chipId = chip.id;
 
-      // Normal state markup
       chipEl.innerHTML = `
         <span class="capy-chip-text" title="Nhấp để gửi câu hỏi này ngay">${this.escapeHtml(chip.label)}</span>
         <button type="button" class="capy-chip-edit-btn" title="Chỉnh sửa trực tiếp câu này trước khi gửi">✏️</button>
       `;
 
-      // 1. Click text -> Send immediately
       const textSpan = chipEl.querySelector(".capy-chip-text");
       textSpan.addEventListener("click", () => {
         this.sendMessage(chip.prompt);
       });
 
-      // 2. Click ✏️ -> Inline direct editing
       const editBtn = chipEl.querySelector(".capy-chip-edit-btn");
       editBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -258,14 +250,14 @@ export const CapybaraChat = {
 
     const doConfirm = () => {
       const editedText = input.value.trim();
-      this.renderChips(); // Restore chips
+      this.renderChips();
       if (editedText) {
         this.sendMessage(editedText);
       }
     };
 
     const doCancel = () => {
-      this.renderChips(); // Restore chips
+      this.renderChips();
     };
 
     chipEl.addEventListener("keydown", (e) => {
@@ -306,77 +298,59 @@ export const CapybaraChat = {
     if (!this.messagesContainer) return;
     this.messagesContainer.innerHTML = "";
 
+    const fragment = document.createDocumentFragment();
+
     this.messages.forEach((msg) => {
       const isAssistant = msg.role === "assistant";
       const row = document.createElement("div");
       row.className = `capy-msg-row ${isAssistant ? "assistant" : "user"}`;
 
-      // Avatar
-      const avatarIcon = isAssistant
-        ? (CAPY_AVATARS[msg.emotion] || CAPY_AVATARS.default)
-        : "👤";
+      // Avatar container (SVG expression for assistant, crisp icon for user)
+      const avatarBox = document.createElement("div");
+      avatarBox.className = "capy-msg-avatar";
 
-      let actionCardHtml = "";
+      if (isAssistant) {
+        const mood = resolveCapyMood(msg);
+        avatarBox.setAttribute("data-mood", mood);
+        const svgAvatar = createCapyAvatarElement(mood);
+        if (svgAvatar) {
+          avatarBox.appendChild(svgAvatar);
+        }
+      } else {
+        avatarBox.title = "Bạn";
+        avatarBox.textContent = "👤";
+      }
+
+      // Message bubble
+      const bubble = document.createElement("div");
+      bubble.className = "capy-msg-bubble";
+
+      const contentEl = document.createElement("div");
+      contentEl.className = "capy-msg-content";
+      contentEl.innerHTML = this.formatMessageContent(msg.content);
+      bubble.appendChild(contentEl);
+
+      // SCRUM-32 Action Card (DOM API + textContent, zero XSS)
       if (msg.actionCard) {
-        actionCardHtml = this.renderActionCardHtml(msg.actionCard);
-      }
-
-      row.innerHTML = `
-        <div class="capy-msg-avatar" title="${isAssistant ? 'Capybara Assistant' : 'Bạn'}">
-          ${avatarIcon}
-        </div>
-        <div class="capy-msg-bubble">
-          <div class="capy-msg-content">${this.formatMessageContent(msg.content)}</div>
-          ${actionCardHtml}
-          <div class="capy-msg-time">${msg.time || ""}</div>
-        </div>
-      `;
-
-      // Setup action card navigation button if present
-      const navBtn = row.querySelector(".action-card-btn");
-      if (navBtn) {
-        navBtn.addEventListener("click", () => {
-          this.close();
-          if (typeof window.navigateTo === "function") {
-            window.navigateTo("planner", true);
-          } else {
-            window.location.hash = "#planner";
-          }
+        const cardEl = createActionCardElement(msg.actionCard, {
+          onBeforeNavigate: () => this.close(),
         });
+        if (cardEl) {
+          bubble.appendChild(cardEl);
+        }
       }
 
-      this.messagesContainer.appendChild(row);
+      const timeEl = document.createElement("div");
+      timeEl.className = "capy-msg-time";
+      timeEl.textContent = msg.time || "";
+      bubble.appendChild(timeEl);
+
+      row.appendChild(avatarBox);
+      row.appendChild(bubble);
+      fragment.appendChild(row);
     });
-  },
 
-  /**
-   * Action Card Component HTML (SCRUM-32 Integration & Support)
-   */
-  renderActionCardHtml(card) {
-    if (!card) return "";
-
-    const title = card.title || "🔄 Cập nhật Kế hoạch Tập luyện";
-    const badge = card.badge || "Đổi bài do chấn thương";
-    const oldLabel = card.old || "Bài cũ";
-    const newLabel = card.new || "Bài mới";
-    const note = card.note || "Tự động tối ưu bảo vệ khớp và nhóm cơ";
-
-    return `
-      <div class="capy-action-card">
-        <div class="action-card-header">
-          <span class="action-badge">${this.escapeHtml(badge)}</span>
-        </div>
-        <div class="action-swap-row">
-          <span class="action-old">${this.escapeHtml(oldLabel)}</span>
-          <span class="action-arrow">➔</span>
-          <span class="action-new">${this.escapeHtml(newLabel)}</span>
-        </div>
-        <div class="action-note">${this.escapeHtml(note)}</div>
-        <button type="button" class="action-card-btn">
-          <span>📋</span> Xem Kế hoạch Tuần
-        </button>
-      </div>
-    `;
+    this.messagesContainer.appendChild(fragment);
   },
 
   showTypingIndicator() {
@@ -386,16 +360,27 @@ export const CapybaraChat = {
     const row = document.createElement("div");
     row.id = "capy-typing-row";
     row.className = "capy-msg-row assistant";
-    row.innerHTML = `
-      <div class="capy-msg-avatar">🦫</div>
-      <div class="capy-msg-bubble">
-        <div class="capy-typing-indicator">
-          <span class="capy-typing-dot"></span>
-          <span class="capy-typing-dot"></span>
-          <span class="capy-typing-dot"></span>
-        </div>
+
+    const avatarBox = document.createElement("div");
+    avatarBox.className = "capy-msg-avatar";
+    avatarBox.setAttribute("data-mood", "thinking");
+    const thinkingAvatar = createCapyAvatarElement("thinking");
+    if (thinkingAvatar) {
+      avatarBox.appendChild(thinkingAvatar);
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "capy-msg-bubble";
+    bubble.innerHTML = `
+      <div class="capy-typing-indicator">
+        <span class="capy-typing-dot"></span>
+        <span class="capy-typing-dot"></span>
+        <span class="capy-typing-dot"></span>
       </div>
     `;
+
+    row.appendChild(avatarBox);
+    row.appendChild(bubble);
     this.messagesContainer.appendChild(row);
     this.scrollToBottom();
   },
@@ -441,76 +426,26 @@ export const CapybaraChat = {
       const res = await API.capybara.chat(text);
       this.removeTypingIndicator();
 
-      let emotion = "happy";
-      let actionCard = null;
+      const actionCard = normalizeActionCard(res);
+      const mood = resolveCapyMood({
+        mood: res?.mood ?? res?.emotion,
+        intent: res?.intent,
+        action: res?.action,
+        reply: res?.reply,
+        userMessage: text,
+      });
 
-      // 1. Emotion mapping
-      if (res.intent === "INJURY_REPORT") {
-        emotion = "worried";
-      } else if (res.action === "move_workout_day" || res.action === "apply_instant_deload") {
-        emotion = "thinking";
-      }
-
-      // 2. Action Card mapping (ONLY when res.action is a concrete action)
-      if (res.action === "swap_exercise_for_injury") {
-        const joint = res.params?.joint;
-        let oldEx = "Squat (Gánh đùi)";
-        let newEx = "Glute Bridge (Cầu mông)";
-        let note = "Thay bài tập giảm áp lực tối đa lên khớp gối";
-
-        if (joint === "wrist") {
-          oldEx = "Standard Push-up (Chống đẩy)";
-          newEx = "Forearm Plank (Plank cẳng tay)";
-          note = "Thay bài tránh dồn trọng lượng gập cổ tay";
-        } else if (joint === "shoulder") {
-          oldEx = "Pike Push-up (Đẩy vai dốc)";
-          newEx = "Incline Push-up (Chống đẩy dốc)";
-          note = "Giảm tải áp lực góc xoay của khớp vai";
-        } else if (joint === "lower_back") {
-          oldEx = "Leg Raise (Nâng chân)";
-          newEx = "Dead Bug (Bọ chết siết bụng)";
-          note = "Bảo vệ đĩa đệm và cơ thắt lưng dưới";
-        }
-
-        actionCard = {
-          title: "🔄 Đổi bài tập bảo vệ khớp",
-          badge: "🛡️ Tránh chấn thương",
-          old: oldEx,
-          new: newEx,
-          note: note,
-        };
-        this.playSuccessChime();
-      } else if (res.action === "move_workout_day") {
-        const fromD = res.params?.from_day || "Hôm nay";
-        const toD = res.params?.to_day || "Ngày mai";
-
-        actionCard = {
-          title: "📅 Dời lịch tập luyện",
-          badge: "⚡ Hoán đổi lịch tuần",
-          old: fromD,
-          new: toD,
-          note: `Đã dời buổi tập từ ${fromD} sang ${toD} trong giáo án`,
-        };
-        this.playSuccessChime();
-      } else if (res.action === "apply_instant_deload") {
-        const pct = res.params?.percentage ? Math.round(res.params.percentage * 100) : 30;
-
-        actionCard = {
-          title: "📉 Giảm tải cường độ (Deload)",
-          badge: "🌿 Hồi phục cơ bắp",
-          old: "100% Khối lượng",
-          new: `${100 - pct}% (Giảm ${pct}%)`,
-          note: `Giảm ${pct}% số reps và hiệp để cơ thể phục hồi tốt hơn`,
-        };
+      if (actionCard) {
         this.playSuccessChime();
       }
 
       this.messages.push({
         role: "assistant",
-        content: res.reply || "Capy nghe bạn rồi! 🦫✨",
+        content: res?.reply || "Capy nghe bạn rồi! 🦫✨",
         time: this.getCurrentTime(),
-        emotion: emotion,
-        actionCard: actionCard,
+        mood,
+        emotion: mood,
+        actionCard,
       });
 
       this.saveMessages();
@@ -523,7 +458,8 @@ export const CapybaraChat = {
         role: "assistant",
         content: "Capy đang gặp chút trục trặc mạng nhỏ, nhưng đừng lo bạn cứ nghỉ ngơi một chút rồi thử lại nhé! 🦫✨",
         time: this.getCurrentTime(),
-        emotion: "thinking",
+        mood: "worried",
+        emotion: "worried",
         actionCard: null,
       });
       this.saveMessages();
