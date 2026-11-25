@@ -548,48 +548,6 @@ class TestBackendAPI(unittest.TestCase):
         self.assertIn("quote", data)
         self.assertIn("<svg", data["svg"])
 
-    def test_capybara_chat_qa(self):
-        res = self.client.post("/api/capybara/chat", json={"message": "Mẹo chống đẩy"})
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertEqual(data["intent"], "QA_FITNESS_APP")
-        self.assertIsNone(data["action"])
-        self.assertTrue(data["reply"].endswith("🦫✨"))
-
-    def test_capybara_chat_injury(self):
-        res = self.client.post("/api/capybara/chat", json={"message": "Tôi bị đau đầu gối khi squat"})
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertEqual(data["intent"], "INJURY_REPORT")
-        self.assertEqual(data["action"], "swap_exercise_for_injury")
-        self.assertEqual(data["params"]["joint"], "knee")
-        self.assertTrue(data["reply"].endswith("🦫✨"))
-
-    def test_capybara_chat_move_day(self):
-        res = self.client.post("/api/capybara/chat", json={"message": "Dời thứ tư qua thứ năm"})
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertEqual(data["intent"], "RESCHEDULE_DELOAD")
-        self.assertEqual(data["action"], "move_workout_day")
-        self.assertEqual(data["params"]["from_day"], "Thứ 4")
-        self.assertEqual(data["params"]["to_day"], "Thứ 5")
-        self.assertTrue(data["reply"].endswith("🦫✨"))
-
-    def test_capybara_chat_deload(self):
-        res = self.client.post("/api/capybara/chat", json={"message": "Cho mình giảm tải 30%"})
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertEqual(data["intent"], "RESCHEDULE_DELOAD")
-        self.assertEqual(data["action"], "apply_instant_deload")
-        self.assertEqual(data["params"]["percentage"], 0.3)
-        self.assertTrue(data["reply"].endswith("🦫✨"))
-
-    def test_capybara_chat_validation_error(self):
-        # Empty message or whitespace only
-        res = self.client.post("/api/capybara/chat", json={"message": "   "})
-        self.assertEqual(res.status_code, 422)
-
-
 
 if __name__ == "__main__":
     unittest.main()

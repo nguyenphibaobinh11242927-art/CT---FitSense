@@ -1,12 +1,7 @@
 """Capybara Workout Mascot Companion Router."""
 
 import random
-from typing import Annotated
-
 from fastapi import APIRouter
-from pydantic import BaseModel, StringConstraints
-
-from src.capybara_agent import CapybaraReply, respond_to_message
 from src.capybara_widget import CAPY_SVG_HAPPY, CAPY_SVG_SAD
 from backend.routers.progress import HAS_WORKED_OUT_TODAY
 
@@ -43,13 +38,3 @@ def get_capybara_status():
         "svg": svg,
         "all_quotes": quotes,
     }
-
-
-class CapybaraChatRequest(BaseModel):
-    message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
-
-
-@router.post("/chat", response_model=CapybaraReply)
-def chat_with_capybara(payload: CapybaraChatRequest) -> CapybaraReply:
-    return respond_to_message(payload.message)
-

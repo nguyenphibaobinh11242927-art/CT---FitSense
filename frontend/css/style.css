@@ -2424,7 +2424,7 @@ input[type="file"]::file-selector-button:hover {
 
 /* Inline Editable Chip State */
 .capy-chip.is-editing {
-  background: var(--bg-card, #111c2e);
+  background: var(--bg-surface-hover);
   border-color: var(--accent-cyan);
   box-shadow: 0 0 12px var(--accent-cyan-glow);
   padding: 0.2rem 0.5rem;
@@ -2743,6 +2743,59 @@ input[type="file"]::file-selector-button:hover {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Light Theme Refinements (SCRUM-31) */
+[data-theme="light"] .capy-chat-backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+[data-theme="light"] .capy-chat-dialog {
+  background: #ffffff;
+  box-shadow: var(--shadow-lg), 0 0 28px rgba(2, 132, 199, 0.14);
+}
+
+[data-theme="light"] .capy-chips-wrapper {
+  background: rgba(241, 245, 249, 0.92);
+}
+
+[data-theme="light"] .capy-chip.is-editing {
+  background: #ffffff;
+}
+
+[data-theme="light"] .capy-chip-confirm-btn,
+[data-theme="light"] .action-card-btn,
+[data-theme="light"] .capy-chat-send-btn {
+  color: #ffffff;
+}
+
+[data-theme="light"] .capy-chip-cancel-btn {
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .capy-chip-cancel-btn:hover {
+  background: rgba(15, 23, 42, 0.15);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .capy-messages-container::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+}
+
+[data-theme="light"] .capy-msg-row.assistant .capy-msg-bubble {
+  background: #f8fafc;
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="light"] .capy-msg-row.user .capy-msg-bubble {
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.22);
+}
+
+[data-theme="light"] .action-badge {
+  color: var(--accent-emerald);
 }
 
 /* Mobile Responsive */
