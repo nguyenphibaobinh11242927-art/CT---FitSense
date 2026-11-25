@@ -5,6 +5,7 @@
  */
 
 import { API } from "../api.js";
+import { VoiceAssistant } from "./voice_assistant.js";
 
 export const Capybara = {
   element: null,
@@ -12,6 +13,18 @@ export const Capybara = {
   speechEl: null,
   avatarEl: null,
   closeBtn: null,
+  transcriptInput: null,
+  chatForm: null,
+  chatLogEl: null,
+  chatSendBtn: null,
+  voiceStatusEl: null,
+  micBtn: null,
+  muteBtn: null,
+  readBtn: null,
+  voiceAssistant: null,
+  chatMessages: [],
+  chatBusy: false,
+  voiceBusy: false,
   quotes: [],
   currentQuoteIdx: 0,
   cycleTimer: null,
@@ -30,10 +43,32 @@ export const Capybara = {
     this.speechEl = document.getElementById("capy-speech-text");
     this.avatarEl = document.getElementById("capy-avatar-wrap");
     this.closeBtn = document.getElementById("capy-close-btn");
+    this.transcriptInput = document.getElementById("capy-chat-input");
+    this.chatForm = document.getElementById("capy-chat-form");
+    this.chatLogEl = document.getElementById("capy-chat-log");
+    this.chatSendBtn = document.getElementById("capy-chat-send");
+    this.voiceStatusEl = document.getElementById("capy-voice-status");
+    this.micBtn = document.getElementById("capy-mic-btn");
+    this.muteBtn = document.getElementById("capy-mute-btn");
+    this.readBtn = document.getElementById("capy-read-btn");
 
     if (!this.element || !this.speechEl || !this.avatarEl) return;
 
     await this.refresh();
+    this.setupVoiceAssistant();
+    this.setupVoiceEvents();
+
+    if (new URLSearchParams(window.location.search).has("voiceDebug")) {
+      window.CapybaraVoiceDebug = {
+        assistant: this.voiceAssistant,
+        report: () => {
+          const report = this.voiceAssistant?.debugReport();
+          console.table(report);
+          return report;
+        },
+      };
+      console.info("SCRUM-33 voice debug enabled. Run window.CapybaraVoiceDebug.report()");
+    }
 
     // Close button ('x') handler
     this.closeBtn?.addEventListener("click", (e) => {
@@ -46,6 +81,7 @@ export const Capybara = {
 
     // Bubble click (outside 'x'): cycle to next tip
     this.bubbleEl?.addEventListener("click", (e) => {
+      if (e.target.closest?.(".capy-voice-controls, .capy-chat-panel")) return;
       if (e.target === this.closeBtn || this.closeBtn?.contains(e.target)) return;
       this.nextQuote(true);
       this.restartTimer();
@@ -56,6 +92,166 @@ export const Capybara = {
 
     // Start leisurely ambient wandering along screen bottom
     this.startWandering();
+  },
+
+  setupVoiceAssistant() {
+    this.voiceAssistant = new VoiceAssistant({
+      interimResults: true,
+      onInterim: (text) => {
+        if (!this.transcriptInput) return;
+        this.transcriptInput.value = text;
+        this.transcriptInput.classList.add("is-interim");
+        this.syncVoiceBusy();
+      },
+      onTranscript: (text) => {
+        if (!this.transcriptInput) return;
+        this.transcriptInput.classList.remove("is-interim");
+        this.transcriptInput.value = text;
+        this.transcriptInput.dispatchEvent(new Event("input", {bubbles: true}));
+        document.dispatchEvent(new CustomEvent("capy:transcript", {
+          detail: {text, source: "voice", final: true, submit: true},
+        }));
+        this.showBubble();
+        this.syncVoiceBusy();
+        this.transcriptInput.focus();
+      },
+      onStatus: (message) => {
+        if (this.voiceStatusEl) this.voiceStatusEl.textContent = message;
+      },
+      onPermissionChange: (permission) => {
+        if (!this.voiceStatusEl) return;
+        if (permission === "denied") {
+          this.voiceStatusEl.textContent = "Quyền micro đang bị chặn. Hãy cho phép micro trong cài đặt trình duyệt.";
+        } else if (permission === "granted") {
+          this.voiceStatusEl.textContent = "Đã có quyền micro. Bấm nút micro để bắt đầu nghe.";
+        }
+      },
+      onListeningChange: (listening) => {
+        this.micBtn?.classList.toggle("is-listening", listening);
+        this.micBtn?.setAttribute("aria-pressed", String(listening));
+        this.syncVoiceBusy();
+      },
+      onSpeakingChange: (speaking) => {
+        this.readBtn?.setAttribute("aria-pressed", String(speaking));
+        if (this.readBtn) {
+          this.readBtn.title = speaking ? "Dừng đọc" : "Đọc lời thoại hiện tại";
+        }
+        this.syncVoiceBusy();
+      },
+      onMuteChange: (muted) => {
+        if (!this.muteBtn) return;
+        this.muteBtn.textContent = muted ? "🔇" : "🔊";
+        this.muteBtn.title = muted ? "Bật âm thanh Capy" : "Tắt âm thanh Capy";
+        this.muteBtn.setAttribute("aria-pressed", String(muted));
+      },
+    });
+
+    this.micBtn?.addEventListener("click", () => this.voiceAssistant.toggleListening());
+    this.muteBtn?.addEventListener("click", () => this.voiceAssistant.toggleMute());
+    this.readBtn?.addEventListener("click", () => {
+      if (this.voiceAssistant.speaking) this.voiceAssistant.cancelSpeech();
+      else this.voiceAssistant.speak(this.speechEl?.textContent || "");
+    });
+  },
+
+  setupVoiceEvents() {
+    this.chatForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void this.sendMessage(this.transcriptInput?.value);
+    });
+    document.addEventListener("capy:transcript", (event) => {
+      if (event.detail?.source === "voice" && event.detail?.submit) {
+        void this.sendMessage(event.detail.text);
+      }
+    });
+    this.transcriptInput?.addEventListener("input", () => {
+      if (this.transcriptInput.value.trim()) this.transcriptInput.classList.remove("is-interim");
+      this.syncVoiceBusy();
+    });
+    this.transcriptInput?.addEventListener("blur", () => this.syncVoiceBusy());
+    this.bubbleEl?.addEventListener("focusin", () => this.syncVoiceBusy());
+    this.bubbleEl?.addEventListener("focusout", () => setTimeout(() => this.syncVoiceBusy(), 0));
+    document.addEventListener("capy:schedule-changed", (event) => this.celebrate(event.detail?.message));
+    window.addEventListener("pagehide", () => this.voiceAssistant?.dispose());
+  },
+
+  async sendMessage(rawText) {
+    const text = String(rawText || "").trim();
+    if (!text || this.chatBusy || !this.transcriptInput) return false;
+
+    this.chatBusy = true;
+    this.transcriptInput.value = "";
+    this.transcriptInput.classList.remove("is-interim");
+    this.transcriptInput.disabled = true;
+    if (this.chatSendBtn) this.chatSendBtn.disabled = true;
+    if (this.micBtn) this.micBtn.disabled = true;
+    this.appendChatMessage("user", text);
+    if (this.voiceStatusEl) this.voiceStatusEl.textContent = "Đang gửi tin nhắn đến Capy…";
+    this.syncVoiceBusy();
+
+    try {
+      const messages = [
+        ...this.chatMessages.slice(-10),
+        {role: "user", content: text},
+      ];
+      const result = await API.capybara.chat(messages);
+      const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
+      if (!reply) throw new Error("Capy chưa trả lời được. Vui lòng thử lại.");
+
+      this.chatMessages.push({role: "user", content: text}, {role: "assistant", content: reply});
+      if (this.chatMessages.length > 12) this.chatMessages.splice(0, this.chatMessages.length - 12);
+      this.appendChatMessage("assistant", reply);
+      this.setSpeech(reply);
+      if (this.voiceStatusEl) this.voiceStatusEl.textContent = "Capy đã trả lời.";
+      this.voiceAssistant?.speak(reply);
+      return true;
+    } catch (error) {
+      this.appendChatMessage("error", `Không gửi được: ${error.message}`);
+      if (this.transcriptInput) {
+        this.transcriptInput.value = text;
+        this.transcriptInput.focus();
+      }
+      if (this.voiceStatusEl) this.voiceStatusEl.textContent = "Tin nhắn chưa được gửi. Kiểm tra kết nối hoặc cấu hình AI rồi thử lại.";
+      return false;
+    } finally {
+      this.chatBusy = false;
+      if (this.transcriptInput) this.transcriptInput.disabled = false;
+      if (this.chatSendBtn) this.chatSendBtn.disabled = false;
+      if (this.micBtn) this.micBtn.disabled = false;
+      this.syncVoiceBusy();
+    }
+  },
+
+  appendChatMessage(role, text) {
+    if (!this.chatLogEl) return;
+    const message = document.createElement("div");
+    message.className = `capy-chat-message capy-chat-message-${role}`;
+    message.textContent = text;
+    this.chatLogEl.append(message);
+    while (this.chatLogEl.childElementCount > 24) this.chatLogEl.firstElementChild.remove();
+    this.chatLogEl.hidden = false;
+    this.chatLogEl.scrollTop = this.chatLogEl.scrollHeight;
+  },
+
+  syncVoiceBusy() {
+    const va = this.voiceAssistant;
+    this.voiceBusy = Boolean(
+      this.chatBusy || va?.listening || va?.speaking ||
+      this.transcriptInput?.value.trim() ||
+      this.bubbleEl?.matches(":focus-within")
+    );
+    if (this.voiceBusy) {
+      this.showBubble();
+      if (this.hideTimeout) clearTimeout(this.hideTimeout);
+    }
+  },
+
+  celebrate(message = "Mình đã đổi lịch tập xong rồi nhé!") {
+    this.isDismissedByUser = false;
+    this.setSpeech(message);
+    this.showBubble();
+    this.voiceAssistant?.playCue("schedule_done");
+    this.voiceAssistant?.speak(message);
   },
 
   setupInteractions() {
@@ -138,7 +334,7 @@ export const Capybara = {
 
     // Every 22 seconds, take a walk along bottom dock
     this.wanderTimer = setInterval(() => {
-      if (this.isPaused || this.isDragging) return;
+      if (this.isPaused || this.isDragging || this.voiceBusy) return;
       const workoutView = document.getElementById("view-workout");
       if (workoutView && workoutView.classList.contains("active")) return;
 
@@ -147,7 +343,7 @@ export const Capybara = {
   },
 
   takeWalk() {
-    if (this.isPaused || this.isDragging) return;
+    if (this.isPaused || this.isDragging || this.voiceBusy) return;
 
     const screenWidth = window.innerWidth;
     const maxWalkLeft = Math.max(120, screenWidth - 280);
@@ -225,19 +421,19 @@ export const Capybara = {
     // Initial show
     this.showBubble();
     this.hideTimeout = setTimeout(() => {
-      if (!this.isDismissedByUser) this.hideBubble(false);
+      if (!this.isDismissedByUser && !this.voiceBusy) this.hideBubble(false);
     }, SHOW_MS);
 
     // Recurring intermittent cycle
     this.cycleTimer = setInterval(() => {
-      if (this.isDismissedByUser) return;
+      if (this.isDismissedByUser || this.voiceBusy) return;
 
       this.nextQuote(false);
       this.showBubble();
 
       if (this.hideTimeout) clearTimeout(this.hideTimeout);
       this.hideTimeout = setTimeout(() => {
-        if (!this.isDismissedByUser) this.hideBubble(false);
+        if (!this.isDismissedByUser && !this.voiceBusy) this.hideBubble(false);
       }, SHOW_MS);
     }, SHOW_MS + HIDE_MS);
   },
@@ -245,7 +441,7 @@ export const Capybara = {
   restartTimer() {
     if (this.hideTimeout) clearTimeout(this.hideTimeout);
     this.hideTimeout = setTimeout(() => {
-      if (!this.isDismissedByUser) this.hideBubble(false);
+      if (!this.isDismissedByUser && !this.voiceBusy) this.hideBubble(false);
     }, 7500);
   },
 

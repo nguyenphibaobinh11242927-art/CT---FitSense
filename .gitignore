@@ -21,6 +21,12 @@ data/private/
 uploads/
 docs_private/
 docs/
+!docs/
+docs/*
+!docs/SCRUM-33-voice-assistant.md
+!docs/contracts/
+!docs/algorithms/
+!docs/diagrams/
 
 # Editor and OS
 .idea/

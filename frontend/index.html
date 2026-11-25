@@ -450,6 +450,29 @@
     <div class="capy-speech-bubble" id="capy-speech-bubble" title="Nhấp để nghe Capybara chia sẻ mẹo mới!">
       <button class="capy-close-btn" id="capy-close-btn" title="Đóng khung thoại">&times;</button>
       <span id="capy-speech-text">Đang tải lời khuyên từ Capybara...</span>
+      <div class="capy-voice-controls" aria-label="Điều khiển giọng nói Capy">
+        <button type="button" class="capy-voice-btn" id="capy-mic-btn"
+          title="Bắt đầu hoặc dừng nhận diện tiếng Việt" aria-label="Nhận diện giọng nói" aria-pressed="false">🎙️</button>
+        <button type="button" class="capy-voice-btn" id="capy-read-btn"
+          title="Đọc lời thoại hiện tại của Capy" aria-label="Đọc lời Capy" aria-pressed="false">▶️</button>
+        <button type="button" class="capy-voice-btn" id="capy-mute-btn"
+          title="Tắt âm thanh Capy" aria-label="Tắt âm thanh Capy" aria-pressed="false">🔊</button>
+      </div>
+      <div class="capy-chat-panel">
+        <div class="capy-chat-log" id="capy-chat-log" role="log" aria-live="polite"
+          aria-relevant="additions text" aria-label="Cuộc trò chuyện với Capy" hidden></div>
+        <form class="capy-chat-form" id="capy-chat-form">
+          <label class="capy-transcript-label" for="capy-chat-input">Trò chuyện với Capy</label>
+          <div class="capy-chat-input-row">
+            <input id="capy-chat-input" class="capy-transcript-input" type="text"
+              placeholder="Nói hoặc nhập tin nhắn…" autocomplete="off" maxlength="1000" />
+            <button type="submit" class="capy-chat-send" id="capy-chat-send" aria-label="Gửi tin nhắn" title="Gửi tin nhắn">➤</button>
+          </div>
+        </form>
+      </div>
+      <span class="capy-voice-status" id="capy-voice-status" role="status" aria-live="polite">
+        Âm thanh không được gửi lên FitSense; bản chép lời và tin nhắn được gửi tới FIT-AI để trả lời. Micro cần HTTPS hoặc localhost.
+      </span>
     </div>
     <div class="capy-avatar-wrap" id="capy-avatar-wrap" title="Capybara Huấn Luyện Viên Đồng Hành 🦫">
       <!-- Capybara SVG injected via JS -->

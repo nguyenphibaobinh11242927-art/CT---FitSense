@@ -168,6 +168,15 @@ class StartDayWorkoutRequest(BaseModel):
     use_ai: bool = True
 
 
+class CapybaraChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=1000)
+
+
+class CapybaraChatRequest(BaseModel):
+    messages: list[CapybaraChatMessage] = Field(..., min_length=1, max_length=12)
+
+
 class EvaluationSubmitRequest(BaseModel):
     session_id: Optional[str] = None
     session_label: Optional[str] = None
