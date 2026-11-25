@@ -8,10 +8,12 @@
  * - Full Dark / Light Theme & Responsive Mobile Compatibility
  */
 
-import { API } from "../api.js";
-import { Toast } from "./toast.js";
+import { API } from "../api.js?v=3.0.0";
+import { Store } from "../state.js?v=3.0.0";
+import { Toast } from "./toast.js?v=3.0.0";
+import { CapybaraStorage, STORAGE_KEY_PREFIX } from "./capybara_storage.js?v=3.0.0";
 
-const STORAGE_KEY = "fitsense_capy_chat_history";
+const STORAGE_KEY = STORAGE_KEY_PREFIX; // "fitsense_capy_chat_history" (scoped per user via CapybaraStorage)
 
 const DEFAULT_CHIPS = [
   {
@@ -64,6 +66,10 @@ export const CapybaraChat = {
   isLoading: false,
   messages: [],
   chips: [...DEFAULT_CHIPS],
+  activeUserKey: null,
+  _syncVersion: 0,
+  _storeUnsubscribe: null,
+  _listenersBound: false,
 
   init() {
     this.modal = document.getElementById("modal-capybara-chat");
@@ -78,10 +84,62 @@ export const CapybaraChat = {
 
     if (!this.modal || !this.messagesContainer || !this.form) return;
 
-    this.setupEventListeners();
+    CapybaraStorage.cleanupLegacyGlobalKey();
+
+    if (!this._listenersBound) {
+      this.setupEventListeners();
+      this._listenersBound = true;
+    }
+
+    if (!this._storeUnsubscribe) {
+      this._storeUnsubscribe = Store.subscribe("user", (user) => {
+        this.setActiveUser(user);
+      });
+    }
+
+    this.activeUserKey = CapybaraStorage.normalizeUserKey(Store.get("user"));
     this.loadMessages();
     this.renderChips();
     this.renderMessages();
+  },
+
+  setActiveUser(user) {
+    const nextKey = CapybaraStorage.normalizeUserKey(user);
+    this._syncVersion += 1;
+    const version = this._syncVersion;
+
+    if (!nextKey) {
+      this.activeUserKey = null;
+      this.isLoading = false;
+      this.messages = [];
+      if (this.isOpen) this.close();
+      if (this.messagesContainer) {
+        this.messagesContainer.innerHTML = "";
+      }
+      return;
+    }
+
+    const userChanged = nextKey !== this.activeUserKey;
+    this.activeUserKey = nextKey;
+
+    if (userChanged || this.messages.length === 0) {
+      this.loadMessages();
+      this.renderMessages();
+    }
+
+    // Hydrate from backend asynchronously without blocking Workout camera frames
+    CapybaraStorage.scheduleAsyncSync(async () => {
+      const res = await API.capybara.getHistory();
+      if (version !== this._syncVersion || this.activeUserKey !== nextKey) return;
+      if (res && res.authenticated && Array.isArray(res.messages) && res.messages.length > 0) {
+        this.messages = res.messages;
+        CapybaraStorage.writeLocalHistory(nextKey, this.messages);
+        if (this.messagesContainer) {
+          this.renderMessages();
+          if (this.isOpen) this.scrollToBottom(false);
+        }
+      }
+    }, 120);
   },
 
   setupEventListeners() {
@@ -149,17 +207,10 @@ export const CapybaraChat = {
   },
 
   loadMessages() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          this.messages = parsed;
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn("Could not load Capybara chat history:", e);
+    const cached = CapybaraStorage.readLocalHistory(this.activeUserKey);
+    if (cached.length > 0) {
+      this.messages = cached;
+      return;
     }
 
     // Default warm welcome greeting from CapyHeo
@@ -174,16 +225,24 @@ export const CapybaraChat = {
     ];
   },
 
-  saveMessages() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.messages));
-    } catch (e) {
-      console.warn("Could not save Capybara chat history:", e);
+  saveMessages(syncRemote = true) {
+    if (!this.activeUserKey) return;
+    CapybaraStorage.writeLocalHistory(this.activeUserKey, this.messages);
+
+    if (syncRemote) {
+      const userKeySnapshot = this.activeUserKey;
+      const versionSnapshot = this._syncVersion;
+      const messagesSnapshot = this.messages.slice();
+      CapybaraStorage.scheduleAsyncSync(async () => {
+        if (versionSnapshot !== this._syncVersion || this.activeUserKey !== userKeySnapshot) return;
+        await API.capybara.saveHistory(messagesSnapshot);
+      }, 250);
     }
   },
 
   clearHistory() {
-    localStorage.removeItem(STORAGE_KEY);
+    const userKeySnapshot = this.activeUserKey;
+    CapybaraStorage.removeLocalHistory(userKeySnapshot);
     this.messages = [
       {
         role: "assistant",
@@ -193,7 +252,12 @@ export const CapybaraChat = {
         actionCard: null,
       },
     ];
-    this.saveMessages();
+    this.saveMessages(false);
+    if (userKeySnapshot) {
+      CapybaraStorage.scheduleAsyncSync(async () => {
+        await API.capybara.clearHistory();
+      }, 50);
+    }
     this.renderChips();
     this.renderMessages();
     Toast.show("Đã làm mới đoạn chat cùng Capybara!", "info");

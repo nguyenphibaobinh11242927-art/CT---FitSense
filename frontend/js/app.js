@@ -86,6 +86,8 @@ class FitSenseApp {
   }
 
   showAuthGate() {
+    Store.set("user", null);
+    CapybaraChat.setActiveUser(null);
     const gate = document.getElementById("auth-gate-screen");
     const appWrapper = document.getElementById("app-wrapper");
     if (gate) gate.style.display = "flex";
@@ -93,6 +95,8 @@ class FitSenseApp {
   }
 
   async showApp(user) {
+    Store.set("user", user);
+    CapybaraChat.setActiveUser(user);
     const gate = document.getElementById("auth-gate-screen");
     const appWrapper = document.getElementById("app-wrapper");
     if (gate) gate.style.display = "none";

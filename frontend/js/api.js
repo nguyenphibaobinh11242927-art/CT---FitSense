@@ -187,5 +187,13 @@ export const API = {
       method: "POST",
       body: JSON.stringify({ message }),
     }),
+    getHistory: () => request("/api/capybara/history"),
+    saveHistory: (messages) => request("/api/capybara/history", {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+    }),
+    clearHistory: () => request("/api/capybara/history", {
+      method: "DELETE",
+    }),
   },
 };
