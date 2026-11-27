@@ -19,7 +19,7 @@ export const Toast = {
     const toast = document.createElement("div");
     toast.className = `toast ${type}`;
 
-    const icon = type === "success" ? "✅" : type === "error" ? "❌" : "ℹ️";
+    const icon = type === "success" ? "✅" : type === "error" ? "❌" : type === "warning" ? "⚠️" : "ℹ️";
     toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
 
     this.container.appendChild(toast);
@@ -42,5 +42,9 @@ export const Toast = {
 
   info(msg) {
     this.show(msg, "info");
+  },
+
+  warning(msg) {
+    this.show(msg, "warning", 4500);
   },
 };

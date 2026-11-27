@@ -4,25 +4,68 @@
  */
 
 const BASE_URL = window.location.origin;
+const SESSION_TOKEN_STORAGE_KEY = "fitsense_session_token";
+let activeSessionToken = (() => {
+  try {
+    return typeof sessionStorage !== "undefined"
+      ? sessionStorage.getItem(SESSION_TOKEN_STORAGE_KEY)
+      : null;
+  } catch {
+    return null;
+  }
+})();
+
+function getSessionToken() {
+  return activeSessionToken;
+}
+
+function setSessionToken(token) {
+  activeSessionToken = token ? String(token).trim() : null;
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      if (activeSessionToken) {
+        sessionStorage.setItem(SESSION_TOKEN_STORAGE_KEY, activeSessionToken);
+      } else {
+        sessionStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+      }
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+}
 
 async function request(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
+  const {
+    sessionToken,
+    expectedUser,
+    headers: customHeaders = {},
+    ...fetchOptions
+  } = options;
+
+  const tokenToSend = sessionToken !== undefined ? sessionToken : activeSessionToken;
   const headers = {
     "Content-Type": "application/json",
-    ...(options.headers || {}),
+    ...(tokenToSend ? { "X-FitSense-Session": tokenToSend } : {}),
+    ...(expectedUser ? { "X-FitSense-User": expectedUser } : {}),
+    ...customHeaders,
   };
 
   try {
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(url, { ...fetchOptions, headers });
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
       const errorMsg = data.detail || `Lỗi yêu cầu: ${response.status}`;
-      throw new Error(errorMsg);
+      const error = new Error(errorMsg);
+      error.status = response.status;
+      throw error;
     }
     return data;
   } catch (err) {
-    console.error(`[API Error] ${endpoint}:`, err);
+    if (err?.name !== "AbortError") {
+      console.error(`[API Error] ${endpoint}:`, err);
+    }
     throw err;
   }
 }
@@ -31,29 +74,65 @@ export const API = {
   health: () => request("/api/health"),
 
   auth: {
+    getSessionToken,
+    setSessionToken,
     config: () => request("/api/auth/config"),
     saveConfig: (google_client_id) => request("/api/auth/config", {
       method: "POST",
       body: JSON.stringify({ google_client_id }),
     }),
-    me: () => request("/api/auth/me"),
-    login: (email, password) => request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }),
-    register: (userData) => request("/api/auth/register", {
-      method: "POST",
-      body: JSON.stringify(userData),
-    }),
-    google: (googleData) => request("/api/auth/google", {
-      method: "POST",
-      body: JSON.stringify(googleData),
-    }),
-    googleComplete: (registrationData) => request("/api/auth/google/complete-registration", {
-      method: "POST",
-      body: JSON.stringify(registrationData),
-    }),
-    logout: () => request("/api/auth/logout", { method: "POST" }),
+    me: async () => {
+      const data = await request("/api/auth/me");
+      if (data && data.is_logged_in && data.session_token) {
+        setSessionToken(data.session_token);
+      } else if (data && !data.is_logged_in) {
+        setSessionToken(null);
+      }
+      return data;
+    },
+    login: async (email, password) => {
+      const data = await request("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      if (data?.session_token) setSessionToken(data.session_token);
+      return data;
+    },
+    register: async (userData) => {
+      const data = await request("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify(userData),
+      });
+      if (data?.session_token) setSessionToken(data.session_token);
+      return data;
+    },
+    google: async (googleData) => {
+      const data = await request("/api/auth/google", {
+        method: "POST",
+        body: JSON.stringify(googleData),
+      });
+      if (data?.session_token) setSessionToken(data.session_token);
+      return data;
+    },
+    googleComplete: async (registrationData) => {
+      const data = await request("/api/auth/google/complete-registration", {
+        method: "POST",
+        body: JSON.stringify(registrationData),
+      });
+      if (data?.session_token) setSessionToken(data.session_token);
+      return data;
+    },
+    logout: async () => {
+      const token = activeSessionToken;
+      try {
+        return await request("/api/auth/logout", {
+          method: "POST",
+          sessionToken: token,
+        });
+      } finally {
+        setSessionToken(null);
+      }
+    },
   },
 
   profile: {
@@ -183,5 +262,30 @@ export const API = {
 
   capybara: {
     status: () => request("/api/capybara/status"),
+    chat: (message, { sessionToken, expectedUser, signal } = {}) => request("/api/capybara/chat", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+      sessionToken,
+      expectedUser,
+      signal,
+    }),
+    getHistory: ({ sessionToken, expectedUser, signal } = {}) => request("/api/capybara/history", {
+      sessionToken,
+      expectedUser,
+      signal,
+    }),
+    saveHistory: (messages, { sessionToken, expectedUser, signal } = {}) => request("/api/capybara/history", {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+      sessionToken,
+      expectedUser,
+      signal,
+    }),
+    clearHistory: ({ sessionToken, expectedUser, signal } = {}) => request("/api/capybara/history", {
+      method: "DELETE",
+      sessionToken,
+      expectedUser,
+      signal,
+    }),
   },
 };
