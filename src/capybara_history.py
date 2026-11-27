@@ -115,11 +115,11 @@ def load_chat_history(
     if not path.exists():
         return []
 
-    try:
-        with path.open("r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8") as f:
+        try:
             payload = json.load(f)
-    except (OSError, ValueError, TypeError):
-        return []
+        except (ValueError, TypeError):
+            return []
 
     raw_messages = payload.get("messages") if isinstance(payload, dict) else payload
     if not isinstance(raw_messages, list):
@@ -238,8 +238,5 @@ def clear_chat_history(
     path = _history_file_path(normalized, storage_dir=storage_dir)
     if not path.exists():
         return False
-    try:
-        path.unlink()
-        return True
-    except OSError:
-        return False
+    path.unlink()
+    return True

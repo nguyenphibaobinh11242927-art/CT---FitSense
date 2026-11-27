@@ -2,6 +2,8 @@
  * Per-User Capybara Chat Storage & Async FPS-Safe Sync Helper (SCRUM-34)
  * - Isolates localStorage by normalized user identifier (never shares a global key)
  * - Cleans up legacy un-scoped key to prevent cross-account leakage
+ * - Cancels pending timers and aborts in-flight requests on user switch/logout
+ * - Propagates persistence failures so the UI can warn users clearly
  * - Debounces async sync with idle scheduling to keep Workout MediaPipe Pose >= 25-30 FPS
  */
 
@@ -9,6 +11,7 @@ export const STORAGE_KEY_PREFIX = "fitsense_capy_chat_history";
 const MAX_LOCAL_MESSAGES = 100;
 
 let pendingSyncTimer = null;
+let activeAbortController = null;
 
 export const CapybaraStorage = {
   normalizeUserKey(user) {
@@ -72,11 +75,40 @@ export const CapybaraStorage = {
     }
   },
 
+  cancelPendingSync() {
+    if (pendingSyncTimer) {
+      clearTimeout(pendingSyncTimer);
+      pendingSyncTimer = null;
+    }
+    if (activeAbortController) {
+      try {
+        activeAbortController.abort();
+      } catch (_) {
+        // Ignore abort errors
+      }
+      activeAbortController = null;
+    }
+  },
+
+  createRequestSignal() {
+    if (typeof AbortController === "undefined") return undefined;
+    if (activeAbortController) {
+      try {
+        activeAbortController.abort();
+      } catch (_) {
+        // Ignore
+      }
+    }
+    activeAbortController = new AbortController();
+    return activeAbortController.signal;
+  },
+
   /**
    * Schedule non-blocking async work so chat persistence never competes with
    * MediaPipe Pose frames when Workout camera is active.
+   * Surfaces errors via `onError` instead of silently swallowing them.
    */
-  scheduleAsyncSync(taskFn, delayMs = 250) {
+  scheduleAsyncSync(taskFn, delayMs = 250, { onError } = {}) {
     if (pendingSyncTimer) {
       clearTimeout(pendingSyncTimer);
       pendingSyncTimer = null;
@@ -84,10 +116,18 @@ export const CapybaraStorage = {
 
     pendingSyncTimer = setTimeout(() => {
       pendingSyncTimer = null;
+      const signal = this.createRequestSignal();
       const run = () => {
         Promise.resolve()
-          .then(() => taskFn())
-          .catch((err) => console.warn("Capybara async history sync skipped:", err));
+          .then(() => taskFn(signal))
+          .catch((err) => {
+            if (err?.name === "AbortError") return;
+            if (typeof onError === "function") {
+              onError(err);
+            } else {
+              console.warn("Capybara async history sync failed:", err);
+            }
+          });
       };
 
       if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {

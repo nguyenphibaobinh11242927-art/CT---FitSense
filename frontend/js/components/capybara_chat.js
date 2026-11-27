@@ -58,6 +58,7 @@ export const CapybaraChat = {
   closeBtn: null,
   clearBtn: null,
   chipsContainer: null,
+  syncBanner: null,
   messagesContainer: null,
   form: null,
   input: null,
@@ -67,6 +68,7 @@ export const CapybaraChat = {
   messages: [],
   chips: [...DEFAULT_CHIPS],
   activeUserKey: null,
+  activeSessionToken: null,
   _syncVersion: 0,
   _storeUnsubscribe: null,
   _listenersBound: false,
@@ -77,6 +79,7 @@ export const CapybaraChat = {
     this.closeBtn = document.getElementById("btn-capy-chat-close");
     this.clearBtn = document.getElementById("btn-capy-clear-chat");
     this.chipsContainer = document.getElementById("capy-chips-list");
+    this.syncBanner = document.getElementById("capy-sync-status");
     this.messagesContainer = document.getElementById("capy-messages-container");
     this.form = document.getElementById("capy-chat-form");
     this.input = document.getElementById("capy-chat-input");
@@ -98,18 +101,50 @@ export const CapybaraChat = {
     }
 
     this.activeUserKey = CapybaraStorage.normalizeUserKey(Store.get("user"));
+    this.activeSessionToken = API.auth.getSessionToken?.() || null;
+    this.setSyncWarning(null);
     this.loadMessages();
     this.renderChips();
     this.renderMessages();
   },
 
+  setSyncWarning(message) {
+    if (!this.syncBanner) {
+      this.syncBanner = document.getElementById("capy-sync-status");
+    }
+    if (!this.syncBanner) return;
+    if (!message) {
+      this.syncBanner.textContent = "";
+      this.syncBanner.classList.add("hidden");
+      return;
+    }
+    this.syncBanner.textContent = `⚠️ ${message}`;
+    this.syncBanner.classList.remove("hidden");
+  },
+
+  _isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot) {
+    const currentToken = API.auth.getSessionToken?.() || null;
+    return (
+      Boolean(userKeySnapshot)
+      && Boolean(tokenSnapshot)
+      && this._syncVersion === versionSnapshot
+      && this.activeUserKey === userKeySnapshot
+      && this.activeSessionToken === tokenSnapshot
+      && currentToken === tokenSnapshot
+    );
+  },
+
   setActiveUser(user) {
     const nextKey = CapybaraStorage.normalizeUserKey(user);
+    const nextToken = nextKey ? (API.auth.getSessionToken?.() || null) : null;
+    CapybaraStorage.cancelPendingSync();
     this._syncVersion += 1;
     const version = this._syncVersion;
+    this.setSyncWarning(null);
 
     if (!nextKey) {
       this.activeUserKey = null;
+      this.activeSessionToken = null;
       this.isLoading = false;
       this.messages = [];
       if (this.isOpen) this.close();
@@ -119,27 +154,42 @@ export const CapybaraChat = {
       return;
     }
 
-    const userChanged = nextKey !== this.activeUserKey;
+    const userChanged = nextKey !== this.activeUserKey || nextToken !== this.activeSessionToken;
     this.activeUserKey = nextKey;
+    this.activeSessionToken = nextToken;
 
     if (userChanged || this.messages.length === 0) {
       this.loadMessages();
       this.renderMessages();
     }
 
+    if (!nextToken) return;
+
     // Hydrate from backend asynchronously without blocking Workout camera frames
-    CapybaraStorage.scheduleAsyncSync(async () => {
-      const res = await API.capybara.getHistory();
-      if (version !== this._syncVersion || this.activeUserKey !== nextKey) return;
+    CapybaraStorage.scheduleAsyncSync(async (signal) => {
+      if (!this._isSessionStillBound(nextKey, nextToken, version)) return;
+      const res = await API.capybara.getHistory({
+        sessionToken: nextToken,
+        expectedUser: nextKey,
+        signal,
+      });
+      if (!this._isSessionStillBound(nextKey, nextToken, version)) return;
       if (res && res.authenticated && Array.isArray(res.messages) && res.messages.length > 0) {
         this.messages = res.messages;
         CapybaraStorage.writeLocalHistory(nextKey, this.messages);
+        this.setSyncWarning(null);
         if (this.messagesContainer) {
           this.renderMessages();
           if (this.isOpen) this.scrollToBottom(false);
         }
       }
-    }, 120);
+    }, 120, {
+      onError: (err) => {
+        if (!this._isSessionStillBound(nextKey, nextToken, version)) return;
+        const msg = err?.message || "Không tải được lịch sử từ máy chủ. Đang hiển thị bản lưu cục bộ (localStorage).";
+        this.setSyncWarning(msg);
+      },
+    });
   },
 
   setupEventListeners() {
@@ -227,21 +277,50 @@ export const CapybaraChat = {
 
   saveMessages(syncRemote = true) {
     if (!this.activeUserKey) return;
-    CapybaraStorage.writeLocalHistory(this.activeUserKey, this.messages);
+    const localOk = CapybaraStorage.writeLocalHistory(this.activeUserKey, this.messages);
+    if (!localOk) {
+      this.setSyncWarning("Không thể ghi cache trình duyệt (localStorage). Lịch sử có thể không giữ được sau khi tải lại trang.");
+    }
 
     if (syncRemote) {
       const userKeySnapshot = this.activeUserKey;
+      const tokenSnapshot = this.activeSessionToken || API.auth.getSessionToken?.() || null;
       const versionSnapshot = this._syncVersion;
       const messagesSnapshot = this.messages.slice();
-      CapybaraStorage.scheduleAsyncSync(async () => {
-        if (versionSnapshot !== this._syncVersion || this.activeUserKey !== userKeySnapshot) return;
-        await API.capybara.saveHistory(messagesSnapshot);
-      }, 250);
+
+      if (!tokenSnapshot) {
+        this.setSyncWarning("Chưa có phiên xác thực máy chủ — dữ liệu hiện chỉ được lưu cục bộ trên trình duyệt.");
+        return;
+      }
+
+      CapybaraStorage.scheduleAsyncSync(async (signal) => {
+        if (!this._isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot)) return;
+        const res = await API.capybara.saveHistory(messagesSnapshot, {
+          sessionToken: tokenSnapshot,
+          expectedUser: userKeySnapshot,
+          signal,
+        });
+        if (!this._isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot)) return;
+        if (res && res.success) {
+          this.setSyncWarning(null);
+        }
+      }, 250, {
+        onError: (err) => {
+          if (!this._isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot)) return;
+          const warnMsg = err?.message || "Chưa đồng bộ được lịch sử lên máy chủ. Dữ liệu hiện chỉ còn ở local.";
+          this.setSyncWarning(warnMsg);
+          Toast.warning(warnMsg);
+        },
+      });
     }
   },
 
-  clearHistory() {
+  async clearHistory() {
+    CapybaraStorage.cancelPendingSync();
     const userKeySnapshot = this.activeUserKey;
+    const tokenSnapshot = this.activeSessionToken || API.auth.getSessionToken?.() || null;
+    const versionSnapshot = this._syncVersion;
+
     CapybaraStorage.removeLocalHistory(userKeySnapshot);
     this.messages = [
       {
@@ -253,14 +332,41 @@ export const CapybaraChat = {
       },
     ];
     this.saveMessages(false);
-    if (userKeySnapshot) {
-      CapybaraStorage.scheduleAsyncSync(async () => {
-        await API.capybara.clearHistory();
-      }, 50);
-    }
     this.renderChips();
     this.renderMessages();
-    Toast.show("Đã làm mới đoạn chat cùng Capybara!", "info");
+
+    if (!this._isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot)) {
+      if (userKeySnapshot) {
+        const msg = "Không thể xác nhận phiên đăng nhập hiện tại để xóa trên máy chủ; mới xóa ở bộ nhớ cục bộ.";
+        this.setSyncWarning(msg);
+        Toast.warning(msg);
+      }
+      return;
+    }
+
+    try {
+      const signal = CapybaraStorage.createRequestSignal();
+      const res = await API.capybara.clearHistory({
+        sessionToken: tokenSnapshot,
+        expectedUser: userKeySnapshot,
+        signal,
+      });
+      if (!this._isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot)) return;
+      if (res && res.success) {
+        this.setSyncWarning(null);
+        Toast.info("Đã làm mới đoạn chat cùng Capybara!");
+      } else {
+        const msg = "Máy chủ chưa xác nhận xóa lịch sử trò chuyện.";
+        this.setSyncWarning(msg);
+        Toast.warning(msg);
+      }
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      if (!this._isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot)) return;
+      const msg = err?.message || "Đã xóa trên máy này nhưng chưa xóa được lịch sử trên máy chủ.";
+      this.setSyncWarning(msg);
+      Toast.warning(msg);
+    }
   },
 
   /**
@@ -487,13 +593,17 @@ export const CapybaraChat = {
   async sendMessage(text) {
     if (!text || this.isLoading) return;
 
-    // 1. Add user message
+    const userKeySnapshot = this.activeUserKey;
+    const tokenSnapshot = this.activeSessionToken || API.auth.getSessionToken?.() || null;
+    const versionSnapshot = this._syncVersion;
+
+    // 1. Add user message (persist locally immediately; remote sync happens after chat reply)
     this.messages.push({
       role: "user",
       content: text,
       time: this.getCurrentTime(),
     });
-    this.saveMessages();
+    this.saveMessages(false);
     this.renderMessages();
     this.scrollToBottom();
 
@@ -502,8 +612,15 @@ export const CapybaraChat = {
     this.showTypingIndicator();
 
     try {
-      const res = await API.capybara.chat(text);
+      const res = await API.capybara.chat(text, {
+        sessionToken: tokenSnapshot,
+        expectedUser: userKeySnapshot,
+      });
       this.removeTypingIndicator();
+
+      if (userKeySnapshot && !this._isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot)) {
+        return;
+      }
 
       let emotion = "happy";
       let actionCard = null;
@@ -577,12 +694,29 @@ export const CapybaraChat = {
         actionCard: actionCard,
       });
 
-      this.saveMessages();
+      if (userKeySnapshot && res.persisted === false) {
+        const warnMsg = res.persistence_error || "Không thể lưu lịch sử lên máy chủ. Dữ liệu hiện chỉ còn ở local.";
+        this.setSyncWarning(warnMsg);
+        Toast.warning(warnMsg);
+        this.saveMessages(false);
+      } else if (userKeySnapshot && actionCard) {
+        // Persist client-enriched ActionCard metadata to backend history
+        this.saveMessages(true);
+      } else {
+        if (userKeySnapshot && res.persisted) {
+          this.setSyncWarning(null);
+        }
+        this.saveMessages(false);
+      }
       this.renderMessages();
       this.scrollToBottom();
     } catch (err) {
+      if (err?.name === "AbortError") return;
       console.error("Capybara chat error:", err);
       this.removeTypingIndicator();
+      if (userKeySnapshot && !this._isSessionStillBound(userKeySnapshot, tokenSnapshot, versionSnapshot)) {
+        return;
+      }
       this.messages.push({
         role: "assistant",
         content: "Capy đang gặp chút trục trặc mạng nhỏ, nhưng đừng lo bạn cứ nghỉ ngơi một chút rồi thử lại nhé! 🦫✨",
@@ -590,7 +724,12 @@ export const CapybaraChat = {
         emotion: "thinking",
         actionCard: null,
       });
-      this.saveMessages();
+      if (userKeySnapshot) {
+        const msg = err?.message || "Mất kết nối máy chủ — tin nhắn mới chỉ được lưu cục bộ (localStorage).";
+        this.setSyncWarning(msg);
+        Toast.warning(msg);
+      }
+      this.saveMessages(false);
       this.renderMessages();
       this.scrollToBottom();
     } finally {

@@ -1866,6 +1866,7 @@ input[type="file"]::file-selector-button:hover {
 
 .toast.success { border-color: var(--accent-emerald); }
 .toast.error { border-color: var(--accent-crimson); }
+.toast.warning { border-color: #f59e0b; }
 .toast.info { border-color: var(--accent-cyan); }
 
 @keyframes slideToast {
@@ -2348,6 +2349,27 @@ input[type="file"]::file-selector-button:hover {
   color: var(--accent-crimson, #ef4444);
   background: rgba(239, 68, 68, 0.1);
   transform: translateY(-1px);
+}
+
+/* Sync / Persistence Status Banner (SCRUM-34) */
+.capy-sync-banner {
+  padding: 0.45rem 1.2rem;
+  background: rgba(245, 158, 11, 0.16);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fcd34d;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  flex-shrink: 0;
+}
+
+.capy-sync-banner.hidden {
+  display: none;
+}
+
+[data-theme="light"] .capy-sync-banner {
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
 }
 
 /* Quick Prompt Chips */
