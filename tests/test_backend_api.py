@@ -61,31 +61,45 @@ class TestBackendAPI(unittest.TestCase):
         self.assertIn("google_client_id", res_cfg.json())
 
         # Test Google Auth - existing user
-        res_g_exist = self.client.post("/api/auth/google", json={"email": unique_email, "name": "Google User"})
+        with patch("backend.routers.auth.verify_google_credential", return_value={
+            "email": unique_email,
+            "name": "Google User",
+            "avatar_url": None,
+            "google_id": "google-user-existing",
+        }):
+            res_g_exist = self.client.post("/api/auth/google", json={"credential": "verified-test-token"})
         self.assertEqual(res_g_exist.status_code, 200)
         self.assertFalse(res_g_exist.json()["is_new_user"])
 
         # Test Google Auth - brand new user
         new_g_email = f"googler_{uuid.uuid4().hex[:8]}@gmail.com"
-        res_g_new = self.client.post("/api/auth/google", json={"email": new_g_email, "name": "Google Newbie"})
+        google_identity = {
+            "email": new_g_email,
+            "name": "Google Newbie",
+            "avatar_url": None,
+            "google_id": "google-user-new",
+        }
+        with patch("backend.routers.auth.verify_google_credential", return_value=google_identity):
+            res_g_new = self.client.post("/api/auth/google", json={"credential": "verified-test-token"})
         self.assertEqual(res_g_new.status_code, 200)
         self.assertTrue(res_g_new.json()["is_new_user"])
         self.assertIn("google_data", res_g_new.json())
 
         # Complete Google registration onboarding
-        res_g_complete = self.client.post("/api/auth/google/complete-registration", json={
-            "email": new_g_email,
-            "name": "Google Newbie",
-            "height_cm": 175.0,
-            "weight_kg": 68.0,
-            "age": 23,
-            "gender": "Nam",
-            "goal": "Tăng cơ & Sức mạnh",
-            "fitness_level": "Beginner (Người mới bắt đầu)",
-            "environment": "Tại nhà (Home Workout)",
-            "restrictions": ["Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"],
-            "equipment": ["Không có dụng cụ (Chỉ tập Bodyweight)"],
-        })
+        with patch("backend.routers.auth.verify_google_credential", return_value=google_identity):
+            res_g_complete = self.client.post("/api/auth/google/complete-registration", json={
+                "credential": "verified-test-token",
+                "name": "Google Newbie",
+                "height_cm": 175.0,
+                "weight_kg": 68.0,
+                "age": 23,
+                "gender": "Nam",
+                "goal": "Tăng cơ & Sức mạnh",
+                "fitness_level": "Beginner (Người mới bắt đầu)",
+                "environment": "Tại nhà (Home Workout)",
+                "restrictions": ["Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"],
+                "equipment": ["Không có dụng cụ (Chỉ tập Bodyweight)"],
+            })
         self.assertEqual(res_g_complete.status_code, 200)
         self.assertTrue(res_g_complete.json()["success"])
 

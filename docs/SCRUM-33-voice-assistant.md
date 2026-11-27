@@ -11,7 +11,7 @@ document.addEventListener("capy:transcript", (event) => {
 
 `submit: true` biểu thị transcript cuối từ micro và yêu cầu tự gửi. Capybara lắng nghe sự kiện này, gửi nội dung cùng lịch sử hội thoại gần nhất tới `POST /api/capybara/chat`, hiển thị câu trả lời và yêu cầu TTS đọc nếu âm thanh đang bật. Người dùng cũng có thể nhập và gửi bằng nút hoặc phím Enter.
 
-API dùng FIT-AI hiện có (`FITAI_API_KEY`); nếu máy chủ chưa cấu hình key hoặc dịch vụ lỗi, giao diện hiển thị lỗi và giữ lại nội dung để thử lại. Hội thoại chỉ được giữ trong bộ nhớ trình duyệt trong phiên hiện tại. Trợ lý hiện chỉ tư vấn, không tự thay đổi lịch tập.
+API dùng FIT-AI hiện có (`FITAI_API_KEY`); nếu máy chủ chưa cấu hình key hoặc dịch vụ lỗi, giao diện hiển thị lỗi và giữ lại nội dung để thử lại. Chat xác thực bằng cookie `HttpOnly`, chữ ký HMAC, thời hạn 12 giờ và `SameSite=Lax`, không dựa vào `CURRENT_SESSION` dùng chung. Đăng nhập Google xác minh ID token phía server, đúng audience và email đã xác minh; không tin email gửi từ frontend. Chỉ luồng Google Sign-In chính thức phát ID token được chấp nhận; email nhập tay, tài khoản đã lưu và OAuth access token không tạo session. Cấu hình `FITNESS_SESSION_SECRET` ổn định (tối thiểu 32 bytes ngẫu nhiên) trong môi trường triển khai; nếu bỏ trống, server dùng khóa ngẫu nhiên theo tiến trình nên session mất hiệu lực khi restart và không dùng được nhiều worker. Đặt `FITNESS_COOKIE_SECURE=true` khi chạy sau HTTPS reverse proxy không chuyển tiếp scheme. **Các API legacy khác vẫn dùng `CURRENT_SESSION`; thay đổi này chỉ cách ly endpoint chat, chưa thay thế kiến trúc xác thực toàn ứng dụng.** Hội thoại chỉ được giữ trong bộ nhớ trình duyệt trong phiên hiện tại. Trợ lý hiện chỉ tư vấn, không tự thay đổi lịch tập.
 
 ### `capy:schedule-changed`
 
@@ -27,8 +27,9 @@ document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
 - `frontend/js/components/capybara.js`: tích hợp callback, chat composer, hiển thị hội thoại và TTS phản hồi.
 - `frontend/js/api.js`: client cho API hội thoại Capy.
 - `backend/routers/capybara.py`, `backend/schemas.py`: endpoint chat có kiểm tra đăng nhập, giới hạn nội dung và xác thực định dạng phản hồi AI.
+- `backend/routers/auth.py`: cấp cookie session đã ký khi đăng nhập/đăng ký, xác minh Google ID token phía server và xóa cookie khi đăng xuất.
 - `frontend/index.html`, `frontend/css/style.css`: giao diện chat, nút điều khiển, trạng thái và animation.
-- `tests/test_capybara_chat.py`: kiểm tra xác thực, phản hồi AI, lỗi cấu hình và dữ liệu không hợp lệ.
+- `tests/test_capybara_chat.py`: kiểm tra cách ly session, cookie sai/hết hạn, xác minh Google, phản hồi AI, lỗi cấu hình và dữ liệu không hợp lệ.
 - `tests/test_voice_assistant.mjs`: kiểm tra cấu hình tiếng Việt, callback transcript, lỗi hỗ trợ và mute.
 - `tests/test_voice_assistant_extra.mjs`: kiểm tra lỗi, echo, Unicode, cắt câu, đo latency, mute và audio sprite.
 - `frontend/js/views/planner.js`: phát sự kiện thành công sau tạo, đặt lại, nạp, cập nhật, đổi bài và đổi buổi lịch.
@@ -49,5 +50,6 @@ document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
 
 - Các thao tác STT, quyền micro, lỗi, mute và chuyển trạng thái audio ở trên được ghi nhận là PASS theo báo cáo thủ công.
 - Chat composer/listener/API đã được tích hợp; cần kiểm thử thủ công trên Chrome/Edge bằng API key FIT-AI hợp lệ để nghiệm thu phản hồi thật đầu-cuối.
-- Xác nhận ngưỡng TTS `<100 ms`. Âm báo cold start 354 ms được báo cáo.
+- Người kiểm thử báo cáo latency TTS dưới `100 ms`; cần đính kèm report, số lượt và môi trường để reviewer tái kiểm tra. Âm báo cold start được cập nhật là `3554 ms` theo báo cáo mới nhất; nếu ngưỡng `<100 ms` áp dụng cả cho âm báo thì tiêu chí đó chưa đạt.
 - Chrome/Edge được báo cáo hoạt động nhưng chưa ghi phiên bản trình duyệt, hệ điều hành hoặc thiết bị. Chưa có video/log latency để tái kiểm tra.
+- Chưa có xác nhận review/approve từ Support Bình; đây là bước nghiệm thu bên ngoài, không thể đánh dấu hoàn tất chỉ dựa trên code và unit test.

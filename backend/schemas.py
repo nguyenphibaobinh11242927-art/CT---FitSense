@@ -58,16 +58,12 @@ class RegisterRequest(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    email: str
-    name: Optional[str] = "Google Athlete"
-    google_id: Optional[str] = None
-    avatar_url: Optional[str] = None
+    credential: str = Field(..., min_length=1)
 
 
 class GoogleCompleteRegistrationRequest(BaseModel):
-    email: str
+    credential: str = Field(..., min_length=1)
     name: str
-    avatar_url: Optional[str] = None
     age: int = Field(default=22, ge=12, le=90)
     gender: str = Field(default="Nam")
     height_cm: float = Field(default=170.0, ge=100, le=230)

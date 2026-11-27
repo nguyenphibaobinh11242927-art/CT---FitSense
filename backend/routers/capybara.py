@@ -2,9 +2,9 @@
 
 import json
 import random
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
-from backend.routers.auth import CURRENT_SESSION
+from backend.routers.auth import authenticated_email
 from backend.schemas import CapybaraChatRequest
 from src.school_ai import FitAIServiceError, complete_with_school_ai
 from src.capybara_widget import CAPY_SVG_HAPPY, CAPY_SVG_SAD
@@ -46,9 +46,9 @@ def get_capybara_status():
 
 
 @router.post("/chat")
-def chat_with_capybara(payload: CapybaraChatRequest):
+def chat_with_capybara(payload: CapybaraChatRequest, request: Request):
     """Return a short Vietnamese coaching response without changing user data."""
-    if not CURRENT_SESSION.get("is_logged_in") or not CURRENT_SESSION.get("user_email"):
+    if not authenticated_email(request):
         raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để trò chuyện với Capy.")
 
     messages = payload.messages

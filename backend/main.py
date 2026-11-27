@@ -6,6 +6,7 @@ Also serves modern client-side frontend (HTML5/CSS3/ES6 JS) and static assets.
 """
 
 from pathlib import Path
+import mimetypes
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +17,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT_DIR / "frontend"
 ASSETS_DIR = ROOT_DIR / "assets"
 MODELS_DIR = ROOT_DIR / "models"
+
+# Windows MIME registries may map .mjs to text/plain, which browsers reject for modules.
+mimetypes.add_type("text/javascript", ".mjs")
 
 app = FastAPI(
     title="FitSense Calisthenics Platform",
@@ -39,7 +43,7 @@ app.add_middleware(
 async def add_no_cache_header(request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path.endswith((".js", ".css", ".html")) or path == "/" or "/api/" in path:
+    if path.endswith((".js", ".mjs", ".css", ".html")) or path == "/" or "/api/" in path:
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
