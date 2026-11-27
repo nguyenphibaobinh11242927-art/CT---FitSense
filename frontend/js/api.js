@@ -183,5 +183,9 @@ export const API = {
 
   capybara: {
     status: () => request("/api/capybara/status"),
+    chat: (messages) => request("/api/capybara/chat", {
+      method: "POST",
+      body: JSON.stringify({messages}),
+    }),
   },
 };

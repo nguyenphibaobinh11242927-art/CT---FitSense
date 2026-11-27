@@ -551,21 +551,6 @@ class FitSenseApp {
 
     // Google Sign-In Buttons -> Open Official Google Account Chooser
     const openGoogleChooser = () => {
-      // If official Google Client ID is configured and Google GIS OAuth2 is loaded, trigger real Google OAuth popup!
-      if (this.googleClientId && window.google?.accounts?.oauth2) {
-        if (!this.googleTokenClient) {
-          this.setupGoogleTokenClient(this.googleClientId);
-        }
-        if (this.googleTokenClient) {
-          try {
-            this.googleTokenClient.requestAccessToken({ prompt: "select_account" });
-            return;
-          } catch (err) {
-            console.warn("Could not trigger Google OAuth popup:", err);
-          }
-        }
-      }
-
       const customBox = document.getElementById("google-custom-account-box");
       if (customBox) customBox.style.display = "none";
       this.renderSavedGoogleAccounts();
@@ -614,17 +599,7 @@ class FitSenseApp {
 
     // Custom Google Sign-in Form Submit (Use another account)
     document.getElementById("btn-submit-google-login")?.addEventListener("click", () => {
-      const email = document.getElementById("google-input-email")?.value.trim();
-      let name = document.getElementById("google-input-name")?.value.trim();
-      if (!email || !email.includes("@")) {
-        Toast.error("Vui lòng nhập địa chỉ Email Google/Gmail hợp lệ!");
-        return;
-      }
-      if (!name) {
-        name = email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-      }
-      this.saveGoogleAccount({ email, name, avatar_url: null });
-      this.processGoogleAuth(email, name);
+      Toast.warning("Hãy đăng nhập bằng nút Google chính thức để xác minh tài khoản.");
     });
 
     document.getElementById("google-input-email")?.addEventListener("keydown", (e) => {
@@ -652,9 +627,8 @@ class FitSenseApp {
 
       try {
         const payload = {
-          email: this.pendingGoogleUser.email,
+          credential: this.pendingGoogleUser.credential,
           name: this.pendingGoogleUser.name,
-          avatar_url: this.pendingGoogleUser.avatar_url,
           height_cm,
           weight_kg,
           age,
@@ -787,12 +761,7 @@ class FitSenseApp {
     container.querySelectorAll(".google-acc-row").forEach((row) => {
       row.addEventListener("mouseenter", () => (row.style.background = "#f8f9fa"));
       row.addEventListener("mouseleave", () => (row.style.background = "transparent"));
-      row.addEventListener("click", () => {
-        const email = row.getAttribute("data-email");
-        const name = row.getAttribute("data-name");
-        const avatar_url = row.getAttribute("data-avatar");
-        this.processGoogleAuth(email, name, avatar_url);
-      });
+      row.addEventListener("click", () => Toast.info("Chọn tài khoản bằng nút Google chính thức bên dưới."));
     });
 
     const btnAnother = container.querySelector("#btn-use-another-account");
@@ -819,26 +788,7 @@ class FitSenseApp {
         scope: "email profile openid",
         callback: async (tokenResponse) => {
           if (tokenResponse && tokenResponse.access_token) {
-            try {
-              const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-                headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
-              });
-              const userInfo = await res.json();
-              this.saveGoogleAccount({
-                email: userInfo.email,
-                name: userInfo.name,
-                avatar_url: userInfo.picture,
-              });
-              await this.processGoogleAuth(
-                userInfo.email,
-                userInfo.name,
-                userInfo.picture,
-                userInfo.sub
-              );
-            } catch (err) {
-              console.error("Lỗi lấy thông tin Google:", err);
-              Toast.error("Không thể lấy thông tin tài khoản Google: " + err.message);
-            }
+            Toast.warning("Luồng OAuth access-token không thể đăng nhập an toàn. Hãy dùng nút Google Sign-In chính thức.");
           } else if (tokenResponse && tokenResponse.error) {
             console.warn("Google OAuth response error:", tokenResponse);
             if (tokenResponse.error !== "popup_closed_by_user") {
@@ -937,37 +887,27 @@ class FitSenseApp {
   async handleGoogleCredentialResponse(response) {
     if (!response || !response.credential) return;
     try {
-      const base64Url = response.credential.split(".")[1];
-      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-      const jsonPayload = decodeURIComponent(
-        atob(base64)
-          .split("")
-          .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
-          .join("")
-      );
-      const data = JSON.parse(jsonPayload);
-      const email = data.email;
-      const name = data.name || email.split("@")[0];
-      const avatar_url = data.picture || null;
-      const google_id = data.sub || null;
-
-      this.saveGoogleAccount({ email, name, avatar_url });
-      await this.processGoogleAuth(email, name, avatar_url, google_id);
+      await this.processGoogleAuth(response.credential);
     } catch (err) {
-      console.error("Lỗi giải mã Google Token:", err);
+      console.error("Lỗi xác thực Google:", err);
       Toast.error("Không thể xử lý xác thực từ Google!");
     }
   }
 
-  async processGoogleAuth(email, name, avatar_url = null, google_id = null) {
+  async processGoogleAuth(credential) {
+    if (typeof credential !== "string" || !credential.trim()) {
+      Toast.error("Cần xác thực bằng Google Sign-In chính thức.");
+      return;
+    }
     document.getElementById("modal-google-chooser")?.classList.remove("active");
 
     try {
-      const res = await API.auth.google({ email, name, avatar_url, google_id });
+      const res = await API.auth.google({ credential });
 
       if (res.is_new_user) {
         // Step 2: New Google Account -> Show Onboarding Modal
-        this.pendingGoogleUser = res.google_data;
+        this.pendingGoogleUser = {...res.google_data, credential};
+        this.saveGoogleAccount(res.google_data);
         const onboardName = document.getElementById("onboard-google-name");
         const onboardEmail = document.getElementById("onboard-google-email");
         const onboardAvatar = document.getElementById("onboard-google-avatar");
@@ -985,7 +925,8 @@ class FitSenseApp {
         document.getElementById("modal-google-onboarding")?.classList.add("active");
       } else {
         // Existing User -> Login complete
-        Toast.success(res.message || `Đăng nhập thành công với ${email}!`);
+        this.saveGoogleAccount(res.user);
+        Toast.success(res.message || `Đăng nhập thành công với ${res.user.email}!`);
         document.getElementById("modal-auth")?.classList.remove("active");
         await this.showApp(res.user);
       }

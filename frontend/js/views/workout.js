@@ -5,9 +5,9 @@
 
 import { API } from "../api.js";
 import { Toast } from "../components/toast.js";
-import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=voice-feedback-2";
-import { createCameraPositionMonitor, POSITION_MESSAGES } from "../camera_position.mjs";
-import { createVoiceCommands } from "../voice_commands.mjs";
+import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=voice-feedback-3";
+import { createCameraPositionMonitor, POSITION_MESSAGES } from "../camera_position.mjs?v=module-mime-1";
+import { createVoiceCommands } from "../voice_commands.mjs?v=module-mime-1";
 
 // Helper: Calculate joint angle in degrees from three 2D/3D points [0, 180]
 function angleAt(a, b, c) {

@@ -313,6 +313,9 @@ export const PlannerView = {
       try {
         const result = await API.planner.generate(this.generationGoal || undefined);
         Toast.success(result.message || "Tạo lịch tập thành công!");
+        document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
+          detail: {message: result.message || "Đã tạo lịch tập mới."},
+        }));
         this.scheduleData = await API.planner.getWeek();
         this.renderContent();
       } catch (e) {
@@ -338,6 +341,9 @@ export const PlannerView = {
         try {
           await API.planner.reset();
           Toast.info("Đã đặt lại lịch tập tuần.");
+          document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
+            detail: {message: "Đã đặt lại lịch tập tuần."},
+          }));
           this.scheduleData = await API.planner.getWeek();
           this.renderContent();
         } catch (e) {
@@ -404,6 +410,9 @@ export const PlannerView = {
           const content = e.target.result;
           const res = await API.planner.upload(content, file.name);
           Toast.success(res.message);
+          document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
+            detail: {message: res.message || "Đã nạp giáo án mới."},
+          }));
           this.scheduleData = await API.planner.getWeek();
           this.renderContent();
         } catch (err) {
@@ -527,6 +536,9 @@ export const PlannerView = {
       try {
         const res = await API.planner.updateDay(activeDay.day, focus, isRest, exercises);
         Toast.success(res.message);
+        document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
+          detail: {message: res.message || "Đã cập nhật giáo án tập luyện."},
+        }));
         this.scheduleData = await API.planner.getWeek();
         this.renderContent();
       } catch (err) {
@@ -599,6 +611,9 @@ export const PlannerView = {
         const res = await API.planner.startDayWorkout(activeDay.day, true);
         if (res.rearranged) {
           Toast.success(`✨ ${res.message}`);
+          document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
+            detail: {message: res.message || "Đã đổi lịch tập xong rồi nhé!"},
+          }));
           this.scheduleData = await API.planner.getWeek();
           const newTodayIdx = this.scheduleData.schedule.findIndex(d => d.day.toLowerCase() === todayName.toLowerCase());
           if (newTodayIdx !== -1) this.activeDayIndex = newTodayIdx;
@@ -649,6 +664,9 @@ export const PlannerView = {
             if (res.rearranged) {
               workoutDay = todayName;
               Toast.success(`✨ ${res.message}`);
+              document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
+                detail: {message: res.message || "Đã đổi lịch tập xong rồi nhé!"},
+              }));
               this.scheduleData = await API.planner.getWeek();
               const newTodayIdx = this.scheduleData.schedule.findIndex(d => d.day.toLowerCase() === todayName.toLowerCase());
               if (newTodayIdx !== -1) this.activeDayIndex = newTodayIdx;
@@ -734,6 +752,9 @@ export const PlannerView = {
           try {
             const res = await API.planner.swap(d, c, n, index);
             Toast.success(res.message);
+            document.dispatchEvent(new CustomEvent("capy:schedule-changed", {
+              detail: {message: res.message || "Đã đổi bài tập trong giáo án."},
+            }));
             modalBackdrop.classList.remove("active");
             this.scheduleData = await API.planner.getWeek();
             this.renderContent();

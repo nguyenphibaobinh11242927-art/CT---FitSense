@@ -58,16 +58,12 @@ class RegisterRequest(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    email: str
-    name: Optional[str] = "Google Athlete"
-    google_id: Optional[str] = None
-    avatar_url: Optional[str] = None
+    credential: str = Field(..., min_length=1)
 
 
 class GoogleCompleteRegistrationRequest(BaseModel):
-    email: str
+    credential: str = Field(..., min_length=1)
     name: str
-    avatar_url: Optional[str] = None
     age: int = Field(default=22, ge=12, le=90)
     gender: str = Field(default="Nam")
     height_cm: float = Field(default=170.0, ge=100, le=230)
@@ -166,6 +162,15 @@ class DayUpdateRequest(BaseModel):
 class StartDayWorkoutRequest(BaseModel):
     source_day: str
     use_ai: bool = True
+
+
+class CapybaraChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=1000)
+
+
+class CapybaraChatRequest(BaseModel):
+    messages: list[CapybaraChatMessage] = Field(..., min_length=1, max_length=12)
 
 
 class EvaluationSubmitRequest(BaseModel):
