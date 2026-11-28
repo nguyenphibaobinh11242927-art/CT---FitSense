@@ -1,7 +1,7 @@
 /**
  * SCRUM-32: Capybara Chat Action Card Component
  * - Renders schedule change diff (old strikethrough red -> new emerald green + workout day)
- * - Reads nested (action_result/changes/diff), top-level response fields, and params
+ * - Reads nested (action_result/changes/diff, object or array), top-level fields, and params
  * - Uses DOM API + textContent exclusively (immune to XSS)
  * - Instant SPA navigation via App.navigate("planner") without page reload
  */
@@ -51,11 +51,6 @@ function normalizePercentage(rawPct) {
   return Math.max(5, Math.min(90, pct));
 }
 
-/**
- * Normalize either a raw API response (SCRUM-29 / SCRUM-30) or a stored card object
- * into a clean Action Card model. Returns null when no concrete schedule change exists.
- */
-
 function extractPrimaryResult(source) {
   const candidates = [source.action_result, source.changes, source.diff];
   for (const candidate of candidates) {
@@ -78,6 +73,10 @@ function extractPrimaryResult(source) {
   return {};
 }
 
+/**
+ * Normalize either a raw API response (SCRUM-29 / SCRUM-30) or a stored card object
+ * into a clean Action Card model. Returns null when no concrete schedule change exists.
+ */
 export function normalizeActionCard(source) {
   if (!source || typeof source !== "object") return null;
 
@@ -123,11 +122,6 @@ export function normalizeActionCard(source) {
   const isApplied =
     source.applied === true ||
     source.success === true ||
-    result.applied === true ||
-    result.success === true;
-
-  const isApplied =
-    source.applied === true ||
     result.applied === true ||
     result.success === true;
 
