@@ -137,7 +137,7 @@ export const PlannerView = {
               ${activeDay.focus}
             </div>
           </div>
-          ${activeDay.is_rest 
+          ${activeDay.exercises?.some(ex => ex.paused) ? `<span class="badge">⚠️ Có bài tạm ngừng; hãy đổi bài trước khi tập.</span>` : activeDay.is_rest 
             ? `<span class="badge badge-beginner" style="font-size: 0.9rem; padding: 0.4rem 0.9rem;">🛌 Nghỉ ngơi hồi phục (Rest Day)</span>`
             : (isTodayActive 
                 ? `<button class="btn btn-emerald btn-sm" id="btn-start-day-workout">🚀 Bắt đầu tập buổi hôm nay (${activeDay.day})</button>`
@@ -166,7 +166,7 @@ export const PlannerView = {
               <div class="planner-ex-card">
                 <div class="ex-card-top">
                   <div>
-                    <div class="ex-card-title">${ex.name}</div>
+                    <div class="ex-card-title">${ex.name}${ex.paused ? " – Tạm ngừng" : ""}</div>
                     <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">
                       Thiết bị: ${ex.equipment || "Bodyweight"}
                     </div>
@@ -192,7 +192,7 @@ export const PlannerView = {
                   <button class="btn btn-outline btn-sm btn-swap-exercise" data-ex-index="${exIdx}" ${ex.id ? "" : "disabled"}>
                     🔄 Đổi bài tập
                   </button>
-                  <button class="btn btn-primary btn-sm btn-start-planner-ex" data-ex-index="${exIdx}" ${ex.id ? "" : 'disabled title="Chọn bài có trong thư viện để mở HUD"'}>
+                  <button class="btn btn-primary btn-sm btn-start-planner-ex" data-ex-index="${exIdx}" ${ex.id && !activeDay.exercises.some(item => item.paused) ? "" : 'disabled title="Buổi tập có bài tạm ngừng hoặc bài không có trong thư viện"'}>
                     ▶️ Tập bài này
                   </button>
                 </div>

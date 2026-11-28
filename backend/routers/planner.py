@@ -13,6 +13,7 @@ from backend.schemas import (
     StartDayWorkoutRequest,
 )
 from backend.routers.auth import CURRENT_SESSION
+from backend import weekly_action_storage as action_storage
 from backend.routers.exercises import get_catalog
 from src.profile import load_profile
 from src.planner_generation import DEFAULT_DAYS, generate_ai_schedule, planner_profile_filters, profile_goal_id
@@ -213,8 +214,21 @@ USER_SCHEDULES: dict[str, list[dict[str, Any]]] = {}
 
 def get_user_schedule(email: str) -> list[dict[str, Any]]:
     if email not in USER_SCHEDULES:
-        USER_SCHEDULES[email] = deepcopy(DEFAULT_WEEKLY_SCHEDULE)
+        try:
+            stored = action_storage.read_plan(email) if email != "guest" else None
+        except (OSError, ValueError) as exc:
+            raise HTTPException(500, "Không thể đọc lịch tuần đã lưu.") from exc
+        USER_SCHEDULES[email] = stored if stored is not None else deepcopy(DEFAULT_WEEKLY_SCHEDULE)
     return USER_SCHEDULES[email]
+
+
+def _sync_action_plan(email, schedule):
+    if email != "guest" and action_storage.plan_path(email).exists():
+        try:
+            action_storage.read_plan(email)
+            action_storage.save_plan(email, schedule)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(500, "Không thể lưu lịch tuần.") from exc
 
 
 def _catalog_exercise(exercise: dict, catalog: list[dict]) -> dict | None:
@@ -288,6 +302,7 @@ def generate_schedule(payload: PlanGenerationRequest):
     except WorkoutPlanError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    _sync_action_plan(email, new_plan)
     USER_SCHEDULES[email] = new_plan
     return {
         "success": True,
@@ -299,7 +314,7 @@ def generate_schedule(payload: PlanGenerationRequest):
 @router.post("/swap")
 def swap_exercise(payload: ExerciseSwapRequest):
     email = CURRENT_SESSION.get("user_email") or "guest"
-    schedule = get_user_schedule(email)
+    schedule = deepcopy(get_user_schedule(email))
     catalog = get_catalog()
     
     target_day = next((d for d in schedule if d["day"].lower() == payload.day.lower()), None)
@@ -347,6 +362,8 @@ def swap_exercise(payload: ExerciseSwapRequest):
             "substitute": current.get("name"),
         }
 
+    _sync_action_plan(email, schedule)
+    USER_SCHEDULES[email] = schedule
     return {
         "success": True,
         "message": f"Đã đổi sang bài {new_ex['name']} thành công!",
@@ -357,7 +374,9 @@ def swap_exercise(payload: ExerciseSwapRequest):
 @router.post("/reset")
 def reset_schedule():
     email = CURRENT_SESSION.get("user_email") or "guest"
-    USER_SCHEDULES[email] = deepcopy(DEFAULT_WEEKLY_SCHEDULE)
+    new_plan = deepcopy(DEFAULT_WEEKLY_SCHEDULE)
+    _sync_action_plan(email, new_plan)
+    USER_SCHEDULES[email] = new_plan
     return {
         "success": True,
         "message": "Đã đặt lại lịch tập tuần mặc định.",
@@ -383,6 +402,7 @@ def upload_custom_plan(payload: PlanUploadRequest):
         parsed = parse_uploaded_plan(payload.content.encode("utf-8"), payload.filename)
         if not parsed:
             raise ValueError("Không tìm thấy dữ liệu giáo án trong file.")
+        _sync_action_plan(email, parsed)
         USER_SCHEDULES[email] = parsed
         return {
             "success": True,
@@ -397,7 +417,7 @@ def upload_custom_plan(payload: PlanUploadRequest):
 def update_single_day(payload: DayUpdateRequest):
     """Updates focus, rest status, and exercises for a specific day."""
     email = CURRENT_SESSION.get("user_email") or "guest"
-    schedule = get_user_schedule(email)
+    schedule = deepcopy(get_user_schedule(email))
     
     target_idx = None
     for idx, d in enumerate(schedule):
@@ -442,6 +462,8 @@ def update_single_day(payload: DayUpdateRequest):
         "exercises": [] if payload.is_rest else cleaned_exercises,
     }
     
+    _sync_action_plan(email, schedule)
+    USER_SCHEDULES[email] = schedule
     return {
         "success": True,
         "message": f"Đã lưu chỉnh sửa cho {payload.day}!",
@@ -488,7 +510,7 @@ def realign_schedule_with_profile(email: str, profile_data: dict) -> list[str]:
     if not limits:
         return []
         
-    schedule = get_user_schedule(email)
+    schedule = deepcopy(get_user_schedule(email))
     catalog = get_catalog()
     changes: list[str] = []
     
@@ -529,6 +551,7 @@ def realign_schedule_with_profile(email: str, profile_data: dict) -> list[str]:
         day["exercises"] = new_exercises
         
     if changes:
+        _sync_action_plan(email, schedule)
         USER_SCHEDULES[email] = schedule
         if not CURRENT_SESSION.get("user_email") or CURRENT_SESSION.get("user_email") == "guest":
             USER_SCHEDULES["guest"] = schedule
@@ -549,11 +572,14 @@ def start_day_workout(payload: StartDayWorkoutRequest):
     if source.get("is_rest") or not source.get("exercises"):
         raise HTTPException(status_code=400, detail=f"Ngày {payload.source_day} là ngày nghỉ hoặc chưa có bài tập.")
         
+    if any(ex.get("paused") for ex in source["exercises"]):
+        raise HTTPException(409, "Buổi tập có bài tạm ngừng do đau; hãy điều chỉnh lịch trước khi bắt đầu.")
     try:
         updated_schedule, active_workout, method = start_actual_workout(
             schedule, source["day"], today, use_ai=payload.use_ai
         )
         _add_catalog_ids(active_workout, get_catalog())
+        _sync_action_plan(email, updated_schedule)
         USER_SCHEDULES[email] = updated_schedule
         is_rearranged = (source["day"] != today_name)
         message = (
