@@ -16,7 +16,6 @@ import {
   createActionCardElement,
 } from "../frontend/js/components/capybara_action_card.js";
 
-// Lightweight Mock DOM for verifying DOM API rendering, XSS safety & click events
 function createMockDocument() {
   class MockElement {
     constructor(tagName) {
@@ -94,8 +93,8 @@ function createMockDocument() {
   };
 }
 
-test("All 4 SVG expressions are lightweight, valid, and free of duplicate IDs or scripts", () => {
-  assert.deepEqual([...VALID_MOODS].sort(), ["happy", "proud", "thinking", "worried"]);
+test("All 4 SVG expressions are lightweight, valid, safe, and stay inside circular clip radius", () => {
+  assert.deepEqual([...VALID_MOODS].sort(), ["happy", "proud", "thinking", "proud" ? "worried" : "worried"]);
 
   for (const mood of VALID_MOODS) {
     const svg = getCapyAvatarSvg(mood);
@@ -106,6 +105,15 @@ test("All 4 SVG expressions are lightweight, valid, and free of duplicate IDs or
     assert.equal(/<script/i.test(svg), false, `${mood} SVG must not contain scripts`);
     assert.equal(/\bon[a-z]+\s*=/i.test(svg), false, `${mood} SVG must not contain inline handlers`);
     assert.ok(svg.length < 3000, `${mood} SVG should stay lightweight`);
+
+    // Verify every <circle> stays comfortably within border-radius: 50% clip (inner radius ~55)
+    for (const match of svg.matchAll(/<circle[^>]*cx="([\d.]+)"[^>]*cy="([\d.]+)"[^>]*r="([\d.]+)"/g)) {
+      const cx = Number(match[1]);
+      const cy = Number(match[2]);
+      const r = Number(match[3]);
+      const maxEdge = Math.hypot(cx - 60, cy - 60) + r;
+      assert.ok(maxEdge <= 54.5, `${mood} circle (${cx},${cy},r=${r}) exceeds circular clip (${maxEdge.toFixed(1)})`);
+    }
   }
   assert.equal(Object.keys(CAPY_EXPRESSION_SVGS).length, 4);
 });
@@ -120,72 +128,143 @@ test("normalizeMood handles aliases and safely falls back to happy", () => {
   assert.equal(normalizeMood("<img src=x onerror=alert(1)>"), "happy");
 });
 
-test("resolveCapyMood maps intents, loading, praise, and negated completion accurately", () => {
+test("resolveCapyMood avoids false-positive proud on questions, filler negations, false words, and default replies", () => {
   assert.equal(resolveCapyMood({ isLoading: true }), "thinking");
   assert.equal(resolveCapyMood({ intent: "INJURY_REPORT" }), "worried");
   assert.equal(resolveCapyMood({ action: "swap_exercise_for_injury" }), "worried");
   assert.equal(resolveCapyMood({ action: "move_workout_day" }), "thinking");
   assert.equal(resolveCapyMood({ action: "apply_instant_deload" }), "thinking");
-  assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", userMessage: "Mình vừa hoàn thành buổi tập hôm nay!" }), "proud");
-  assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Giỏi quá bạn ơi, đạt kỷ lục mới rồi!" }), "proud");
 
-  // Negated completion must NOT trigger proud
-  assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", userMessage: "Hôm nay mình chưa hoàn thành buổi tập" }), "happy");
-  assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", userMessage: "Mình chưa tập xong nữa" }), "happy");
+  // Genuine assistant praise/completion -> proud
+  assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Giỏi quá bạn ơi, đạt kỷ lục mới rồi! 🦫✨" }), "proud");
+  assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Chúc mừng bạn đã hoàn thành buổi tập hôm nay! 🦫✨" }), "proud");
+  assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Tự hào về bạn quá! 🦫✨" }), "proud");
+
+  // Informational questions must NOT trigger proud
+  assert.equal(
+    resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Tỷ lệ hoàn thành trong mục Đánh giá là gì?" }),
+    "happy"
+  );
+  assert.equal(
+    resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Làm sao đạt kỷ lục mới?" }),
+    "happy"
+  );
+
+  // "thứ tư hào hứng" must NOT match "tự hào"
+  assert.equal(
+    resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Thứ tư hào hứng tập luyện cùng Capy nhé!" }),
+    "happy"
+  );
+  assert.equal(
+    resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "thu tu hao hung tap luyen nhe!" }),
+    "happy"
+  );
+
+  // Negations with filler words must NOT trigger proud
+  assert.equal(
+    resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Hôm nay bạn chưa bấm hoàn thành buổi tập." }),
+    "happy"
+  );
+  assert.equal(
+    resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Tiếc quá, hôm nay không kịp tập xong rồi." }),
+    "happy"
+  );
+
+  // Default backend guidance reply must stay happy even if userMessage mentions completion
+  assert.equal(
+    resolveCapyMood({
+      intent: "QA_FITNESS_APP",
+      userMessage: "Mình vừa hoàn thành buổi tập hôm nay!",
+      reply: "Capy có thể giúp bạn tìm hiểu bài tập Calisthenics hoặc cách dùng Kế hoạch, Thư viện và Live HUD. Bạn muốn hỏi phần nào? 🦫✨",
+    }),
+    "happy"
+  );
 
   // Explicit backend mood takes precedence
   assert.equal(resolveCapyMood({ mood: "proud", intent: "QA_FITNESS_APP", reply: "Chào bạn" }), "proud");
   assert.equal(resolveCapyMood({}), "happy");
 });
 
-test("normalizeActionCard handles all 3 actions, SCRUM-30 payloads, and non-action guards", () => {
-  // 1. Injury swap fallback
-  const kneeCard = normalizeActionCard({
+test("normalizeActionCard reads top-level fields, handles unknown joints safely, and distinguishes proposal vs applied notes", () => {
+  // 1. Known joint proposal (not yet applied -> proposal phrasing)
+  const kneeProposal = normalizeActionCard({
     intent: "INJURY_REPORT",
     action: "swap_exercise_for_injury",
     params: { joint: "knee" },
   });
-  assert.equal(kneeCard.old, "Squat (Gánh đùi)");
-  assert.equal(kneeCard.new, "Glute Bridge (Cầu mông)");
-  assert.equal(kneeCard.day, "Hôm nay");
+  assert.equal(kneeProposal.old, "Squat (Gánh đùi)");
+  assert.equal(kneeProposal.new, "Glute Bridge (Cầu mông)");
+  assert.equal(kneeProposal.day, "Hôm nay");
+  assert.ok(kneeProposal.note.startsWith("Đề xuất"));
 
-  // 2. Enriched SCRUM-30 payload takes priority
-  const enrichedCard = normalizeActionCard({
-    intent: "INJURY_REPORT",
-    action: "swap_exercise_for_injury",
-    params: { joint: "knee" },
-    action_result: {
-      applied: true,
-      old_exercise: "Jump Squat",
-      new_exercise: "Glute Bridge",
-      day: "Thứ 4",
-      note: "Đã cập nhật trực tiếp lịch Thứ 4",
-    },
+  // 2. Top-level API fields (action_required, old_exercise, new_exercise, target_day, note)
+  const topLevelSwap = normalizeActionCard({
+    action_required: "swap_exercise_for_injury",
+    applied: true,
+    old_exercise: "Jump Squat",
+    new_exercise: "Glute Bridge",
+    target_day: "Thứ 4",
+    note: "Đã cập nhật trực tiếp lịch Thứ 4",
   });
-  assert.equal(enrichedCard.old, "Jump Squat");
-  assert.equal(enrichedCard.new, "Glute Bridge");
-  assert.equal(enrichedCard.day, "Thứ 4");
-  assert.equal(enrichedCard.note, "Đã cập nhật trực tiếp lịch Thứ 4");
+  assert.equal(topLevelSwap.old, "Jump Squat");
+  assert.equal(topLevelSwap.new, "Glute Bridge");
+  assert.equal(topLevelSwap.day, "Thứ 4");
+  assert.equal(topLevelSwap.note, "Đã cập nhật trực tiếp lịch Thứ 4");
 
-  // 3. Move workout day & same-day no-op guard
-  const moveCard = normalizeActionCard({
+  // 3. Unknown joint WITHOUT explicit exercises must NOT fall back to knee
+  assert.equal(
+    normalizeActionCard({
+      action: "swap_exercise_for_injury",
+      params: { joint: "ankle" },
+    }),
+    null
+  );
+
+  // 4. Unknown joint WITH explicit exercises renders them cleanly
+  const ankleExplicit = normalizeActionCard({
+    action: "swap_exercise_for_injury",
+    joint: "ankle",
+    old_exercise: "Jumping Jacks",
+    new_exercise: "Seated Arm Circles",
+    target_day: "Thứ 6",
+  });
+  assert.equal(ankleExplicit.old, "Jumping Jacks");
+  assert.equal(ankleExplicit.new, "Seated Arm Circles");
+  assert.equal(ankleExplicit.day, "Thứ 6");
+
+  // 5. Move workout day: proposal vs applied phrasing & same-day no-op guard
+  const moveProposal = normalizeActionCard({
     action: "move_workout_day",
     params: { from_day: "Thứ 2", to_day: "Thứ 4" },
   });
-  assert.equal(moveCard.day, "Thứ 2 → Thứ 4");
+  assert.equal(moveProposal.day, "Thứ 2 → Thứ 4");
+  assert.ok(moveProposal.note.startsWith("Đề xuất dời"));
+
+  const moveApplied = normalizeActionCard({
+    action: "move_workout_day",
+    applied: true,
+    params: { from_day: "Thứ 2", to_day: "Thứ 4" },
+  });
+  assert.ok(moveApplied.note.startsWith("Đã dời"));
+
   assert.equal(
     normalizeActionCard({ action: "move_workout_day", params: { from_day: "Thứ 2", to_day: "Thứ 2" } }),
     null
   );
 
-  // 4. Deload percentage normalization (fraction, integer, invalid)
-  const deloadFrac = normalizeActionCard({ action: "apply_instant_deload", params: { percentage: 0.25 } });
-  assert.equal(deloadFrac.new, "75% (Giảm 25%)");
-  const deloadInvalid = normalizeActionCard({ action: "apply_instant_deload", params: { percentage: -50 } });
-  assert.equal(deloadInvalid.new, "70% (Giảm 30%)");
+  // 6. Deload reads top-level target_day & normalizes percentage
+  const deloadCard = normalizeActionCard({
+    action: "apply_instant_deload",
+    target_day: "Thứ 5",
+    params: { percentage: 0.25 },
+  });
+  assert.equal(deloadCard.day, "Thứ 5");
+  assert.equal(deloadCard.new, "75% (Giảm 25%)");
+  assert.ok(deloadCard.note.startsWith("Đề xuất giảm"));
 
-  // 5. Non-action & unapplied guards
+  // 7. Non-action & unapplied guards
   assert.equal(normalizeActionCard({ intent: "QA_FITNESS_APP", action: null }), null);
+  assert.equal(normalizeActionCard({ action_required: false }), null);
   assert.equal(
     normalizeActionCard({ action: "swap_exercise_for_injury", action_result: { applied: false } }),
     null
@@ -240,7 +319,6 @@ test("createActionCardElement renders semantic diff safely (XSS-proof) and invok
   assert.equal(noteEl.innerHTMLWriteCount, 0);
   assert.equal(btnEl.textContent, "Xem Lịch tuần 📅");
 
-  // Click button -> closes chat and navigates via App.navigate("planner") without reload
   const prevented = btnEl.click();
   assert.equal(prevented, true);
   assert.deepEqual(calls, ["close", "App.navigate:planner"]);

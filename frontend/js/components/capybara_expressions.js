@@ -1,3 +1,10 @@
+/**
+ * SCRUM-32: Dynamic Capybara SVG Expressions & Mood Resolver
+ * - 4 lightweight, crisp vector SVGs (happy, worried, thinking, proud)
+ * - All elements strictly within r <= 53.5 of viewBox(120x120) so border-radius: 50% never clips
+ * - Cached <template> cloning for O(1) DOM insertion without XML re-parsing
+ */
+
 export const VALID_MOODS = Object.freeze(["happy", "worried", "thinking", "proud"]);
 
 export const CAPY_MOOD_META = Object.freeze({
@@ -35,6 +42,7 @@ const MOOD_ALIASES = Object.freeze({
   excited: "proud",
 });
 
+// Consistent viewBox="0 0 120 120" & warm brown palette matching src/capybara_widget.py
 export const CAPY_EXPRESSION_SVGS = Object.freeze({
   happy: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="36" height="36" aria-hidden="true" focusable="false">
   <ellipse cx="60" cy="72" rx="42" ry="34" fill="#B58A63"/>
@@ -54,7 +62,7 @@ export const CAPY_EXPRESSION_SVGS = Object.freeze({
   <circle cx="59" cy="26" r="9.5" fill="#F97316"/>
   <circle cx="56" cy="23" r="3" fill="#FDBA74" opacity="0.65"/>
   <path d="M 60 17 Q 67 13 69 16 Q 66 20 60 17 Z" fill="#22C55E"/>
-  <path d="M 20 25 L 22 30 L 27 32 L 22 34 L 20 39 L 18 34 L 13 32 L 18 30 Z" fill="#FACC15"/>
+  <path d="M 24 25 L 26 29.5 L 30.5 31.5 L 26 33.5 L 24 38 L 22 33.5 L 17.5 31.5 L 22 29.5 Z" fill="#FACC15"/>
   <ellipse cx="44" cy="98" rx="9" ry="6" fill="#885532"/>
   <ellipse cx="76" cy="98" rx="9" ry="6" fill="#885532"/>
 </svg>`,
@@ -89,8 +97,8 @@ export const CAPY_EXPRESSION_SVGS = Object.freeze({
   <ellipse cx="60" cy="72" rx="42" ry="34" fill="#B58A63"/>
   <ellipse cx="30" cy="46" rx="9" ry="12" fill="#885532" transform="rotate(-18 30 46)"/>
   <ellipse cx="30" cy="46" rx="5" ry="7" fill="#DDA15E" transform="rotate(-18 30 46)"/>
-  <ellipse cx="90" cy="44" rx="9" ry="12" fill="#885532" transform="rotate(10 90 44)"/>
-  <ellipse cx="90" cy="44" rx="5" ry="7" fill="#DDA15E" transform="rotate(10 90 44)"/>
+  <ellipse cx="90" cy="46" rx="9" ry="12" fill="#885532" transform="rotate(14 90 46)"/>
+  <ellipse cx="90" cy="46" rx="5" ry="7" fill="#DDA15E" transform="rotate(14 90 46)"/>
   <path d="M 40 68 C 40 56, 80 56, 80 68 C 80 82, 40 82, 40 68 Z" fill="#885532"/>
   <ellipse cx="54" cy="65" rx="3.2" ry="2.2" fill="#3D1E0B"/>
   <ellipse cx="66" cy="65" rx="3.2" ry="2.2" fill="#3D1E0B"/>
@@ -103,9 +111,9 @@ export const CAPY_EXPRESSION_SVGS = Object.freeze({
   <path d="M 55 75 Q 60 73.5 65 75.5" stroke="#4A2810" stroke-width="2.4" fill="none" stroke-linecap="round"/>
   <ellipse cx="42" cy="98" rx="9" ry="6" fill="#885532"/>
   <ellipse cx="71" cy="87" rx="9" ry="6.5" fill="#7D4B27" transform="rotate(-22 71 87)"/>
-  <circle cx="95" cy="31" r="3" fill="#38BDF8"/>
-  <circle cx="102" cy="22" r="4.2" fill="#38BDF8" opacity="0.85"/>
-  <circle cx="110" cy="12" r="5.5" fill="#38BDF8" opacity="0.7"/>
+  <circle cx="68" cy="34" r="2.5" fill="#38BDF8"/>
+  <circle cx="75" cy="26" r="3.8" fill="#38BDF8" opacity="0.88"/>
+  <circle cx="83" cy="18" r="5.2" fill="#38BDF8" opacity="0.75"/>
 </svg>`,
 
   proud: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="36" height="36" aria-hidden="true" focusable="false">
@@ -124,15 +132,26 @@ export const CAPY_EXPRESSION_SVGS = Object.freeze({
   <line x1="70" y1="50" x2="75" y2="56" stroke="#38BDF8" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
   <path d="M 52 73 Q 61 81 69 72" stroke="#4A2810" stroke-width="2.8" fill="none" stroke-linecap="round"/>
   <path d="M 48 34 L 51 22 L 60 28 L 69 22 L 72 34 Z" fill="#FACC15" stroke="#D97706" stroke-width="1.5" stroke-linejoin="round"/>
-  <path d="M 19 24 L 21 29 L 26 31 L 21 33 L 19 38 L 17 33 L 12 31 L 17 29 Z" fill="#FACC15"/>
-  <path d="M 101 23 L 103 27 L 107 29 L 103 31 L 101 35 L 99 31 L 95 29 L 99 27 Z" fill="#4ADE80"/>
+  <path d="M 24 25 L 26 29.5 L 30.5 31.5 L 26 33.5 L 24 38 L 22 33.5 L 17.5 31.5 L 22 29.5 Z" fill="#FACC15"/>
+  <path d="M 96 25 L 98 29 L 102 31 L 98 33 L 96 37 L 94 33 L 90 31 L 94 29 Z" fill="#4ADE80"/>
   <ellipse cx="44" cy="98" rx="9" ry="6" fill="#885532"/>
   <ellipse cx="76" cy="98" rx="9" ry="6" fill="#885532"/>
 </svg>`,
 });
 
-const PROUD_PATTERN = /(?:hoan thanh|tap xong|xong buoi|xuat sac|tuyet voi|gioi qua|tu hao|ky luc|chuc mung|dinh chop|vuot muc tieu|pr moi)/;
-const NEGATED_COMPLETION_PATTERN = /\b(?:chua|khong|dung|thieu)\s+(?:the\s+)?(?:hoan thanh|tap xong|xong buoi|dat duoc)/;
+const VN_DIACRITIC_RE = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
+
+const PROUD_VN_RE = /(?<![\p{L}\p{N}_])(?:hoàn\s+thành|tập\s+xong|xong\s+buổi|xuất\s+sắc|tuyệt\s+vời|giỏi\s+quá|tự\s+hào|kỷ\s+lục|chúc\s+mừng|đỉnh\s+chóp|vượt\s+mục\s+tiêu|pr\s+mới)(?![\p{L}\p{N}_])/u;
+
+const PROUD_ASCII_RE = /\b(?:hoan\s+thanh|tap\s+xong|xong\s+buoi|xuat\s+sac|tuyet\s+voi|gioi\s+qua|tu\s+hao|ky\s+luc|chuc\s+mung|dinh\s+chop|vuot\s+muc\s+tieu|pr\s+moi)\b/;
+
+const FALSE_TU_HAO_ASCII_RE = /\bthu\s+tu\s+hao\b/g;
+
+const INFORMATIONAL_QUESTION_RE = /\?|\b(?:la\s+gi|lam\s+sao|nhu\s+the\s+nao|the\s+nao|o\s+dau|tai\s+sao|bao\s+nhieu|co\s+nen|nghia\s+la|ty\s+le\s+hoan\s+thanh|cach\s+dat)\b/;
+
+const NEGATED_COMPLETION_RE = /\b(?:chua|khong|chang|dung|thieu)\b(?:\s+[a-z0-9]+){0,4}\s+(?:hoan\s+thanh|tap\s+xong|xong\s+buoi|dat(?:\s+duoc)?|ky\s+luc|xuat\s+sac|tuyet\s+voi|gioi|tu\s+hao|vuot\s+muc\s+tieu)\b/;
+
+const DEFAULT_INSTRUCTIONAL_REPLY_RE = /^(?:capy\s+co\s+the\s+giup\s+ban\s+tim\s+hieu|mo\s+muc\s+|ban\s+co\s+the\s+mo\s+muc\s+|khi\s+chong\s+day|giam\s+tai\s+la\s+giam)/;
 
 const browserSvgCache = new Map();
 
@@ -145,12 +164,36 @@ function stripDiacritics(text) {
     .toLowerCase();
 }
 
+function isProudAssistantText(rawText) {
+  const nfc = String(rawText || "").normalize("NFC").trim().toLowerCase();
+  if (!nfc) return false;
+
+  const ascii = stripDiacritics(nfc);
+  if (DEFAULT_INSTRUCTIONAL_REPLY_RE.test(ascii)) return false;
+  if (INFORMATIONAL_QUESTION_RE.test(ascii)) return false;
+  if (NEGATED_COMPLETION_RE.test(ascii)) return false;
+
+  if (VN_DIACRITIC_RE.test(nfc)) {
+    return PROUD_VN_RE.test(nfc);
+  }
+
+  const cleanedAscii = ascii.replace(FALSE_TU_HAO_ASCII_RE, " ");
+  return PROUD_ASCII_RE.test(cleanedAscii);
+}
+
+/**
+ * Normalize any mood/emotion string into one of the 4 canonical moods.
+ */
 export function normalizeMood(rawMood) {
   if (typeof rawMood !== "string") return "happy";
   const key = rawMood.trim().toLowerCase();
   return MOOD_ALIASES[key] || "happy";
 }
 
+/**
+ * Automatically determine the Capybara expression mood for an assistant message.
+ * Evaluates assistant reply/content (not user questions) so the avatar never mismatches the actual reply.
+ */
 export function resolveCapyMood(context = {}) {
   if (!context || typeof context !== "object") return "happy";
 
@@ -189,16 +232,18 @@ export function resolveCapyMood(context = {}) {
     return "proud";
   }
 
-  const combinedText = stripDiacritics(
-    `${context.userMessage || ""} ${context.reply || ""} ${context.content || ""}`
-  );
-  if (combinedText && PROUD_PATTERN.test(combinedText) && !NEGATED_COMPLETION_PATTERN.test(combinedText)) {
+  // Only inspect assistant's reply/content so user questions or default help replies never falsely trigger "proud"
+  const assistantText = String(context.reply ?? context.content ?? "").trim();
+  if (assistantText && isProudAssistantText(assistantText)) {
     return "proud";
   }
 
   return "happy";
 }
 
+/**
+ * Return raw verified SVG markup string for a given mood.
+ */
 export function getCapyAvatarSvg(mood) {
   const canonical = normalizeMood(mood);
   return CAPY_EXPRESSION_SVGS[canonical];
@@ -223,6 +268,9 @@ function getCachedSvgNode(canonicalMood, doc) {
   return svgNode;
 }
 
+/**
+ * Create a lightweight DOM wrapper containing the cloned Capybara SVG avatar.
+ */
 export function createCapyAvatarElement(mood, options = {}) {
   const doc = options.document || (typeof document !== "undefined" ? document : null);
   if (!doc) return null;

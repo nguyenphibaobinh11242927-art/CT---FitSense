@@ -2601,84 +2601,310 @@ input[type="file"]::file-selector-button:hover {
   40% { transform: translateY(-5px); opacity: 1; }
 }
 
-/* Action Card Component (SCRUM-32 Support & Display) */
+/* ==========================================================================
+   SCRUM-32: CAPYBARA DYNAMIC SVG AVATARS & ACTION CARD STYLING
+   ========================================================================== */
+
+/* Remove outer ring/bg when avatar holds an SVG to prevent double borders & ghost circle */
+.capy-msg-avatar.has-svg-avatar {
+  background: transparent;
+  border: none;
+  padding: 0;
+  overflow: visible;
+}
+
+.capy-msg-avatar .capy-svg-avatar {
+  width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 1.5px solid var(--border-color);
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.capy-msg-avatar .capy-svg-avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Header SVG Avatar (44x44 single crisp circle) */
+.capy-header-avatar.has-svg-avatar {
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.capy-header-avatar.has-svg-avatar > svg,
+.capy-header-avatar.has-svg-avatar .capy-svg-avatar {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.capy-header-avatar.has-svg-avatar .capy-svg-avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.capy-svg-avatar.capy-mood-happy {
+  border-color: rgba(74, 222, 128, 0.5);
+}
+
+.capy-svg-avatar.capy-mood-worried {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.capy-svg-avatar.capy-mood-thinking {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+
+.capy-svg-avatar.capy-mood-proud {
+  border-color: rgba(250, 204, 21, 0.65);
+}
+
+/* Infinite pulse animation ONLY while waiting for a live response */
+#capy-typing-row .capy-svg-avatar.capy-mood-thinking {
+  animation: capyThinkPulse 1.8s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes capyThinkPulse {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.04); }
+}
+
+/* Action Card inside Assistant Chat Bubble (Single Authoritative Definition) */
 .capy-action-card {
-  margin-top: 0.75rem;
-  padding: 0.85rem 1rem;
-  border-radius: 12px;
-  background: rgba(34, 197, 94, 0.08);
-  border: 1.5px solid rgba(34, 197, 94, 0.45);
+  margin-top: 0.7rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-glow);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  box-shadow: 0 4px 14px rgba(34, 197, 94, 0.12);
+  animation: actionCardReveal 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.action-card-header {
+@keyframes actionCardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.capy-action-card .action-card-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.action-badge {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.16);
-  padding: 3px 8px;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.action-swap-row {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  font-size: 0.92rem;
-  font-weight: 700;
-}
-
-.action-old {
-  text-decoration: line-through;
-  color: var(--text-muted);
-}
-
-.action-arrow {
-  color: #22c55e;
-  font-size: 1rem;
-}
-
-.action-new {
-  color: var(--accent-cyan);
-}
-
-.action-note {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-
-.action-card-btn {
-  align-self: flex-start;
-  margin-top: 0.25rem;
-  background: var(--accent-cyan);
-  color: #070a11;
-  border: none;
-  border-radius: 8px;
-  padding: 0.4rem 0.85rem;
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: inline-flex;
-  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.35rem;
 }
 
-.action-card-btn:hover {
+.capy-action-card .action-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.55rem;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  background: var(--accent-cyan-glow);
+  border: 1px solid var(--border-color);
+}
+
+.capy-action-card .action-day-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+.capy-action-card .action-card-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.capy-action-card .action-swap-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+}
+
+.capy-action-card .action-old {
+  display: inline-block;
+  padding: 0.16rem 0.48rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-crimson);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.8px;
+  word-break: break-word;
+}
+
+.capy-action-card .action-arrow {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.capy-action-card .action-new {
+  display: inline-block;
+  padding: 0.16rem 0.52rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent-emerald);
+  background: rgba(74, 222, 128, 0.14);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.capy-action-card .action-note {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.capy-action-card .action-card-btn {
+  margin-top: 0.15rem;
+  width: 100%;
+  align-self: stretch;
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #0284c7, #38bdf8);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
+}
+
+.capy-action-card .action-card-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px var(--accent-cyan-glow);
+  opacity: 0.94;
+}
+
+.capy-action-card .action-card-btn:active {
+  transform: translateY(0);
+}
+
+[data-theme="light"] .capy-action-card {
+  background: #ffffff;
+  border-color: rgba(2, 132, 199, 0.28);
+}
+
+[data-theme="light"] .capy-action-card .action-swap-row {
+  background: #f8fafc;
+}
+
+[data-theme="light"] .capy-action-card .action-old {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.28);
+}
+
+[data-theme="light"] .capy-action-card .action-new {
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
+/* Compact Mobile Layout (including 375px viewports) */
+@media (max-width: 768px) {
+  .capy-msg-row {
+    gap: 0.5rem;
+  }
+  .capy-msg-bubble {
+    padding: 0.65rem 0.8rem;
+  }
+  .capy-action-card {
+    margin-top: 0.55rem;
+    padding: 0.65rem 0.72rem;
+    gap: 0.38rem;
+    border-radius: 10px;
+  }
+  .capy-action-card .action-badge,
+  .capy-action-card .action-day-pill {
+    font-size: 0.68rem;
+    padding: 0.12rem 0.45rem;
+  }
+  .capy-action-card .action-card-title {
+    font-size: 0.8rem;
+  }
+  .capy-action-card .action-swap-row {
+    padding: 0.4rem 0.5rem;
+    gap: 0.3rem;
+  }
+  .capy-action-card .action-old,
+  .capy-action-card .action-new {
+    font-size: 0.74rem;
+    padding: 0.12rem 0.4rem;
+  }
+  .capy-action-card .action-note {
+    font-size: 0.73rem;
+    line-height: 1.35;
+  }
+  .capy-action-card .action-card-btn {
+    padding: 0.44rem 0.7rem;
+    font-size: 0.76rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .capy-msg-avatar,
+  .capy-msg-avatar .capy-svg-avatar {
+    width: 30px;
+    height: 30px;
+  }
+  .capy-msg-row {
+    max-width: 97%;
+    gap: 0.4rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #capy-typing-row .capy-svg-avatar.capy-mood-thinking,
+  .capy-action-card {
+    animation: none;
+  }
 }
 
 /* Chat Input Container */

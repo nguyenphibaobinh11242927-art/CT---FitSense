@@ -1,13 +1,21 @@
+/**
+ * SCRUM-32: Capybara Chat Action Card Component
+ * - Renders schedule change diff (old strikethrough red -> new emerald green + workout day)
+ * - Reads nested (action_result/changes/diff), top-level response fields, and params
+ * - Uses DOM API + textContent exclusively (immune to XSS)
+ * - Instant SPA navigation via App.navigate("planner") without page reload
+ */
+
 const JOINT_SWAP_FALLBACKS = Object.freeze({
   knee: {
     old: "Squat (Gánh đùi)",
     new: "Glute Bridge (Cầu mông)",
-    note: "Thay bài tập giảm áp lực tối đa lên khớp gối",
+    note: "Giảm áp lực tối đa lên khớp gối",
   },
   wrist: {
     old: "Standard Push-up (Chống đẩy)",
     new: "Forearm Plank (Plank cẳng tay)",
-    note: "Thay bài tránh dồn trọng lượng gập cổ tay",
+    note: "Tránh dồn trọng lượng gập cổ tay",
   },
   shoulder: {
     old: "Pike Push-up (Đẩy vai dốc)",
@@ -27,6 +35,14 @@ function cleanText(value, fallback = "") {
   return trimmed || fallback;
 }
 
+function firstText(candidates, fallback = "") {
+  for (const val of candidates) {
+    const cleaned = cleanText(val);
+    if (cleaned) return cleaned;
+  }
+  return fallback;
+}
+
 function normalizePercentage(rawPct) {
   const num = Number(rawPct);
   if (!Number.isFinite(num) || num <= 0) return 30;
@@ -37,13 +53,17 @@ function normalizePercentage(rawPct) {
 
 /**
  * Normalize either a raw API response (SCRUM-29 / SCRUM-30) or a stored card object
- * into a clean Action Card model. Returns null when no concrete schedule change occurred.
+ * into a clean Action Card model. Returns null when no concrete schedule change exists.
  */
 export function normalizeActionCard(source) {
   if (!source || typeof source !== "object") return null;
 
-  // Case 1: Already-normalized Action Card object (e.g. from localStorage)
-  if (!source.action && (source.old || source.oldExercise) && (source.new || source.newExercise)) {
+  const hasRawAction = Boolean(
+    cleanText(source.action) || (typeof source.action_required === "string" && cleanText(source.action_required))
+  );
+
+  // Case 1: Already-normalized Action Card object (e.g. restored from localStorage)
+  if (!hasRawAction && (source.old || source.oldExercise) && (source.new || source.newExercise)) {
     const oldVal = cleanText(source.old ?? source.oldExercise);
     const newVal = cleanText(source.new ?? source.newExercise);
     if (!oldVal || !newVal) return null;
@@ -60,7 +80,11 @@ export function normalizeActionCard(source) {
   }
 
   // Case 2: Raw API response from /api/capybara/chat
-  const action = cleanText(source.action);
+  if (source.action_required === false) return null;
+
+  const action = cleanText(
+    source.action ?? (typeof source.action_required === "string" ? source.action_required : "")
+  );
   if (!action) return null;
 
   const result = source.action_result || source.changes || source.diff || {};
@@ -72,29 +96,71 @@ export function normalizeActionCard(source) {
     return null;
   }
 
+  const isApplied =
+    source.applied === true ||
+    result.applied === true ||
+    result.success === true;
+
   const params = source.params && typeof source.params === "object" ? source.params : {};
 
   if (action === "swap_exercise_for_injury") {
-    const joint = cleanText(result.joint ?? params.joint, "knee").toLowerCase();
-    const fallback = JOINT_SWAP_FALLBACKS[joint] || JOINT_SWAP_FALLBACKS.knee;
+    const joint = firstText([result.joint, source.joint, params.joint]).toLowerCase();
+    const fallback = Object.prototype.hasOwnProperty.call(JOINT_SWAP_FALLBACKS, joint)
+      ? JOINT_SWAP_FALLBACKS[joint]
+      : null;
 
-    const oldEx = cleanText(
-      result.old_exercise ?? result.oldExercise ?? result.from_exercise ?? params.old_exercise,
-      fallback.old
+    const oldEx = firstText(
+      [
+        result.old_exercise,
+        result.oldExercise,
+        result.from_exercise,
+        source.old_exercise,
+        source.oldExercise,
+        source.from_exercise,
+        params.old_exercise,
+      ],
+      fallback ? fallback.old : ""
     );
-    const newEx = cleanText(
-      result.new_exercise ?? result.newExercise ?? result.to_exercise ?? params.new_exercise,
-      fallback.new
+    const newEx = firstText(
+      [
+        result.new_exercise,
+        result.newExercise,
+        result.to_exercise,
+        source.new_exercise,
+        source.newExercise,
+        source.to_exercise,
+        params.new_exercise,
+      ],
+      fallback ? fallback.new : ""
     );
-    const day = cleanText(
-      result.day ?? result.target_day ?? params.day ?? params.from_day,
+
+    // Do not fabricate a wrong knee swap when joint is unrecognized and API gave no exercises
+    if (!oldEx || !newEx) return null;
+
+    const day = firstText(
+      [
+        result.target_day,
+        result.day,
+        source.target_day,
+        source.day,
+        params.target_day,
+        params.day,
+        params.from_day,
+      ],
       "Hôm nay"
     );
-    const note = cleanText(result.note ?? result.reason, fallback.note);
+
+    const defaultNote = fallback
+      ? `${isApplied ? "Đã thay bài giúp" : "Đề xuất thay bài giúp"} ${fallback.note.charAt(0).toLowerCase()}${fallback.note.slice(1)}`
+      : isApplied
+        ? "Đã cập nhật bài tập thay thế an toàn hơn trong giáo án"
+        : "Đề xuất bài tập thay thế an toàn hơn cho vùng đang khó chịu";
+
+    const note = firstText([result.note, result.reason, source.note, source.reason], defaultNote);
 
     return {
       actionType: action,
-      title: "Đổi bài tập an toàn",
+      title: isApplied ? "Đã đổi bài tập an toàn" : "Đề xuất đổi bài tập an toàn",
       badge: "🛡️ Bảo vệ khớp",
       old: oldEx,
       new: newEx,
@@ -104,39 +170,44 @@ export function normalizeActionCard(source) {
   }
 
   if (action === "move_workout_day") {
-    const fromDay = cleanText(result.from_day ?? params.from_day, "Hôm nay");
-    const toDay = cleanText(result.to_day ?? params.to_day, "Ngày mai");
+    const fromDay = firstText([result.from_day, source.from_day, params.from_day], "Hôm nay");
+    const toDay = firstText([result.to_day, source.to_day, params.to_day], "Ngày mai");
     if (fromDay.toLowerCase() === toDay.toLowerCase()) return null;
+
+    const defaultNote = isApplied
+      ? `Đã dời buổi tập từ ${fromDay} sang ${toDay} trong giáo án tuần`
+      : `Đề xuất dời buổi tập từ ${fromDay} sang ${toDay} trong giáo án tuần`;
 
     return {
       actionType: action,
-      title: "Dời lịch tập luyện",
+      title: isApplied ? "Đã dời lịch tập luyện" : "Đề xuất dời lịch tập luyện",
       badge: "⚡ Hoán đổi lịch tuần",
-      old: cleanText(result.old_label, `Buổi tập ${fromDay}`),
-      new: cleanText(result.new_label, `Chuyển sang ${toDay}`),
-      day: cleanText(result.day, `${fromDay} → ${toDay}`),
-      note: cleanText(
-        result.note ?? result.reason,
-        `Đã dời buổi tập từ ${fromDay} sang ${toDay} trong giáo án tuần`
-      ),
+      old: firstText([result.old_label, source.old_label], `Buổi tập ${fromDay}`),
+      new: firstText([result.new_label, source.new_label], `Chuyển sang ${toDay}`),
+      day: firstText([result.target_day, result.day, source.target_day, source.day], `${fromDay} → ${toDay}`),
+      note: firstText([result.note, result.reason, source.note, source.reason], defaultNote),
     };
   }
 
   if (action === "apply_instant_deload") {
-    const pct = normalizePercentage(result.percentage ?? params.percentage);
-    const day = cleanText(result.day ?? params.day, "Buổi tập kế tiếp");
+    const pct = normalizePercentage(result.percentage ?? source.percentage ?? params.percentage);
+    const day = firstText(
+      [result.target_day, result.day, source.target_day, source.day, params.target_day, params.day],
+      "Buổi tập kế tiếp"
+    );
+
+    const defaultNote = isApplied
+      ? `Đã giảm ${pct}% số reps và hiệp để cơ thể phục hồi tốt hơn`
+      : `Đề xuất giảm ${pct}% số reps và hiệp để cơ thể phục hồi tốt hơn`;
 
     return {
       actionType: action,
-      title: "Giảm tải cường độ (Deload)",
+      title: isApplied ? "Đã giảm tải cường độ (Deload)" : "Đề xuất giảm tải (Deload)",
       badge: "🌿 Hồi phục cơ bắp",
-      old: cleanText(result.old_label, "100% Khối lượng"),
-      new: cleanText(result.new_label, `${100 - pct}% (Giảm ${pct}%)`),
+      old: firstText([result.old_label, source.old_label], "100% Khối lượng"),
+      new: firstText([result.new_label, source.new_label], `${100 - pct}% (Giảm ${pct}%)`),
       day,
-      note: cleanText(
-        result.note ?? result.reason,
-        `Giảm ${pct}% số reps và hiệp để cơ thể phục hồi tốt hơn`
-      ),
+      note: firstText([result.note, result.reason, source.note, source.reason], defaultNote),
     };
   }
 

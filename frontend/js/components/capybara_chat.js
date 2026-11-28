@@ -8,10 +8,10 @@
  * - Full Dark / Light Theme & Responsive Mobile Compatibility
  */
 
-import { API } from "../api.js";
-import { Toast } from "./toast.js";
-import { createCapyAvatarElement, resolveCapyMood } from "./capybara_expressions.js";
-import { createActionCardElement, normalizeActionCard } from "./capybara_action_card.js";
+import { API } from "../api.js?v=3.0.0";
+import { Toast } from "./toast.js?v=3.0.0";
+import { createCapyAvatarElement, resolveCapyMood } from "./capybara_expressions.js?v=3.0.0";
+import { createActionCardElement, normalizeActionCard } from "./capybara_action_card.js?v=3.0.0";
 
 const STORAGE_KEY = "fitsense_capy_chat_history";
 
@@ -46,6 +46,7 @@ const DEFAULT_CHIPS = [
 export const CapybaraChat = {
   modal: null,
   dialogBox: null,
+  headerAvatar: null,
   closeBtn: null,
   clearBtn: null,
   chipsContainer: null,
@@ -61,6 +62,7 @@ export const CapybaraChat = {
   init() {
     this.modal = document.getElementById("modal-capybara-chat");
     this.dialogBox = document.getElementById("capy-chat-dialog-box");
+    this.headerAvatar = document.getElementById("capy-header-avatar");
     this.closeBtn = document.getElementById("btn-capy-chat-close");
     this.clearBtn = document.getElementById("btn-capy-clear-chat");
     this.chipsContainer = document.getElementById("capy-chips-list");
@@ -75,6 +77,27 @@ export const CapybaraChat = {
     this.loadMessages();
     this.renderChips();
     this.renderMessages();
+    this.syncHeaderAvatar();
+  },
+
+  updateHeaderAvatar(mood = "happy") {
+    if (!this.headerAvatar) return;
+    const svgAvatar = createCapyAvatarElement(mood);
+    if (!svgAvatar) return;
+    this.headerAvatar.classList.add("has-svg-avatar");
+    this.headerAvatar.setAttribute("data-mood", svgAvatar.getAttribute("data-mood") || "happy");
+    this.headerAvatar.innerHTML = "";
+    this.headerAvatar.appendChild(svgAvatar);
+  },
+
+  syncHeaderAvatar() {
+    for (let i = this.messages.length - 1; i >= 0; i -= 1) {
+      if (this.messages[i]?.role === "assistant") {
+        this.updateHeaderAvatar(resolveCapyMood(this.messages[i]));
+        return;
+      }
+    }
+    this.updateHeaderAvatar("happy");
   },
 
   setupEventListeners() {
@@ -116,6 +139,7 @@ export const CapybaraChat = {
     });
 
     this.renderMessages();
+    this.syncHeaderAvatar();
     setTimeout(() => {
       this.scrollToBottom(false);
       this.input?.focus();
@@ -191,6 +215,7 @@ export const CapybaraChat = {
     this.saveMessages();
     this.renderChips();
     this.renderMessages();
+    this.updateHeaderAvatar("happy");
     Toast.show("Đã làm mới đoạn chat cùng Capybara!", "info");
   },
 
@@ -305,12 +330,13 @@ export const CapybaraChat = {
       const row = document.createElement("div");
       row.className = `capy-msg-row ${isAssistant ? "assistant" : "user"}`;
 
-      // Avatar container (SVG expression for assistant, crisp icon for user)
+      // Avatar container (single 36x36 circle — no nested double border)
       const avatarBox = document.createElement("div");
       avatarBox.className = "capy-msg-avatar";
 
       if (isAssistant) {
         const mood = resolveCapyMood(msg);
+        avatarBox.classList.add("has-svg-avatar");
         avatarBox.setAttribute("data-mood", mood);
         const svgAvatar = createCapyAvatarElement(mood);
         if (svgAvatar) {
@@ -357,12 +383,14 @@ export const CapybaraChat = {
     const existing = document.getElementById("capy-typing-row");
     if (existing) return;
 
+    this.updateHeaderAvatar("thinking");
+
     const row = document.createElement("div");
     row.id = "capy-typing-row";
     row.className = "capy-msg-row assistant";
 
     const avatarBox = document.createElement("div");
-    avatarBox.className = "capy-msg-avatar";
+    avatarBox.className = "capy-msg-avatar has-svg-avatar";
     avatarBox.setAttribute("data-mood", "thinking");
     const thinkingAvatar = createCapyAvatarElement("thinking");
     if (thinkingAvatar) {
@@ -430,9 +458,8 @@ export const CapybaraChat = {
       const mood = resolveCapyMood({
         mood: res?.mood ?? res?.emotion,
         intent: res?.intent,
-        action: res?.action,
+        action: res?.action ?? res?.action_required,
         reply: res?.reply,
-        userMessage: text,
       });
 
       if (actionCard) {
@@ -450,6 +477,7 @@ export const CapybaraChat = {
 
       this.saveMessages();
       this.renderMessages();
+      this.updateHeaderAvatar(mood);
       this.scrollToBottom();
     } catch (err) {
       console.error("Capybara chat error:", err);
@@ -464,6 +492,7 @@ export const CapybaraChat = {
       });
       this.saveMessages();
       this.renderMessages();
+      this.updateHeaderAvatar("worried");
       this.scrollToBottom();
     } finally {
       this.isLoading = false;
@@ -486,7 +515,6 @@ export const CapybaraChat = {
       }
 
       const now = ctx.currentTime;
-      // High pleasant notes: C5 (523.25Hz), E5 (659.25Hz), G5 (783.99Hz)
       const freqs = [523.25, 659.25, 783.99];
       freqs.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
@@ -513,9 +541,7 @@ export const CapybaraChat = {
   formatMessageContent(content) {
     if (!content) return "";
     let safe = this.escapeHtml(content);
-    // Format bold **text**
     safe = safe.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-    // Format newlines
     safe = safe.replace(/\n/g, "<br/>");
     return safe;
   },
