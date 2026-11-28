@@ -1,8 +1,9 @@
 """Unit tests for SCRUM-21: Pandas progress analytics, timeframe filtering, and PRs."""
 from datetime import date, timedelta
 import unittest
+import pytest
 
-from src.progress_analytics import build_progress_analytics, compute_personal_records
+from src.progress_analytics import build_progress_analytics, compute_personal_records, compute_streak
 
 
 class TestProgressAnalytics(unittest.TestCase):
@@ -225,6 +226,51 @@ class TestProgressAnalytics(unittest.TestCase):
         res_week = build_progress_analytics(self.sample_history, timeframe="week", reference_date=self.ref_date)
         self.assertEqual(res_week["personal_records"]["Standard Push-up"], "18 reps")
         self.assertEqual(res_week["personal_records"]["Plank Tĩnh"], "1p 15s")
+
+
+
+
+
+@pytest.mark.parametrize("rate, expected", [(0, 0), (49, 0), (49.99, 0), (50, 1), (51, 1), (100, 1), (None, 0), (101, 0), (-1, 0)])
+def test_scrum24_streak_threshold(rate, expected):
+    today = date(2026, 11, 19)
+    result = compute_streak([{"actual_date": today.isoformat(), "completion_rate": rate}], today)
+    assert result == {"current_streak_days": expected, "longest_streak_days": expected,
+                      "has_worked_out_today": bool(expected)}
+
+
+def test_scrum24_streak_consecutive_duplicate_and_gap():
+    today = date(2026, 11, 19)
+    history = [{"actual_date": (today - timedelta(days=n)).isoformat(), "completion_rate": 50}
+               for n in (0, 0, 1, 3, 4, 5, -1)]
+    history.append({"actual_date": "invalid", "completion_rate": 100})
+    assert compute_streak(history, today) == {"current_streak_days": 2, "longest_streak_days": 3,
+                                              "has_worked_out_today": True}
+    assert compute_streak(history, today + timedelta(days=1))["current_streak_days"] == 3
+    assert compute_streak(history, today + timedelta(days=3))["current_streak_days"] == 0
+
+
+def test_scrum24_streak_empty_and_missing_data():
+    today = date(2026, 11, 19)
+    assert compute_streak([{}, {"actual_date": today.isoformat()}], today) == compute_streak([], today)
+
+
+def test_scrum24_streak_partial_session_qualifies():
+    today = date(2026, 11, 19)
+    assert compute_streak([{"actual_date": today.isoformat(), "completion_rate": 50, "status": "abandoned"}], today)["current_streak_days"] == 1
+
+
+
+def test_scrum24_stats_reads_qualifying_history(monkeypatch):
+    from backend.routers import progress
+    today = date.today().isoformat()
+    history = [{"actual_date": today, "completion_rate": 49, "status": "completed"}]
+    monkeypatch.setattr(progress, "WORKOUT_HISTORY", history)
+    monkeypatch.setattr(progress, "HAS_WORKED_OUT_TODAY", True)
+    assert progress.get_stats()["current_streak_days"] == 0
+    history.append({"actual_date": today, "completion_rate": 50, "status": "abandoned"})
+    assert progress.get_stats()["current_streak_days"] == 1
+
 
 if __name__ == "__main__":
     unittest.main()

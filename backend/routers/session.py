@@ -292,7 +292,7 @@ def finish_session(payload: SessionFinishRequest):
         summary = _summary(session)
         reps = summary["total_reps"] if session["mode"] == "ai" else payload.completed_reps
         est_calories = round(reps * 0.4 + (payload.duration_seconds / 60) * 4, 1)
-        completion_rate = min(100.0, round(reps / summary["total_target_reps"] * 100, 1))
+        completion_rate = min(100.0, reps / summary["total_target_reps"] * 100)
         record = record_workout(
             exercise_id=session["exercise_id"],
             reps=reps,

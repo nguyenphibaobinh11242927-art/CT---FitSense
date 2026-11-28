@@ -32,7 +32,7 @@ Hệ thống Trợ lý AI hỗ trợ rèn luyện Thể dục Thể thao & Calis
    - Khảo sát mức độ gắng sức RPE (thang đo Borg 1 - 10) và vùng cơ mỏi sau buổi tập.
    - **Tỉ lệ hoàn thành do AI đối chiếu:** Đo đạc khách quan và cố định (`AI Verified`), tự động kích hoạt chiến lược thích ứng tải trọng (Tăng tiến Overload +10%, Giảm tải Deload -15%, hoặc Duy trì Optimal Maintenance).
    - Khối khuyến nghị Adaptive AI tự động hiển thị sau khi hoàn tất khảo sát.
-   - Ma trận bản đồ nhiệt theo dõi chu kỳ phục hồi của 7 nhóm cơ và chuỗi ngày rèn luyện (Streak công bằng $\ge 70\%$).
+   - Ma trận bản đồ nhiệt theo dõi chu kỳ phục hồi của 7 nhóm cơ và chuỗi ngày rèn luyện (Streak công bằng $\ge 50\%$).
 
 ---
 

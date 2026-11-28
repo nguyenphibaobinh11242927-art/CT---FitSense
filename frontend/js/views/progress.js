@@ -130,7 +130,7 @@ export const ProgressView = {
 
         <!-- Fair Streak Rule Box -->
         <div class="ai-reason-box" style="margin-bottom: 1.75rem; border-color: var(--accent-cyan);">
-          💡 <b>Quy tắc tính Streak thể thao công bằng:</b> Để tránh áp lực và bảo vệ sức khỏe khớp, bạn không bắt buộc phải hoàn thành 100% buổi tập. Chỉ cần hoàn thành từ <b>70% khối lượng bài tập trở lên</b>, hệ thống sẽ tự động ghi nhận duy trì Chuỗi ngày (Streak) thành công!
+          💡 <b>Quy tắc tính Streak thể thao công bằng:</b> Để tránh áp lực và bảo vệ sức khỏe khớp, bạn không bắt buộc phải hoàn thành 100% buổi tập. Chỉ cần hoàn thành từ <b>50% khối lượng bài tập trở lên</b>, hệ thống sẽ tự động ghi nhận duy trì Chuỗi ngày (Streak) thành công!
         </div>
 
         <!-- 2. Personal Records (PRs) Section -->

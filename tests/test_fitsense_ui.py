@@ -1,5 +1,3 @@
-"""Kiểm thử cấu trúc các module và khởi tạo trạng thái giao diện FitSense (SCRUM-11)."""
-
 import unittest
 import streamlit as st
 
@@ -66,7 +64,7 @@ class TestFitSenseUIModules(unittest.TestCase):
     def test_streak_minimum_threshold(self):
         """Kiểm tra thông số điều kiện tối thiểu 70% để duy trì streak và khởi tạo bằng 0."""
         streak = st.session_state["streak_info"]
-        self.assertEqual(streak["min_threshold_pct"], 70)
+        self.assertEqual(streak["min_threshold_pct"], 50)
         self.assertEqual(streak["current_streak"], 0)
 
     def test_muscle_recovery_matrix_coverage(self):

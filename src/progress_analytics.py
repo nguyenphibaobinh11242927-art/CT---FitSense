@@ -236,3 +236,27 @@ def build_progress_analytics(
             "invalid_date_records": invalid_date_count,
         },
     }
+
+STREAK_MIN_COMPLETION = 50
+
+def compute_streak(history: list[dict[str, Any]], reference_date: date | None = None) -> dict[str, Any]:
+    """Count distinct qualifying calendar days; yesterday remains active until today ends."""
+    today = reference_date or date.today()
+    days = set()
+    for record in history:
+        try:
+            day = date.fromisoformat(record.get("actual_date", ""))
+            rate = float(record.get("completion_rate"))
+        except (TypeError, ValueError):
+            continue
+        if day <= today and STREAK_MIN_COMPLETION <= rate <= 100:
+            days.add(day)
+    longest = run = 0
+    previous = None
+    for day in sorted(days):
+        run = run + 1 if previous is not None and (day - previous).days == 1 else 1
+        longest = max(longest, run)
+        previous = day
+    current = run if previous is not None and (today - previous).days <= 1 else 0
+    return {"current_streak_days": current, "longest_streak_days": longest,
+            "has_worked_out_today": today in days}

@@ -1,4 +1,5 @@
 import unittest
+import pytest
 
 from src.fsm_rep_counter import RepCounterFSM
 
@@ -54,6 +55,35 @@ class RepCounterFSMTests(unittest.TestCase):
         """Thứ tự ngưỡng sai phải báo lỗi."""
         with self.assertRaises(ValueError):
             RepCounterFSM(down_thresh = 110, going_up_thresh = 100)
+
+
+
+
+
+@pytest.mark.parametrize("depth, expected", [(89, 1), (90, 1), (91, 0)])
+def test_scrum24_depth_boundary(depth, expected):
+    counter = RepCounterFSM()
+    for angle in (170, 145, depth, 120, 160):
+        result = counter.update(angle)
+    assert result["rep_count"] == expected
+
+
+@pytest.mark.parametrize("angle", [-1, 181, float("nan")])
+def test_scrum24_invalid_angle(angle):
+    counter = RepCounterFSM()
+    with pytest.raises(ValueError):
+        counter.update(angle)
+    assert counter.rep_count == 0
+
+
+def test_scrum24_camera_absent_at_start():
+    counter = RepCounterFSM()
+    for angle in (None, None, 90, 120, 160):
+        assert not counter.update(angle)["rep_incremented"]
+    assert counter.rep_count == 0
+    for angle in (145, 90, 120, 160):
+        counter.update(angle)
+    assert counter.rep_count == 1
 
 
 if __name__ == "__main__":

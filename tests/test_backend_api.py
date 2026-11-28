@@ -549,5 +549,29 @@ class TestBackendAPI(unittest.TestCase):
         self.assertIn("<svg", data["svg"])
 
 
+
+
+
+def test_scrum24_stats_uses_rate_not_completed_status(monkeypatch):
+    from backend.routers import progress
+    monkeypatch.setattr(progress, "WORKOUT_HISTORY", [])
+    monkeypatch.setattr(progress, "HAS_WORKED_OUT_TODAY", False)
+    progress.record_workout("squat", 49, 60, 7, completion_rate=49)
+    assert progress.get_stats()["current_streak_days"] == 0
+    progress.record_workout("squat", 50, 60, 7, completion_rate=50)
+    assert progress.get_stats()["current_streak_days"] == 1
+
+
+def test_scrum24_evaluation_keeps_actual_rate(monkeypatch):
+    from backend.routers import progress
+    from backend.schemas import EvaluationSubmitRequest
+    monkeypatch.setattr(progress, "WORKOUT_HISTORY", [])
+    monkeypatch.setattr(progress, "EVALUATION_HISTORY", [])
+    monkeypatch.setattr(progress, "HAS_WORKED_OUT_TODAY", False)
+    progress.submit_evaluation(EvaluationSubmitRequest(completion_rate=49, rpe=7, auto_apply=False))
+    assert progress.WORKOUT_HISTORY[0]["completion_rate"] == 49
+    assert progress.get_stats()["current_streak_days"] == 0
+
+
 if __name__ == "__main__":
     unittest.main()
