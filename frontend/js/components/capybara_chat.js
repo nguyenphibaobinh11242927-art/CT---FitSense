@@ -5,7 +5,7 @@
  * - Quick Prompt Chips with 1-click send & inline direct editing (✏️)
  * - Persistent chat history via localStorage
  * - Seamless integration with Action Card & 4 Dynamic SVG Expressions (SCRUM-32)
- * - Full Dark / Light Theme & Responsive Mobile Compatibility
+ * - 404/405 local fallback, singleton AudioContext, and companion state lock
  */
 
 import { API } from "../api.js?v=3.0.0";
@@ -54,6 +54,7 @@ export const CapybaraChat = {
   form: null,
   input: null,
   sendBtn: null,
+  audioCtx: null,
   isOpen: false,
   isLoading: false,
   messages: [],
@@ -101,25 +102,19 @@ export const CapybaraChat = {
   },
 
   setupEventListeners() {
-    // Close button
     this.closeBtn?.addEventListener("click", () => this.close());
-
-    // Clear history button
     this.clearBtn?.addEventListener("click", () => this.clearHistory());
 
-    // Backdrop click
     this.modal?.addEventListener("click", (e) => {
       if (e.target === this.modal) this.close();
     });
 
-    // Escape key
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && this.isOpen) {
         this.close();
       }
     });
 
-    // Form submission
     this.form?.addEventListener("submit", (e) => {
       e.preventDefault();
       this.handleFormSubmit();
@@ -132,10 +127,9 @@ export const CapybaraChat = {
     this.isOpen = true;
     this.modal.classList.add("active");
 
-    // Hide companion speech bubble to prevent visual clutter
+    // Lock companion wandering & speech bubble while chat is open
     import("./capybara.js?v=3.0.0").then((m) => {
-      m.Capybara?.hideBubble?.(true);
-      if (m.Capybara) m.Capybara.isPaused = true;
+      m.Capybara?.setChatOpen?.(true);
     });
 
     this.renderMessages();
@@ -151,12 +145,9 @@ export const CapybaraChat = {
     this.isOpen = false;
     this.modal.classList.remove("active");
 
-    // Restore companion speech bubble
+    // Unlock companion & restore speech bubble cycle cleanly
     import("./capybara.js?v=3.0.0").then((m) => {
-      if (m.Capybara) {
-        m.Capybara.isPaused = false;
-        m.Capybara.showBubble?.();
-      }
+      m.Capybara?.setChatOpen?.(false);
     });
   },
 
@@ -171,7 +162,20 @@ export const CapybaraChat = {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          this.messages = parsed;
+          let migrated = false;
+          this.messages = parsed.map((m) => {
+            if (m && m.role === "assistant" && typeof m.content === "string") {
+              const unified = m.content
+                .replace(/\bCapy(?:Heo)?\b(?!bara)/g, "Capybara")
+                .replace(/\bTớ là Capybara\b/g, "Mình là Capybara");
+              if (unified !== m.content) {
+                migrated = true;
+                return { ...m, content: unified };
+              }
+            }
+            return m;
+          });
+          if (migrated) this.saveMessages();
           return;
         }
       }
@@ -179,11 +183,11 @@ export const CapybaraChat = {
       console.warn("Could not load Capybara chat history:", e);
     }
 
-    // Default warm welcome greeting from CapyHeo
+    // Default warm welcome greeting from Capybara
     this.messages = [
       {
         role: "assistant",
-        content: "Xin chào! Tớ là CapyHeo 🦫✨, huấn luyện viên đồng hành Calisthenics của bạn. Tớ có thể giúp bạn giải đáp thắc mắc về bài tập, đổi bài an toàn khi đau chấn thương, hoặc điều chỉnh lịch tập. Bạn cần Capy giúp gì hôm nay?",
+        content: "Xin chào! Mình là Capybara 🦫✨, huấn luyện viên đồng hành Calisthenics của bạn. Mình có thể giúp bạn giải đáp thắc mắc về bài tập, đổi bài an toàn khi đau chấn thương, hoặc điều chỉnh lịch tập. Bạn cần Capybara hỗ trợ gì hôm nay?",
         time: this.getCurrentTime(),
         mood: "happy",
         emotion: "happy",
@@ -205,7 +209,7 @@ export const CapybaraChat = {
     this.messages = [
       {
         role: "assistant",
-        content: "Cuộc trò chuyện đã được làm mới! CapyHeo đã sẵn sàng hỗ trợ bạn. Bạn cần tư vấn bài tập hay điều chỉnh lịch tập nào? 🦫✨",
+        content: "Cuộc trò chuyện đã được làm mới! Capybara đã sẵn sàng hỗ trợ bạn. Bạn cần tư vấn bài tập hay điều chỉnh lịch tập nào? 🦫✨",
         time: this.getCurrentTime(),
         mood: "happy",
         emotion: "happy",
@@ -219,11 +223,6 @@ export const CapybaraChat = {
     Toast.show("Đã làm mới đoạn chat cùng Capybara!", "info");
   },
 
-  /**
-   * Render Quick Prompt Chips
-   * - Click text: Sends immediately (1-click response)
-   * - Click ✏️: Inline editing directly inside the chip widget
-   */
   renderChips() {
     if (!this.chipsContainer) return;
     this.chipsContainer.innerHTML = "";
@@ -240,6 +239,7 @@ export const CapybaraChat = {
 
       const textSpan = chipEl.querySelector(".capy-chip-text");
       textSpan.addEventListener("click", () => {
+        if (this.isLoading) return;
         this.sendMessage(chip.prompt);
       });
 
@@ -253,14 +253,11 @@ export const CapybaraChat = {
     });
   },
 
-  /**
-   * Transforms chip into an inline text editor right at its position
-   */
   enableInlineChipEdit(chipEl, chip) {
     chipEl.classList.add("is-editing");
     chipEl.innerHTML = `
       <div class="capy-chip-inline-editor">
-        <input type="text" class="capy-chip-edit-input" value="${this.escapeHtml(chip.prompt)}" />
+        <input type="text" class="capy-chip-edit-input" maxlength="1000" value="${this.escapeHtml(chip.prompt)}" />
         <button type="button" class="capy-chip-confirm-btn" title="Gửi câu đã sửa">✓</button>
         <button type="button" class="capy-chip-cancel-btn" title="Hủy">&times;</button>
       </div>
@@ -274,6 +271,7 @@ export const CapybaraChat = {
     input.select();
 
     const doConfirm = () => {
+      if (this.isLoading) return;
       const editedText = input.value.trim();
       this.renderChips();
       if (editedText) {
@@ -330,7 +328,6 @@ export const CapybaraChat = {
       const row = document.createElement("div");
       row.className = `capy-msg-row ${isAssistant ? "assistant" : "user"}`;
 
-      // Avatar container (single 36x36 circle — no nested double border)
       const avatarBox = document.createElement("div");
       avatarBox.className = "capy-msg-avatar";
 
@@ -347,7 +344,6 @@ export const CapybaraChat = {
         avatarBox.textContent = "👤";
       }
 
-      // Message bubble
       const bubble = document.createElement("div");
       bubble.className = "capy-msg-bubble";
 
@@ -356,7 +352,6 @@ export const CapybaraChat = {
       contentEl.innerHTML = this.formatMessageContent(msg.content);
       bubble.appendChild(contentEl);
 
-      // SCRUM-32 Action Card (DOM API + textContent, zero XSS)
       if (msg.actionCard) {
         const cardEl = createActionCardElement(msg.actionCard, {
           onBeforeNavigate: () => this.close(),
@@ -433,10 +428,146 @@ export const CapybaraChat = {
     this.sendMessage(text);
   },
 
-  async sendMessage(text) {
+  async requestChatReply(text) {
+    try {
+      return await API.capybara.chat(text);
+    } catch (err) {
+      if (err && (err.status === 404 || err.status === 405)) {
+        return this.buildLocalFallbackReply(text);
+      }
+      throw err;
+    }
+  },
+
+  buildLocalFallbackReply(rawMessage) {
+    const norm = String(rawMessage || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/gi, "d")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const isNegatedOrEducational =
+      /\b(?:khong (?:con |bi |thay |can )?(?:dau|nhuc|sung|doi|giam)|het (?:dau|nhuc)|dung doi|chua can|la gi|nghia la gi|co (?:lam|gay) dau)\b/.test(norm);
+
+    if (!isNegatedOrEducational) {
+      if (/\b(?:dau|nhuc|sung|chan thuong)\b/.test(norm)) {
+        if (/\bgoi\b/.test(norm)) {
+          return {
+            intent: "INJURY_REPORT",
+            action: "swap_exercise_for_injury",
+            params: { joint: "knee" },
+            reply: "Capybara nghe rồi. Mình có thể tìm bài thay thế phù hợp với lịch tập của bạn. 🦫✨",
+          };
+        }
+        if (/\bco tay\b/.test(norm)) {
+          return {
+            intent: "INJURY_REPORT",
+            action: "swap_exercise_for_injury",
+            params: { joint: "wrist" },
+            reply: "Capybara nghe rồi. Mình có thể tìm bài thay thế phù hợp với lịch tập của bạn. 🦫✨",
+          };
+        }
+        if (/\bvai\b/.test(norm)) {
+          return {
+            intent: "INJURY_REPORT",
+            action: null,
+            params: { joint: "shoulder" },
+            reply: "Capybara ghi nhận vùng vai đang khó chịu. Bạn nên nghỉ ngơi hoặc chọn biến thể nhẹ hơn nhé! 🦫✨",
+          };
+        }
+        if (/\b(?:lung duoi|that lung)\b/.test(norm)) {
+          return {
+            intent: "INJURY_REPORT",
+            action: null,
+            params: { joint: "lower_back" },
+            reply: "Capybara ghi nhận vùng thắt lưng đang khó chịu. Hãy ưu tiên giữ lưng trung lập và nghỉ ngơi khi cần nhé! 🦫✨",
+          };
+        }
+        return {
+          intent: "INJURY_REPORT",
+          action: null,
+          params: {},
+          reply: "Capybara nghe rồi. Vùng nào đang đau hoặc khó chịu nhất vậy? 🦫✨",
+        };
+      }
+
+      if (/\b(?:deload|giam (?:tai|khoi luong|cuong do|volume|so rep|so hiep)|tap nhe)\b/.test(norm)) {
+        const pctMatch = norm.match(/(\d+(?:[.,]\d+)?)\s*(?:%|phan tram)/);
+        const pct = pctMatch ? parseFloat(pctMatch[1].replace(",", ".")) : 30;
+        if (pct > 0 && pct < 100) {
+          return {
+            intent: "RESCHEDULE_DELOAD",
+            action: "apply_instant_deload",
+            params: { percentage: pct / 100 },
+            reply: `Capybara hiểu rồi, bạn muốn giảm tải ${pct}%. 🦫✨`,
+          };
+        }
+        return {
+          intent: "RESCHEDULE_DELOAD",
+          action: null,
+          params: {},
+          reply: "Bạn muốn giảm tải bao nhiêu phần trăm, ví dụ 30%? 🦫✨",
+        };
+      }
+
+      if (/\b(?:doi|chuyen|hoan doi|lui|hoan)\s+(?:lich|buoi|ngay|tap|thu|t[2-7]|hom nay|sang)\b/.test(norm)) {
+        const dayLabels = ["Chủ Nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+        const todayIdx = new Date().getDay();
+        const foundDays = [];
+        const dayRegex = /\b(?:thu\s*([2-7]|hai|ba|tu|nam|sau|bay)|t([2-7])|(chu nhat|cn)|(hom nay)|(ngay mai|mai))\b/g;
+        const wordMap = { hai: "2", ba: "3", tu: "4", nam: "5", sau: "6", bay: "7" };
+        let m;
+        while ((m = dayRegex.exec(norm)) !== null) {
+          let label = null;
+          if (m[1]) label = `Thứ ${wordMap[m[1]] || m[1]}`;
+          else if (m[2]) label = `Thứ ${m[2]}`;
+          else if (m[3]) label = "Chủ Nhật";
+          else if (m[4]) label = dayLabels[todayIdx];
+          else if (m[5] && todayIdx !== 0) label = dayLabels[(todayIdx + 1) % 7];
+          if (label && !foundDays.includes(label)) foundDays.push(label);
+        }
+        if (foundDays.length >= 2) {
+          return {
+            intent: "RESCHEDULE_DELOAD",
+            action: "move_workout_day",
+            params: { from_day: foundDays[0], to_day: foundDays[1] },
+            reply: `Capybara đã ghi nhận yêu cầu dời buổi tập từ ${foundDays[0]} sang ${foundDays[1]}. 🦫✨`,
+          };
+        }
+        return {
+          intent: "RESCHEDULE_DELOAD",
+          action: null,
+          params: foundDays[0] ? { from_day: foundDays[0] } : {},
+          reply: "Bạn muốn dời buổi tập từ ngày nào sang ngày nào trong tuần này? 🦫✨",
+        };
+      }
+    }
+
+    let answer =
+      "Capybara có thể giúp bạn tìm hiểu bài tập Calisthenics hoặc cách dùng Kế hoạch, Thư viện và Live HUD. Bạn muốn hỏi phần nào? 🦫✨";
+    if (/\b(?:chong day|hit dat|push[ -]?up)\b/.test(norm)) {
+      answer = "Khi chống đẩy, hãy giữ thân người thẳng từ đầu đến gót chân, siết bụng và hạ ngực có kiểm soát nhé! 🦫✨";
+    } else if (/\b(?:thu vien|tim bai)\b/.test(norm)) {
+      answer = "Mở mục Thư viện để tìm bài tập theo tên, nhóm cơ hoặc dụng cụ bạn có nhé! 🦫✨";
+    } else if (/\b(?:ke hoach|lich tap)\b/.test(norm)) {
+      answer = "Bạn có thể mở mục Kế hoạch để xem lịch tuần và chọn buổi muốn tập nha! 🦫✨";
+    } else if (/\b(?:live hud|camera|dem rep)\b/.test(norm)) {
+      answer = "Mở Phòng tập (Live HUD) rồi bật camera để AI đếm rep tự động hoặc nhập thủ công nhé! 🦫✨";
+    }
+    return {
+      intent: "QA_FITNESS_APP",
+      action: null,
+      params: {},
+      reply: answer,
+    };
+  },
+
+  async sendMessage(rawText) {
+    const text = String(rawText || "").trim().slice(0, 1000);
     if (!text || this.isLoading) return;
 
-    // 1. Add user message
     this.messages.push({
       role: "user",
       content: text,
@@ -451,7 +582,7 @@ export const CapybaraChat = {
     this.showTypingIndicator();
 
     try {
-      const res = await API.capybara.chat(text);
+      const res = await this.requestChatReply(text);
       this.removeTypingIndicator();
 
       const actionCard = normalizeActionCard(res);
@@ -468,7 +599,7 @@ export const CapybaraChat = {
 
       this.messages.push({
         role: "assistant",
-        content: res?.reply || "Capy nghe bạn rồi! 🦫✨",
+        content: res?.reply || "Capybara nghe bạn rồi! 🦫✨",
         time: this.getCurrentTime(),
         mood,
         emotion: mood,
@@ -484,7 +615,7 @@ export const CapybaraChat = {
       this.removeTypingIndicator();
       this.messages.push({
         role: "assistant",
-        content: "Capy đang gặp chút trục trặc mạng nhỏ, nhưng đừng lo bạn cứ nghỉ ngơi một chút rồi thử lại nhé! 🦫✨",
+        content: "Capybara đang gặp chút trục trặc mạng nhỏ, nhưng đừng lo bạn cứ nghỉ ngơi một chút rồi thử lại nhé! 🦫✨",
         time: this.getCurrentTime(),
         mood: "worried",
         emotion: "worried",
@@ -501,17 +632,16 @@ export const CapybaraChat = {
     }
   },
 
-  /**
-   * Sound effect: Celebratory chime synthesized via Web Audio API
-   * Played ONLY when Capy performs a workout reschedule/action
-   */
   playSuccessChime() {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      if (!this.audioCtx || this.audioCtx.state === "closed") {
+        this.audioCtx = new AudioCtx();
+      }
+      const ctx = this.audioCtx;
       if (ctx.state === "suspended") {
-        ctx.resume();
+        ctx.resume().catch(() => {});
       }
 
       const now = ctx.currentTime;
@@ -529,6 +659,11 @@ export const CapybaraChat = {
 
         osc.connect(gain);
         gain.connect(ctx.destination);
+
+        osc.onended = () => {
+          osc.disconnect();
+          gain.disconnect();
+        };
 
         osc.start(now + idx * 0.1);
         osc.stop(now + idx * 0.1 + 0.3);

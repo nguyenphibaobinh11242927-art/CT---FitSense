@@ -78,12 +78,13 @@ class TestCapybaraChatUI(unittest.TestCase):
         self.assertIn("fitsense_capy_chat_history", js)
 
     def test_capybara_companion_triggers_chat(self):
-        """Đảm bảo khi click vào Capybara avatar, module sẽ kích hoạt mở chat popup."""
+        """Đảm bảo khi click vào Capybara avatar, module khóa trạng thái và kích hoạt mở chat popup."""
         with open(self.companion_js_path, "r", encoding="utf-8") as f:
             js = f.read()
 
         self.assertIn("CapybaraChat?.open()", js)
-        self.assertIn("this.hideBubble(true)", js)
+        self.assertIn("this.setChatOpen(true)", js)
+        self.assertIn("isChatOpen", js)
 
     def test_api_js_has_chat_endpoint(self):
         """Đảm bảo frontend/js/api.js hỗ trợ gọi endpoint /api/capybara/chat."""
@@ -119,6 +120,54 @@ class TestCapybaraChatUI(unittest.TestCase):
 
         self.assertIn('input.addEventListener("keydown", (e) => {', chat_js)
         self.assertIn("e.stopPropagation();", chat_js)
+
+    def test_review_feedback_fixes(self):
+        """Kiểm tra Light Mode CSS, tái sử dụng AudioContext, khóa timer, isLoading guard, maxlength=1000 & fallback 404/405."""
+        with open(self.css_path, "r", encoding="utf-8") as f:
+            css = f.read()
+        with open(self.html_path, "r", encoding="utf-8") as f:
+            html = f.read()
+        with open(self.chat_js_path, "r", encoding="utf-8") as f:
+            chat_js = f.read()
+        with open(self.companion_js_path, "r", encoding="utf-8") as f:
+            comp_js = f.read()
+        with open(self.api_js_path, "r", encoding="utf-8") as f:
+            api_js = f.read()
+
+        # 1. Light mode CSS & loại bỏ biến không tồn tại --bg-card trong vùng Capybara Chat
+        capy_css = css.split("CAPYBARA AI CHAT DIALOG COMPONENT", 1)[1]
+        self.assertNotIn("var(--bg-card", capy_css)
+        self.assertIn('[data-theme="light"] .capy-chip.is-editing', capy_css)
+        self.assertIn('[data-theme="light"] .capy-chips-wrapper', capy_css)
+        self.assertIn('[data-theme="light"] .capy-chip-cancel-btn', capy_css)
+        self.assertIn('[data-theme="light"] .capy-messages-container::-webkit-scrollbar-thumb', capy_css)
+
+        # 2. Singleton AudioContext & cleanup node onended
+        self.assertIn("this.audioCtx", chat_js)
+        self.assertIn("osc.onended", chat_js)
+        self.assertIn("osc.disconnect()", chat_js)
+
+        # 3. Khóa timer bong bóng thoại & di chuyển khi mở chat
+        self.assertIn("setChatOpen(isOpen)", comp_js)
+        self.assertIn("setChatOpen?.(true)", chat_js)
+        self.assertIn("setChatOpen?.(false)", chat_js)
+
+        # 4. Chặn mất nội dung sửa chip khi isLoading & giới hạn maxlength="1000"
+        self.assertIn('id="capy-chat-input" class="capy-chat-input" maxlength="1000"', html)
+        self.assertIn('class="capy-chip-edit-input" maxlength="1000"', chat_js)
+        self.assertIn("const doConfirm = () => {\n      if (this.isLoading) return;\n      const editedText = input.value.trim();\n      this.renderChips();", chat_js)
+
+        # 5. HTTP status tracking & 404/405 fallback khi SCRUM-29 chưa merge
+        self.assertIn("err.status = response.status", api_js)
+        self.assertIn("requestChatReply", chat_js)
+        self.assertIn("buildLocalFallbackReply", chat_js)
+
+        # 6. Đồng nhất tên gọi chính thức "Capybara" (không còn tên cũ CapyHeo / viết tắt Capy)
+        self.assertNotIn("CapyHeo", html)
+        self.assertNotIn("CapyHeo", chat_js)
+        self.assertIn('placeholder="Nhắn tin cho Capybara', html)
+        self.assertIn("Mình là Capybara 🦫✨", chat_js)
+        self.assertIn("Capybara đã sẵn sàng hỗ trợ bạn", chat_js)
 
     def test_action_card_conditional_and_joint_mapping(self):
         """Kiểm tra Action Card chỉ tạo khi có res.action và mapping đúng bài theo khớp (SCRUM-31 + SCRUM-32)."""
