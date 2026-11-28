@@ -151,7 +151,9 @@ const INFORMATIONAL_QUESTION_RE = /\?|\b(?:la\s+gi|lam\s+sao|nhu\s+the\s+nao|the
 
 const NEGATED_COMPLETION_RE = /\b(?:chua|khong|chang|dung|thieu)\b(?:\s+[a-z0-9]+){0,4}\s+(?:hoan\s+thanh|tap\s+xong|xong\s+buoi|dat(?:\s+duoc)?|ky\s+luc|xuat\s+sac|tuyet\s+voi|gioi|tu\s+hao|vuot\s+muc\s+tieu)\b/;
 
-const DEFAULT_INSTRUCTIONAL_REPLY_RE = /^(?:capy\s+co\s+the\s+giup\s+ban\s+tim\s+hieu|mo\s+muc\s+|ban\s+co\s+the\s+mo\s+muc\s+|khi\s+chong\s+day|giam\s+tai\s+la\s+giam)/;
+const DEFAULT_INSTRUCTIONAL_REPLY_RE = /^(?:capy(?:bara)?\s+co\s+the\s+giup\s+ban\s+tim\s+hieu|mo\s+muc\s+|ban\s+co\s+the\s+mo\s+muc\s+|khi\s+chong\s+day|giam\s+tai\s+la\s+giam)/;
+
+const SENTENCE_RE = /[^.!?\n]+[.!?]?/g;
 
 const browserSvgCache = new Map();
 
@@ -168,17 +170,27 @@ function isProudAssistantText(rawText) {
   const nfc = String(rawText || "").normalize("NFC").trim().toLowerCase();
   if (!nfc) return false;
 
-  const ascii = stripDiacritics(nfc);
-  if (DEFAULT_INSTRUCTIONAL_REPLY_RE.test(ascii)) return false;
-  if (INFORMATIONAL_QUESTION_RE.test(ascii)) return false;
-  if (NEGATED_COMPLETION_RE.test(ascii)) return false;
+  const fullAscii = stripDiacritics(nfc);
+  if (DEFAULT_INSTRUCTIONAL_REPLY_RE.test(fullAscii)) return false;
 
-  if (VN_DIACRITIC_RE.test(nfc)) {
-    return PROUD_VN_RE.test(nfc);
+  const sentences = nfc.match(SENTENCE_RE) || [nfc];
+  for (const rawSentence of sentences) {
+    const sentence = rawSentence.trim();
+    if (!sentence) continue;
+
+    const ascii = stripDiacritics(sentence);
+    if (INFORMATIONAL_QUESTION_RE.test(ascii)) continue;
+    if (NEGATED_COMPLETION_RE.test(ascii)) continue;
+
+    if (VN_DIACRITIC_RE.test(sentence)) {
+      if (PROUD_VN_RE.test(sentence)) return true;
+    } else {
+      const cleanedAscii = ascii.replace(FALSE_TU_HAO_ASCII_RE, " ");
+      if (PROUD_ASCII_RE.test(cleanedAscii)) return true;
+    }
   }
 
-  const cleanedAscii = ascii.replace(FALSE_TU_HAO_ASCII_RE, " ");
-  return PROUD_ASCII_RE.test(cleanedAscii);
+  return false;
 }
 
 /**

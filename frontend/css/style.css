@@ -2888,18 +2888,6 @@ input[type="file"]::file-selector-button:hover {
   }
 }
 
-@media (max-width: 480px) {
-  .capy-msg-avatar,
-  .capy-msg-avatar .capy-svg-avatar {
-    width: 30px;
-    height: 30px;
-  }
-  .capy-msg-row {
-    max-width: 97%;
-    gap: 0.4rem;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   #capy-typing-row .capy-svg-avatar.capy-mood-thinking,
   .capy-action-card {
@@ -3020,10 +3008,6 @@ input[type="file"]::file-selector-button:hover {
   box-shadow: 0 4px 14px rgba(2, 132, 199, 0.22);
 }
 
-[data-theme="light"] .action-badge {
-  color: var(--accent-emerald);
-}
-
 /* Mobile Responsive */
 @media (max-width: 768px) {
   .capy-chat-dialog {
@@ -3052,215 +3036,15 @@ input[type="file"]::file-selector-button:hover {
   }
 }
 
-/* ==========================================================================
-   SCRUM-32: CAPYBARA DYNAMIC SVG AVATARS & ACTION CARD STYLING
-   ========================================================================== */
-
-.capy-msg-avatar .capy-svg-avatar {
-  width: 38px;
-  height: 38px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--bg-tertiary);
-  border: 1.5px solid var(--border-color);
-  overflow: hidden;
-  flex-shrink: 0;
-  transition: transform var(--transition-fast);
-  will-change: transform;
-}
-
-.capy-msg-avatar .capy-svg-avatar svg {
-  width: 34px;
-  height: 34px;
-  display: block;
-}
-
-.capy-svg-avatar.capy-mood-happy {
-  border-color: rgba(74, 222, 128, 0.45);
-}
-
-.capy-svg-avatar.capy-mood-worried {
-  border-color: rgba(239, 68, 68, 0.45);
-}
-
-.capy-svg-avatar.capy-mood-thinking {
-  border-color: rgba(56, 189, 248, 0.5);
-  animation: capyThinkPulse 1.8s ease-in-out infinite;
-}
-
-.capy-svg-avatar.capy-mood-proud {
-  border-color: rgba(250, 204, 21, 0.6);
-}
-
-@keyframes capyThinkPulse {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-2px) scale(1.04); }
-}
-
-/* Action Card inside Assistant Chat Bubble */
-.capy-action-card {
-  margin-top: 0.75rem;
-  padding: 0.9rem 1rem;
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-glow);
-  box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  animation: actionCardReveal 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes actionCardReveal {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
+@media (max-width: 480px) {
+  .capy-msg-avatar,
+  .capy-msg-avatar .capy-svg-avatar {
+    width: 30px;
+    height: 30px;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  .capy-msg-row {
+    max-width: 97%;
+    gap: 0.4rem;
   }
 }
 
-.capy-action-card .action-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.capy-action-card .action-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.18rem 0.6rem;
-  border-radius: var(--radius-full);
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--accent-cyan);
-  background: var(--accent-cyan-glow);
-  border: 1px solid var(--border-color);
-}
-
-.capy-action-card .action-day-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.18rem 0.55rem;
-  border-radius: var(--radius-full);
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-}
-
-.capy-action-card .action-card-title {
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.capy-action-card .action-swap-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  padding: 0.55rem 0.65rem;
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-}
-
-.capy-action-card .action-old {
-  display: inline-block;
-  padding: 0.18rem 0.5rem;
-  border-radius: 6px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--accent-crimson);
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  text-decoration: line-through;
-  text-decoration-thickness: 1.8px;
-  word-break: break-word;
-}
-
-.capy-action-card .action-arrow {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text-muted);
-}
-
-.capy-action-card .action-new {
-  display: inline-block;
-  padding: 0.18rem 0.55rem;
-  border-radius: 6px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--accent-emerald);
-  background: rgba(74, 222, 128, 0.14);
-  border: 1px solid rgba(74, 222, 128, 0.35);
-  text-decoration: none;
-  word-break: break-word;
-}
-
-.capy-action-card .action-note {
-  font-size: 0.78rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
-.capy-action-card .action-card-btn {
-  margin-top: 0.2rem;
-  width: 100%;
-  padding: 0.52rem 0.9rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: #ffffff;
-  background: linear-gradient(135deg, #0284c7, #38bdf8);
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  transition: transform var(--transition-fast), opacity var(--transition-fast);
-}
-
-.capy-action-card .action-card-btn:hover {
-  transform: translateY(-1px);
-  opacity: 0.94;
-}
-
-.capy-action-card .action-card-btn:active {
-  transform: translateY(0);
-}
-
-[data-theme="light"] .capy-action-card {
-  background: #ffffff;
-  border-color: rgba(2, 132, 199, 0.28);
-}
-
-[data-theme="light"] .capy-action-card .action-swap-row {
-  background: #f8fafc;
-}
-
-[data-theme="light"] .capy-action-card .action-old {
-  background: rgba(220, 38, 38, 0.08);
-  border-color: rgba(220, 38, 38, 0.28);
-}
-
-[data-theme="light"] .capy-action-card .action-new {
-  background: rgba(22, 163, 74, 0.1);
-  border-color: rgba(22, 163, 74, 0.3);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .capy-svg-avatar.capy-mood-thinking,
-  .capy-action-card {
-    animation: none;
-  }
-}

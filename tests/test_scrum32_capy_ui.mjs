@@ -94,7 +94,7 @@ function createMockDocument() {
 }
 
 test("All 4 SVG expressions are lightweight, valid, safe, and stay inside circular clip radius", () => {
-  assert.deepEqual([...VALID_MOODS].sort(), ["happy", "proud", "thinking", "proud" ? "worried" : "worried"]);
+  assert.deepEqual([...VALID_MOODS].sort(), ["happy", "proud", "thinking", "worried"]);
 
   for (const mood of VALID_MOODS) {
     const svg = getCapyAvatarSvg(mood);
@@ -140,6 +140,15 @@ test("resolveCapyMood avoids false-positive proud on questions, filler negations
   assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Chúc mừng bạn đã hoàn thành buổi tập hôm nay! 🦫✨" }), "proud");
   assert.equal(resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Tự hào về bạn quá! 🦫✨" }), "proud");
 
+  // Praise followed by a friendly follow-up question at the end -> still proud
+  assert.equal(
+    resolveCapyMood({
+      intent: "QA_FITNESS_APP",
+      reply: "Tuyệt vời quá! Chúc mừng bạn đã hoàn thành buổi tập hôm nay! Bạn muốn giãn cơ nhẹ không?",
+    }),
+    "proud"
+  );
+
   // Informational questions must NOT trigger proud
   assert.equal(
     resolveCapyMood({ intent: "QA_FITNESS_APP", reply: "Tỷ lệ hoàn thành trong mục Đánh giá là gì?" }),
@@ -170,12 +179,19 @@ test("resolveCapyMood avoids false-positive proud on questions, filler negations
     "happy"
   );
 
-  // Default backend guidance reply must stay happy even if userMessage mentions completion
+  // Default backend guidance reply (both "Capy" & "Capybara") must stay happy
   assert.equal(
     resolveCapyMood({
       intent: "QA_FITNESS_APP",
       userMessage: "Mình vừa hoàn thành buổi tập hôm nay!",
       reply: "Capy có thể giúp bạn tìm hiểu bài tập Calisthenics hoặc cách dùng Kế hoạch, Thư viện và Live HUD. Bạn muốn hỏi phần nào? 🦫✨",
+    }),
+    "happy"
+  );
+  assert.equal(
+    resolveCapyMood({
+      intent: "QA_FITNESS_APP",
+      reply: "Capybara có thể giúp bạn tìm hiểu bài tập Calisthenics. Chúc mừng bạn đến với FitSense! 🦫✨",
     }),
     "happy"
   );
@@ -185,7 +201,7 @@ test("resolveCapyMood avoids false-positive proud on questions, filler negations
   assert.equal(resolveCapyMood({}), "happy");
 });
 
-test("normalizeActionCard reads top-level fields, handles unknown joints safely, and distinguishes proposal vs applied notes", () => {
+test("normalizeActionCard reads top-level fields, array diffs, success flags, and handles unknown joints safely", () => {
   // 1. Known joint proposal (not yet applied -> proposal phrasing)
   const kneeProposal = normalizeActionCard({
     intent: "INJURY_REPORT",
@@ -270,6 +286,46 @@ test("normalizeActionCard reads top-level fields, handles unknown joints safely,
     null
   );
   assert.equal(normalizeActionCard({ action: "unknown_action" }), null);
+
+  // 8. Top-level success flag (false -> null, true -> applied wording)
+  assert.equal(
+    normalizeActionCard({
+      success: false,
+      action: "swap_exercise_for_injury",
+      params: { joint: "knee" },
+    }),
+    null
+  );
+  const topSuccessMove = normalizeActionCard({
+    success: true,
+    action: "move_workout_day",
+    params: { from_day: "Thứ 2", to_day: "Thứ 4" },
+  });
+  assert.ok(topSuccessMove.title.startsWith("Đã dời"));
+  assert.ok(topSuccessMove.note.startsWith("Đã dời"));
+
+  // 9. Array-shaped diff / changes (SCRUM-30 payload compatibility)
+  const arrayDiffSwap = normalizeActionCard({
+    success: true,
+    action: "swap_exercise_for_injury",
+    diff: [{ old_exercise: "Jump Squat", new_exercise: "Glute Bridge", day: "Thứ 4" }],
+  });
+  assert.equal(arrayDiffSwap.old, "Jump Squat");
+  assert.equal(arrayDiffSwap.new, "Glute Bridge");
+  assert.equal(arrayDiffSwap.day, "Thứ 4");
+  assert.ok(arrayDiffSwap.title.startsWith("Đã đổi"));
+
+  const nestedChangesSwap = normalizeActionCard({
+    action: "swap_exercise_for_injury",
+    action_result: {
+      success: true,
+      changes: [{ old_exercise: "Standard Push-up", new_exercise: "Forearm Plank", target_day: "Thứ 3" }],
+    },
+  });
+  assert.equal(nestedChangesSwap.old, "Standard Push-up");
+  assert.equal(nestedChangesSwap.new, "Forearm Plank");
+  assert.equal(nestedChangesSwap.day, "Thứ 3");
+  assert.ok(nestedChangesSwap.title.startsWith("Đã đổi"));
 });
 
 test("createActionCardElement renders semantic diff safely (XSS-proof) and invokes App.navigate('planner')", () => {

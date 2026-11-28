@@ -55,6 +55,29 @@ function normalizePercentage(rawPct) {
  * Normalize either a raw API response (SCRUM-29 / SCRUM-30) or a stored card object
  * into a clean Action Card model. Returns null when no concrete schedule change exists.
  */
+
+function extractPrimaryResult(source) {
+  const candidates = [source.action_result, source.changes, source.diff];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      const firstObj = candidate.find(
+        (item) => item && typeof item === "object" && !Array.isArray(item)
+      );
+      if (firstObj) return firstObj;
+    } else if (candidate && typeof candidate === "object") {
+      const nested = candidate.changes ?? candidate.diff;
+      if (Array.isArray(nested)) {
+        const firstNested = nested.find(
+          (item) => item && typeof item === "object" && !Array.isArray(item)
+        );
+        if (firstNested) return { ...candidate, ...firstNested };
+      }
+      return candidate;
+    }
+  }
+  return {};
+}
+
 export function normalizeActionCard(source) {
   if (!source || typeof source !== "object") return null;
 
@@ -87,14 +110,21 @@ export function normalizeActionCard(source) {
   );
   if (!action) return null;
 
-  const result = source.action_result || source.changes || source.diff || {};
+  const result = extractPrimaryResult(source);
   if (
     source.applied === false ||
+    source.success === false ||
     result.applied === false ||
     result.success === false
   ) {
     return null;
   }
+
+  const isApplied =
+    source.applied === true ||
+    source.success === true ||
+    result.applied === true ||
+    result.success === true;
 
   const isApplied =
     source.applied === true ||
