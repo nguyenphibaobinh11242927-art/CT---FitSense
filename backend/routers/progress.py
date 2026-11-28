@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from backend.schemas import EvaluationSubmitRequest
+from src.progress_analytics import build_progress_analytics, compute_personal_records
 
 router = APIRouter(prefix="/api/progress", tags=["Progress & Evaluation"])
 
@@ -22,289 +23,346 @@ RPE_DESCRIPTIONS = {
     10: "🤯 Kiệt sức hoàn toàn (Không thể làm thêm 1 rep)",
 }
 
-PERSONAL_RECORDS = {
-    "Squat Thể dục": "45 Reps",
-    "Standard Push-up": "36 Reps",
-    "Plank Tĩnh": "75 Giây",
-    "Dips trên ghế": "30 Reps",
+DEFAULT_PERSONAL_RECORDS = {
+    "Squat Thể dục": "Chưa ghi nhận",
+    "Standard Push-up": "Chưa ghi nhận",
+    "Plank Tĩnh": "Chưa ghi nhận",
+    "Dips trên ghế": "Chưa ghi nhận",
 }
 
-WEEKLY_VOLUME = [
-    {"week": "Tuần 1", "reps": 120, "minutes": 45},
-    {"week": "Tuần 2", "reps": 150, "minutes": 60},
-    {"week": "Tuần 3", "reps": 180, "minutes": 75},
-    {"week": "Tuần 4", "reps": 210, "minutes": 90},
-    {"week": "Tuần này", "reps": 171, "minutes": 68},
+PERSONAL_RECORDS: dict[str, str] = dict(DEFAULT_PERSONAL_RECORDS)
+
+DEFAULT_WEEKLY_VOLUME = [
+    {"week": "Tuần 1", "reps": 0, "minutes": 0},
+    {"week": "Tuần 2", "reps": 0, "minutes": 0},
+    {"week": "Tuần 3", "reps": 0, "minutes": 0},
+    {"week": "Tuần 4", "reps": 0, "minutes": 0},
+    {"week": "Tuần này", "reps": 0, "minutes": 0},
 ]
 
-EVALUATION_HISTORY: list[dict[str, Any]] = [
-    {
-        "id": "eval-02",
-        "session_id": "w-04",
-        "session_label": "Plank Tĩnh (Core Stability)",
-        "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "date": datetime.now().strftime("%d/%m/%Y"),
-        "completion_rate": 100.0,
-        "rpe": 5,
-        "rpe_description": "😤 Vừa sức lý tưởng (Nhịp tập ổn định)",
-        "muscle_soreness": ["Lưng & Cột sống"],
-        "soreness": ["Lưng & Cột sống"],
-        "doms_severity": "normal",
-        "doms_severity_label": "🟢 Bình thường (Căng cơ nhẹ, phục hồi nhanh)",
-        "satisfaction": "very_satisfied",
-        "satisfaction_label": "🌟 Rất hài lòng (Đúng kế hoạch, thể lực sung mãn)",
-        "strategy": "overload",
-        "recommendation": {
+WEEKLY_VOLUME: list[dict[str, Any]] = [dict(x) for x in DEFAULT_WEEKLY_VOLUME]
+
+EVALUATION_HISTORY: list[dict[str, Any]] = []
+
+# Global workout events and history storage (starts empty for genuine user data)
+WORKOUT_HISTORY: list[dict[str, Any]] = []
+
+HAS_WORKED_OUT_TODAY = False
+IS_DEMO_PROGRESS_LOADED = False
+
+# Tracks original reps before auto_apply so re-evaluating the same session/exercise is idempotent
+AUTO_APPLIED_BASELINES: dict[tuple[str, str], dict[tuple[int, int], Any]] = {}
+
+
+def reset_progress_state() -> None:
+    """Reset in-memory progress/evaluation state to a clean empty user state."""
+    global HAS_WORKED_OUT_TODAY, IS_DEMO_PROGRESS_LOADED
+    WORKOUT_HISTORY.clear()
+    EVALUATION_HISTORY.clear()
+    AUTO_APPLIED_BASELINES.clear()
+    PERSONAL_RECORDS.clear()
+    PERSONAL_RECORDS.update(DEFAULT_PERSONAL_RECORDS)
+    WEEKLY_VOLUME[:] = [dict(x) for x in DEFAULT_WEEKLY_VOLUME]
+    HAS_WORKED_OUT_TODAY = False
+    IS_DEMO_PROGRESS_LOADED = False
+
+
+def seed_demo_progress_data() -> None:
+    """Populate realistic pre-seeded workout & evaluation data exclusively for demo@fitsense.vn."""
+    global HAS_WORKED_OUT_TODAY, IS_DEMO_PROGRESS_LOADED
+    now_dt = datetime.now()
+    today_date = date.today()
+    now_ts = now_dt.strftime("%d/%m/%Y %H:%M")
+    prev2_ts = (now_dt - timedelta(days=2)).strftime("%d/%m/%Y 18:20")
+
+    AUTO_APPLIED_BASELINES.clear()
+    PERSONAL_RECORDS.clear()
+    PERSONAL_RECORDS.update({
+        "Squat Thể dục": "45 Reps",
+        "Standard Push-up": "36 Reps",
+        "Plank Tĩnh": "75 Giây",
+        "Dips trên ghế": "30 Reps",
+    })
+    WEEKLY_VOLUME[:] = [
+        {"week": "Tuần 1", "reps": 120, "minutes": 45},
+        {"week": "Tuần 2", "reps": 150, "minutes": 60},
+        {"week": "Tuần 3", "reps": 180, "minutes": 75},
+        {"week": "Tuần 4", "reps": 210, "minutes": 90},
+        {"week": "Tuần này", "reps": 171, "minutes": 68},
+    ]
+
+    EVALUATION_HISTORY[:] = [
+        {
+            "id": "eval-02",
+            "session_id": "w-04",
+            "session_label": "Chủ Nhật: Giãn cơ & Khớp dẻo dai (2 bài)",
+            "scope": "session",
+            "timestamp": now_ts,
+            "created_at": now_ts,
+            "date": now_dt.strftime("%d/%m/%Y"),
+            "completion_rate": 100.0,
+            "rpe": 5,
+            "rpe_description": "😤 Vừa sức lý tưởng (Nhịp tập ổn định)",
+            "muscle_soreness": ["Lưng & Cột sống"],
+            "soreness": ["Lưng & Cột sống"],
+            "doms_severity": "normal",
+            "doms_severity_label": "🟢 Bình thường (Căng cơ nhẹ, phục hồi nhanh)",
+            "satisfaction": "very_satisfied",
+            "satisfaction_label": "🌟 Rất hài lòng (Đúng kế hoạch, thể lực sung mãn)",
             "strategy": "overload",
-            "title": "Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥",
-            "action": "Xuất sắc! Buổi sau sẽ tự động tăng 2 reps/set hoặc gợi ý biến thể nâng cao để bứt phá giới hạn!",
-            "badge": "badge-emerald",
-            "multiplier": 1.10,
+            "recommendation": {
+                "strategy": "overload",
+                "title": "Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥",
+                "action": "Xuất sắc! Buổi sau sẽ tự động tăng 2 reps/set hoặc gợi ý biến thể nâng cao để bứt phá giới hạn!",
+                "badge": "badge-emerald",
+                "multiplier": 1.10,
+            },
+            "streak_maintained": True,
+            "recovery_items": [
+                {
+                    "target": "Lưng & Cột sống",
+                    "rest_hours": 48,
+                    "stretch_name": "Cat-Cow & Child's Pose (Tư thế đứa trẻ & Con mèo)",
+                    "guide": "Quỳ gối hạ mông chạm gót chân, vươn dài hai tay ra phía trước thả lỏng toàn bộ sống lưng trong 45–60 giây.",
+                }
+            ],
+            "hydration_advice": "Uống bổ sung ~350ml nước lọc hoặc oresol để bù dịch và chất điện giải đã mất.",
         },
-        "streak_maintained": True,
-        "recovery_items": [
-            {
-                "target": "Lưng & Cột sống",
-                "rest_hours": 48,
-                "stretch_name": "Cat-Cow & Child's Pose (Tư thế đứa trẻ & Con mèo)",
-                "guide": "Quỳ gối hạ mông chạm gót chân, vươn dài hai tay ra phía trước thả lỏng toàn bộ sống lưng trong 45–60 giây.",
-            }
-        ],
-        "hydration_advice": "Uống bổ sung ~350ml nước lọc hoặc oresol để bù dịch và chất điện giải đã mất.",
-    },
-    {
-        "id": "eval-01",
-        "session_id": "w-03",
-        "session_label": "Dips trên ghế (Bench Dips)",
-        "timestamp": (datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y 18:20"),
-        "date": (datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y"),
-        "completion_rate": 85.7,
-        "rpe": 8,
-        "rpe_description": "😫 Rất mệt (Cần tập trung cao độ, thở dốc)",
-        "muscle_soreness": ["Cơ ngực (Chest)", "Cổ tay"],
-        "soreness": ["Cơ ngực (Chest)", "Cổ tay"],
-        "doms_severity": "moderate",
-        "doms_severity_label": "🟡 Vừa phải (Mỏi rõ rệt sau bài tập, cần nghỉ ngơi)",
-        "satisfaction": "satisfied",
-        "satisfaction_label": "👍 Hài lòng (Hoàn thành tốt các hiệp chính)",
-        "strategy": "minor_deload",
-        "recommendation": {
+        {
+            "id": "eval-01",
+            "session_id": "w-03",
+            "session_label": "Thứ 6: Toàn thân & Sức bền tim mạch (2 bài)",
+            "scope": "session",
+            "timestamp": prev2_ts,
+            "created_at": prev2_ts,
+            "date": (now_dt - timedelta(days=2)).strftime("%d/%m/%Y"),
+            "completion_rate": 85.7,
+            "rpe": 8,
+            "rpe_description": "😫 Rất mệt (Cần tập trung cao độ, thở dốc)",
+            "muscle_soreness": ["Khớp gối", "Cổ tay"],
+            "soreness": ["Khớp gối", "Cổ tay"],
+            "doms_severity": "moderate",
+            "doms_severity_label": "🟡 Vừa phải (Mỏi rõ rệt sau bài tập, cần nghỉ ngơi)",
+            "satisfaction": "satisfied",
+            "satisfaction_label": "👍 Hài lòng (Hoàn thành tốt các hiệp chính)",
             "strategy": "minor_deload",
-            "title": "Khuyến nghị Giảm nhẹ Củng cố Thể lực (-5%) 📉",
-            "action": "Tự động tinh chỉnh nhẹ -5% số reps và tập trung chuẩn hóa kỹ thuật form trước khi tăng tải trở lại.",
-            "badge": "badge-warning",
-            "multiplier": 0.95,
+            "recommendation": {
+                "strategy": "minor_deload",
+                "title": "Khuyến nghị Giảm nhẹ Củng cố Thể lực (-5%) 📉",
+                "action": "Tự động tinh chỉnh nhẹ -5% số reps và tập trung chuẩn hóa kỹ thuật form trước khi tăng tải trở lại.",
+                "badge": "badge-warning",
+                "multiplier": 0.95,
+            },
+            "streak_maintained": True,
+            "recovery_items": [
+                {
+                    "target": "Khớp gối",
+                    "rest_hours": 48,
+                    "stretch_name": "Calf & Hamstring Gentle Stretch (Thả lỏng bắp chân & gân kheo)",
+                    "guide": "Ngồi duỗi thẳng chân, nghiêng nhẹ người về phía mũi chân không khóa cứng gối; chườm mát nếu thấy sưng nóng.",
+                },
+                {
+                    "target": "Cổ tay",
+                    "rest_hours": 24,
+                    "stretch_name": "Wrist Flexor & Extensor Stretch (Giãn duỗi cổ tay)",
+                    "guide": "Duỗi thẳng một tay về trước, dùng tay kia bẻ nhẹ các ngón tay ngược về sau rồi gập xuống dưới, 20 giây mỗi chiều.",
+                },
+            ],
+            "hydration_advice": "Uống bổ sung ~400ml nước lọc hoặc oresol để bù dịch và chất điện giải đã mất.",
         },
-        "streak_maintained": True,
-        "recovery_items": [
-            {
-                "target": "Cơ ngực (Chest)",
-                "rest_hours": 48,
-                "stretch_name": "Doorway Chest Stretch (Giãn ngực khung cửa)",
-                "guide": "Đặt cẳng tay vuông góc vào mép cửa, bước nhẹ một chân lên trước và xoay người mở rộng lồng ngực 30 giây.",
-            },
-            {
-                "target": "Cổ tay",
-                "rest_hours": 24,
-                "stretch_name": "Wrist Flexor & Extensor Stretch (Giãn duỗi cổ tay)",
-                "guide": "Duỗi thẳng một tay về trước, dùng tay kia bẻ nhẹ các ngón tay ngược về sau rồi gập xuống dưới, 20 giây mỗi chiều.",
-            }
-        ],
-        "hydration_advice": "Uống bổ sung ~400ml nước lọc hoặc oresol để bù dịch và chất điện giải đã mất.",
-    }
-]
+    ]
 
-# Workout history with pre-populated demo sessions
-WORKOUT_HISTORY: list[dict[str, Any]] = [
-    {
-        "id": "w-04",
-        "session_name": "Chủ Nhật: Giãn cơ & Khớp dẻo dai (2 bài)",
-        "focus": "Giãn cơ & Khớp dẻo dai (Active Recovery)",
-        "exercise_id": "recovery_flow",
-        "exercise_name": "Plank Tĩnh + Giãn cơ toàn thân",
-        "actual_date": date.today().isoformat(),
-        "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "reps": 60,
-        "duration_sec": 600,
-        "calories": 55.0,
-        "rpe": 5,
-        "day": "Chủ Nhật",
-        "notes": "Siết cơ bụng tốt, nhịp thở đều",
-        "completion_rate": 100.0,
-        "status": "completed",
-        "exercises": [
-            {
-                "id": "plank",
-                "name": "Plank Tĩnh (Core Stability)",
-                "reps": 60,
-                "target_reps": 60,
-                "sets": 3,
-                "primary_muscle": "Bụng & Core",
-                "rpe": 5,
-                "completion_rate": 100.0,
-                "substitute": "Dead Bug",
-            },
-            {
-                "id": "stretch",
-                "name": "Giãn cơ toàn thân (Full Body Stretch)",
-                "reps": 60,
-                "target_reps": 60,
-                "sets": 2,
-                "primary_muscle": "Toàn thân & Tim mạch",
-                "rpe": 5,
-                "completion_rate": 100.0,
-                "substitute": "Child Pose",
-            },
-        ],
-    },
-    {
-        "id": "w-03",
-        "session_name": "Thứ 6: Toàn thân & Sức bền tim mạch (2 bài)",
-        "focus": "Toàn thân & Sức bền tim mạch (Fullbody Endurance)",
-        "exercise_id": "fullbody_endurance",
-        "exercise_name": "Jumping Jacks + Mountain Climbers",
-        "actual_date": (date.today() - timedelta(days=2)).isoformat(),
-        "timestamp": (datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y 18:00"),
-        "reps": 70,
-        "duration_sec": 720,
-        "calories": 65.0,
-        "rpe": 8,
-        "day": "Thứ 6",
-        "notes": "Hiệp 3 hơi mỏi vai và thở dốc, hoàn thành 70/75 reps",
-        "completion_rate": 85.7,
-        "status": "completed",
-        "exercises": [
-            {
-                "id": "jumping_jacks",
-                "name": "Jumping Jacks (Nhảy dang tay nhẹ)",
-                "reps": 40,
-                "target_reps": 40,
-                "sets": 3,
-                "primary_muscle": "Toàn thân & Tim mạch",
-                "rpe": 7,
-                "completion_rate": 100.0,
-                "substitute": "Step Jacks",
-            },
-            {
-                "id": "mountain_climbers",
-                "name": "Mountain Climbers (Leo núi trên thảm)",
-                "reps": 30,
-                "target_reps": 35,
-                "sets": 3,
-                "primary_muscle": "Bụng & Core",
-                "rpe": 8,
-                "completion_rate": 85.7,
-                "substitute": "Plank Shoulder Tap",
-            },
-        ],
-    },
-    {
-        "id": "w-02",
-        "session_name": "Thứ 3: Thân dưới & Mông (3 bài)",
-        "focus": "Thân dưới & Mông (Lower Body)",
-        "exercise_id": "lower_body_flow",
-        "exercise_name": "Squat Thể dục + Glute Bridge + Calf Raises",
-        "actual_date": (date.today() - timedelta(days=4)).isoformat(),
-        "timestamp": (datetime.now() - timedelta(days=4)).strftime("%d/%m/%Y 19:15"),
-        "reps": 115,
-        "duration_sec": 960,
-        "calories": 95.0,
-        "rpe": None,
-        "day": "Thứ 3",
-        "notes": "Góc gối mở đều, đùi song song mặt sàn (Chờ khảo sát)",
-        "completion_rate": 90.0,
-        "status": "completed",
-        "exercises": [
-            {
-                "id": "squat",
-                "name": "Squat Thể dục (Bodyweight Squat)",
-                "reps": 45,
-                "target_reps": 50,
-                "sets": 4,
-                "primary_muscle": "Cơ đùi trước (Quads)",
-                "rpe": None,
-                "completion_rate": 90.0,
-                "substitute": "Wall Sit (Ngồi tựa tường)",
-            },
-            {
-                "id": "glute_bridge",
-                "name": "Glute Bridge (Nâng mông trên thảm)",
-                "reps": 40,
-                "target_reps": 40,
-                "sets": 3,
-                "primary_muscle": "Cơ mông (Glutes)",
-                "rpe": None,
-                "completion_rate": 100.0,
-                "substitute": "Single Leg Bridge",
-            },
-            {
-                "id": "calf_raises",
-                "name": "Calf Raises (Nhón bắp chân)",
-                "reps": 30,
-                "target_reps": 35,
-                "sets": 3,
-                "primary_muscle": "Bắp chân",
-                "rpe": None,
-                "completion_rate": 85.7,
-                "substitute": "Seated Calf Raise",
-            },
-        ],
-    },
-    {
-        "id": "w-01",
-        "session_name": "Thứ 2: Thân trên: Ngực & Tay sau (3 bài)",
-        "focus": "Thân trên: Ngực & Tay sau (Push Focus)",
-        "exercise_id": "push_focus_flow",
-        "exercise_name": "Standard Push-up + Dips trên ghế + Plank Tĩnh",
-        "actual_date": (date.today() - timedelta(days=6)).isoformat(),
-        "timestamp": (datetime.now() - timedelta(days=6)).strftime("%d/%m/%Y 18:30"),
-        "reps": 96,
-        "duration_sec": 840,
-        "calories": 78.5,
-        "rpe": None,
-        "day": "Thứ 2",
-        "notes": "Chuẩn form 3 bài đẩy, ngực và tay sau kích hoạt tốt (Chờ khảo sát)",
-        "completion_rate": 100.0,
-        "status": "completed",
-        "exercises": [
-            {
-                "id": "push_up",
-                "name": "Standard Push-up (Hít đất chuẩn)",
-                "reps": 36,
-                "target_reps": 36,
-                "sets": 3,
-                "primary_muscle": "Cơ ngực (Chest)",
-                "rpe": None,
-                "completion_rate": 100.0,
-                "substitute": "Knee Push-up",
-            },
-            {
-                "id": "bench_dip",
-                "name": "Dips trên ghế (Bench Dips)",
-                "reps": 30,
-                "target_reps": 30,
-                "sets": 3,
-                "primary_muscle": "Tay sau (Triceps)",
-                "rpe": None,
-                "completion_rate": 100.0,
-                "substitute": "Diamond Push-up",
-            },
-            {
-                "id": "plank",
-                "name": "Plank Tĩnh (Core Stability)",
-                "reps": 30,
-                "target_reps": 30,
-                "sets": 3,
-                "primary_muscle": "Bụng & Core",
-                "rpe": None,
-                "completion_rate": 100.0,
-                "substitute": "Dead Bug",
-            },
-        ],
-    },
-]
+    WORKOUT_HISTORY[:] = [
+        {
+            "id": "w-04",
+            "session_name": "Chủ Nhật: Giãn cơ & Khớp dẻo dai (2 bài)",
+            "focus": "Giãn cơ & Khớp dẻo dai (Active Recovery)",
+            "exercise_id": "recovery_flow",
+            "exercise_name": "Plank Tĩnh + Giãn cơ toàn thân",
+            "actual_date": today_date.isoformat(),
+            "timestamp": now_ts,
+            "reps": 60,
+            "duration_sec": 600,
+            "calories": 55.0,
+            "rpe": 5,
+            "day": "Chủ Nhật",
+            "notes": "Siết cơ bụng tốt, nhịp thở đều",
+            "completion_rate": 100.0,
+            "status": "completed",
+            "exercises": [
+                {
+                    "id": "plank",
+                    "name": "Plank Tĩnh (Core Stability)",
+                    "reps": 60,
+                    "target_reps": 60,
+                    "sets": 3,
+                    "primary_muscle": "Bụng & Core",
+                    "rpe": 5,
+                    "completion_rate": 100.0,
+                    "substitute": "Dead Bug",
+                },
+                {
+                    "id": "stretch",
+                    "name": "Giãn cơ toàn thân (Full Body Stretch)",
+                    "reps": 60,
+                    "target_reps": 60,
+                    "sets": 2,
+                    "primary_muscle": "Toàn thân & Tim mạch",
+                    "rpe": 5,
+                    "completion_rate": 100.0,
+                    "substitute": "Child Pose",
+                },
+            ],
+        },
+        {
+            "id": "w-03",
+            "session_name": "Thứ 6: Toàn thân & Sức bền tim mạch (2 bài)",
+            "focus": "Toàn thân & Sức bền tim mạch (Fullbody Endurance)",
+            "exercise_id": "fullbody_endurance",
+            "exercise_name": "Jumping Jacks + Mountain Climbers",
+            "actual_date": (today_date - timedelta(days=2)).isoformat(),
+            "timestamp": (now_dt - timedelta(days=2)).strftime("%d/%m/%Y 18:00"),
+            "reps": 70,
+            "duration_sec": 720,
+            "calories": 65.0,
+            "rpe": 8,
+            "day": "Thứ 6",
+            "notes": "Hiệp 3 hơi mỏi vai và thở dốc, hoàn thành 70/75 reps",
+            "completion_rate": 85.7,
+            "status": "completed",
+            "exercises": [
+                {
+                    "id": "jumping_jacks",
+                    "name": "Jumping Jacks (Nhảy dang tay nhẹ)",
+                    "reps": 40,
+                    "target_reps": 40,
+                    "sets": 3,
+                    "primary_muscle": "Toàn thân & Tim mạch",
+                    "rpe": 7,
+                    "completion_rate": 100.0,
+                    "substitute": "Step Jacks",
+                },
+                {
+                    "id": "mountain_climbers",
+                    "name": "Mountain Climbers (Leo núi trên thảm)",
+                    "reps": 30,
+                    "target_reps": 35,
+                    "sets": 3,
+                    "primary_muscle": "Bụng & Core",
+                    "rpe": 8,
+                    "completion_rate": 85.7,
+                    "substitute": "Plank Shoulder Tap",
+                },
+            ],
+        },
+        {
+            "id": "w-02",
+            "session_name": "Thứ 3: Thân dưới & Mông (3 bài)",
+            "focus": "Thân dưới & Mông (Lower Body)",
+            "exercise_id": "lower_body_flow",
+            "exercise_name": "Squat Thể dục + Glute Bridge + Calf Raises",
+            "actual_date": (today_date - timedelta(days=4)).isoformat(),
+            "timestamp": (now_dt - timedelta(days=4)).strftime("%d/%m/%Y 19:15"),
+            "reps": 115,
+            "duration_sec": 960,
+            "calories": 95.0,
+            "rpe": None,
+            "day": "Thứ 3",
+            "notes": "Góc gối mở đều, đùi song song mặt sàn (Chờ khảo sát)",
+            "completion_rate": 90.0,
+            "status": "completed",
+            "exercises": [
+                {
+                    "id": "squat",
+                    "name": "Squat Thể dục (Bodyweight Squat)",
+                    "reps": 45,
+                    "target_reps": 50,
+                    "sets": 4,
+                    "primary_muscle": "Cơ đùi trước (Quads)",
+                    "rpe": None,
+                    "completion_rate": 90.0,
+                    "substitute": "Wall Sit (Ngồi tựa tường)",
+                },
+                {
+                    "id": "glute_bridge",
+                    "name": "Glute Bridge (Nâng mông trên thảm)",
+                    "reps": 40,
+                    "target_reps": 40,
+                    "sets": 3,
+                    "primary_muscle": "Cơ mông (Glutes)",
+                    "rpe": None,
+                    "completion_rate": 100.0,
+                    "substitute": "Single Leg Bridge",
+                },
+                {
+                    "id": "calf_raises",
+                    "name": "Calf Raises (Nhón bắp chân)",
+                    "reps": 30,
+                    "target_reps": 35,
+                    "sets": 3,
+                    "primary_muscle": "Bắp chân",
+                    "rpe": None,
+                    "completion_rate": 85.7,
+                    "substitute": "Seated Calf Raise",
+                },
+            ],
+        },
+        {
+            "id": "w-01",
+            "session_name": "Thứ 2: Thân trên: Ngực & Tay sau (3 bài)",
+            "focus": "Thân trên: Ngực & Tay sau (Push Focus)",
+            "exercise_id": "push_focus_flow",
+            "exercise_name": "Standard Push-up + Dips trên ghế + Plank Tĩnh",
+            "actual_date": (today_date - timedelta(days=6)).isoformat(),
+            "timestamp": (now_dt - timedelta(days=6)).strftime("%d/%m/%Y 18:30"),
+            "reps": 96,
+            "duration_sec": 840,
+            "calories": 78.5,
+            "rpe": None,
+            "day": "Thứ 2",
+            "notes": "Chuẩn form 3 bài đẩy, ngực và tay sau kích hoạt tốt (Chờ khảo sát)",
+            "completion_rate": 100.0,
+            "status": "completed",
+            "exercises": [
+                {
+                    "id": "push_up",
+                    "name": "Standard Push-up (Hít đất chuẩn)",
+                    "reps": 36,
+                    "target_reps": 36,
+                    "sets": 3,
+                    "primary_muscle": "Cơ ngực (Chest)",
+                    "rpe": None,
+                    "completion_rate": 100.0,
+                    "substitute": "Knee Push-up",
+                },
+                {
+                    "id": "bench_dip",
+                    "name": "Dips trên ghế (Bench Dips)",
+                    "reps": 30,
+                    "target_reps": 30,
+                    "sets": 3,
+                    "primary_muscle": "Tay sau (Triceps)",
+                    "rpe": None,
+                    "completion_rate": 100.0,
+                    "substitute": "Diamond Push-up",
+                },
+                {
+                    "id": "plank",
+                    "name": "Plank Tĩnh (Core Stability)",
+                    "reps": 30,
+                    "target_reps": 30,
+                    "sets": 3,
+                    "primary_muscle": "Bụng & Core",
+                    "rpe": None,
+                    "completion_rate": 100.0,
+                    "substitute": "Dead Bug",
+                },
+            ],
+        },
+    ]
 
-HAS_WORKED_OUT_TODAY = True
+    HAS_WORKED_OUT_TODAY = True
+    IS_DEMO_PROGRESS_LOADED = True
 
 
 def record_workout(
@@ -361,6 +419,10 @@ def get_history():
         "history": WORKOUT_HISTORY,
     }
 
+@router.get("/analytics")
+def get_analytics(timeframe: str = "week"):
+    """SCRUM-21: Dynamic Pandas analytics by timeframe (week | month | all) for Plotly charts."""
+    return build_progress_analytics(WORKOUT_HISTORY, timeframe=timeframe)
 
 @router.get("/stats")
 def get_stats():
@@ -393,7 +455,7 @@ def get_stats():
         "current_streak_days": streak,
         "longest_streak_days": longest,
         "has_worked_out_today": HAS_WORKED_OUT_TODAY,
-        "personal_records": PERSONAL_RECORDS,
+        "personal_records": compute_personal_records(WORKOUT_HISTORY),
         "weekly_volume": WEEKLY_VOLUME,
     }
 
@@ -473,6 +535,31 @@ def get_evaluations():
     }
 
 
+def _exercise_matches_evaluation(ex: dict[str, Any], payload: EvaluationSubmitRequest) -> bool:
+    if payload.exercise_id and ex.get("id") == payload.exercise_id:
+        return True
+    if payload.exercise_name and ex.get("name") == payload.exercise_name:
+        return True
+    if payload.exercise_id and payload.exercise_id in (ex.get("id"), ex.get("name")):
+        return True
+    return False
+
+
+def _apply_rep_adjustment(curr_reps: Any, strategy: str, multiplier: float) -> Any:
+    if isinstance(curr_reps, int):
+        if strategy in ("deload", "minor_deload"):
+            return max(5, round(curr_reps * multiplier))
+        if strategy == "overload":
+            return min(50, curr_reps + 2)
+    elif isinstance(curr_reps, str) and curr_reps.isdigit():
+        val = int(curr_reps)
+        if strategy in ("deload", "minor_deload"):
+            return max(5, round(val * multiplier))
+        if strategy == "overload":
+            return min(50, val + 2)
+    return curr_reps
+
+
 @router.post("/evaluate")
 def submit_evaluation(payload: EvaluationSubmitRequest):
     global HAS_WORKED_OUT_TODAY
@@ -529,7 +616,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             "guide": rec_info["guide"],
         })
 
-    minutes = max(1, duration_sec // 60)
+    minutes = max(10, duration_sec // 60)
     hydration_ml = min(800, max(300, round(minutes * 18 / 50) * 50))
     hydration_advice = f"Uống từng ngụm nhỏ khoảng {hydration_ml}ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."
 
@@ -569,7 +656,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             if target_ex:
                 target_ex["rpe"] = user_rpe
                 substitute = target_ex.get("substitute") or "biến thể nhẹ hơn"
-                if user_rpe >= 8 or comp < 85:
+                if strategy in ("deload", "minor_deload"):
                     eval_record["recommendation"]["title"] = f"Khuyến nghị Tối ưu Động tác ({target_ex['name']}) 🔄"
                     eval_record["recommendation"]["action"] = (
                         f"Phát hiện động tác có tải trọng cao hoặc mỏi rõ rệt (RPE {user_rpe}/10). "
@@ -577,7 +664,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
                     )
                     eval_record["recommendation"]["badge"] = "badge-warning"
                     eval_record["recommendation"]["substitute"] = substitute
-                elif comp >= 90 and user_rpe <= 6:
+                elif strategy == "overload":
                     eval_record["recommendation"]["title"] = f"Khuyến nghị Tăng tiến Động tác ({target_ex['name']}) 🔥"
                     eval_record["recommendation"]["action"] = (
                         f"Xuất sắc! Bạn làm chủ kỹ thuật {target_ex['name']} hoàn hảo (RPE {user_rpe}/10). "
@@ -588,7 +675,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             target_w["rpe"] = user_rpe
             if payload.note:
                 target_w["notes"] = payload.note
-    elif comp > 0:
+    elif comp > 0 and payload.session_id != "none":
         est_reps = max(10, round(36 * comp / 100))
         fallback_exercise_id = payload.exercise_id or "push_up"
         is_completed = comp >= 50 or duration_sec >= 600
@@ -605,45 +692,55 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
 
     EVALUATION_HISTORY.insert(0, eval_record)
 
-
-    # Adaptive AI schedule adjustment if user selected auto_apply
-    if payload.auto_apply and strategy != "maintenance":
+    # Adaptive AI schedule adjustment if user selected auto_apply and has valid workout context
+    has_valid_workout_context = payload.session_id != "none" and (target_w is not None or comp > 0)
+    if payload.auto_apply and has_valid_workout_context:
         try:
-            from backend.routers.planner import USER_SCHEDULES
+            from backend.routers.planner import get_user_schedule
             from backend.routers.auth import CURRENT_SESSION
             email = CURRENT_SESSION.get("user_email") or "guest"
-            schedule = USER_SCHEDULES.get(email)
+            schedule = get_user_schedule(email)
             if schedule:
-                for d in schedule:
-                    if d.get("is_rest"):
-                        continue
-                    # Protect completed workouts from being modified retrospectively
-                    if d.get("workout_status") == "completed" or d.get("is_completed"):
-                        continue
-                    for ex in d.get("exercises", []):
-                        # Respect scope: if scope is 'exercise', only adjust the targeted exercise
-                        if payload.scope == "exercise":
-                            matched = False
-                            if payload.exercise_id and ex.get("id") == payload.exercise_id:
-                                matched = True
-                            elif payload.exercise_name and ex.get("name") == payload.exercise_name:
-                                matched = True
-                            elif payload.exercise_id and payload.exercise_id in (ex.get("id"), ex.get("name")):
-                                matched = True
-                            if not matched:
+                apply_key = None
+                if payload.session_id:
+                    apply_key = (
+                        f"{payload.session_id}:{payload.exercise_id}"
+                        if payload.scope == "exercise" and payload.exercise_id
+                        else payload.session_id
+                    )
+                baseline = AUTO_APPLIED_BASELINES.get((email, apply_key)) if apply_key else None
+
+                if strategy == "maintenance":
+                    if baseline:
+                        for (d_idx, e_idx), orig_reps in baseline.items():
+                            if 0 <= d_idx < len(schedule):
+                                exs = schedule[d_idx].get("exercises", [])
+                                if 0 <= e_idx < len(exs):
+                                    exs[e_idx]["reps"] = orig_reps
+                else:
+                    if apply_key and baseline is None:
+                        baseline = {}
+                        for d_idx, d in enumerate(schedule):
+                            if d.get("is_rest") or d.get("workout_status") == "completed" or d.get("is_completed"):
                                 continue
-                        curr_reps = ex.get("reps")
-                        if isinstance(curr_reps, int):
-                            if strategy in ("deload", "minor_deload"):
-                                ex["reps"] = max(5, round(curr_reps * multiplier))
-                            elif strategy == "overload":
-                                ex["reps"] = min(50, curr_reps + 2)
-                        elif isinstance(curr_reps, str) and curr_reps.isdigit():
-                            val = int(curr_reps)
-                            if strategy in ("deload", "minor_deload"):
-                                ex["reps"] = max(5, round(val * multiplier))
-                            elif strategy == "overload":
-                                ex["reps"] = min(50, val + 2)
+                            for e_idx, ex in enumerate(d.get("exercises", [])):
+                                if payload.scope == "exercise" and not _exercise_matches_evaluation(ex, payload):
+                                    continue
+                                baseline[(d_idx, e_idx)] = ex.get("reps")
+                        AUTO_APPLIED_BASELINES[(email, apply_key)] = baseline
+
+                    for d_idx, d in enumerate(schedule):
+                        if d.get("is_rest"):
+                            continue
+                        # Protect completed workouts from being modified retrospectively
+                        if d.get("workout_status") == "completed" or d.get("is_completed"):
+                            continue
+                        for e_idx, ex in enumerate(d.get("exercises", [])):
+                            # Respect scope: if scope is 'exercise', only adjust the targeted exercise
+                            if payload.scope == "exercise" and not _exercise_matches_evaluation(ex, payload):
+                                continue
+                            source_reps = baseline.get((d_idx, e_idx), ex.get("reps")) if baseline is not None else ex.get("reps")
+                            ex["reps"] = _apply_rep_adjustment(source_reps, strategy, multiplier)
         except Exception:
             pass
     

@@ -260,17 +260,19 @@ def generate_next_week_schedule(current_schedule: list[dict], week_number: int =
             if push_idx == -1:
                 push_idx = idx
 
-    # Khi sang tuần chẵn (Tuần 2, 4...) xoay chuyển vị trí giữa Push và Lower
-    # để Thứ 2 bắt đầu bằng Lower Body, ngăn chặn hoàn toàn xung đột cơ bắp với cuối tuần trước!
-    if is_even_week and lower_idx != -1 and push_idx != -1 and lower_idx != push_idx:
-        day_lower = deepcopy(updated[lower_idx])
-        day_push = deepcopy(updated[push_idx])
+    # Tuần chẵn (2, 4...): ưu tiên Thân dưới (Lower) trước Thân trên Đẩy (Push) -> lower_idx < push_idx
+    # Tuần lẻ (1, 3, 5...): ưu tiên Thân trên Đẩy (Push) trước Thân dưới (Lower) -> push_idx < lower_idx
+    if lower_idx != -1 and push_idx != -1 and lower_idx != push_idx:
+        should_swap = (is_even_week and lower_idx > push_idx) or (not is_even_week and push_idx > lower_idx)
+        if should_swap:
+            day_lower = deepcopy(updated[lower_idx])
+            day_push = deepcopy(updated[push_idx])
 
-        for key in ("focus", "is_rest", "exercises", "ai_reason"):
-            if key in day_lower:
-                updated[push_idx][key] = deepcopy(day_lower[key])
-            if key in day_push:
-                updated[lower_idx][key] = deepcopy(day_push[key])
+            for key in ("focus", "is_rest", "exercises", "ai_reason"):
+                if key in day_lower:
+                    updated[push_idx][key] = deepcopy(day_lower[key])
+                if key in day_push:
+                    updated[lower_idx][key] = deepcopy(day_push[key])
 
     # Đặt lại trạng thái cho tất cả các ngày trong tuần mới
     for idx, day in enumerate(updated):
@@ -283,16 +285,20 @@ def generate_next_week_schedule(current_schedule: list[dict], week_number: int =
         day.pop("actual_date", None)
 
         if not day.get("is_rest") and day.get("exercises"):
-            if is_even_week:
-                if idx == 0:
+            if idx == 0:
+                mon_tags = muscle_tags(day)
+                mon_focus = day.get("focus", "")
+                if "quads" in mon_tags or "glutes" in mon_tags or "thân dưới" in mon_focus.lower():
                     day["ai_reason"] = (
-                        f"🔄 Chu kỳ Tuần {week_number} (Split Rotation): Mở đầu bằng {day.get('focus')} "
+                        f"🔄 Chu kỳ Tuần {week_number} (Split Rotation): Mở đầu bằng {mon_focus} "
                         f"để nhóm cơ ngực/tay sau được nghỉ 48h-72h sau cuối tuần, triệt tiêu hoàn toàn xung đột cơ bắp!"
                     )
                 else:
-                    day["ai_reason"] = f"Chu kỳ Tuần {week_number}: Duy trì kích thích đa góc độ và phát triển sức mạnh bền vững."
+                    day["ai_reason"] = (
+                        f"🔄 Chu kỳ Tuần {week_number} (Split Rotation): Khởi động tuần mới sung mãn với {mon_focus} "
+                        f"trong khi nhóm cơ thân dưới tiếp tục phục hồi tối ưu."
+                    )
             else:
-                if idx == 0:
-                    day["ai_reason"] = f"Chu kỳ Tuần {week_number}: Khởi động tuần mới sung mãn với {day.get('focus')}."
+                day["ai_reason"] = f"Chu kỳ Tuần {week_number}: Duy trì kích thích đa góc độ và phát triển sức mạnh bền vững."
 
     return updated

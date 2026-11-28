@@ -14,8 +14,10 @@ from backend.schemas import (
 )
 from src.auth_view import is_valid_email, validate_login_inputs, validate_registration_inputs
 from src.profile import load_profile, save_profile
+from backend.routers.progress import reset_progress_state, seed_demo_progress_data
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+DEMO_EMAIL = "demo@fitsense.vn"
 
 USERS_FILE = Path(__file__).resolve().parents[2] / "data" / "private" / "users.json"
 OAUTH_CONFIG_FILE = Path(__file__).resolve().parents[2] / "data" / "private" / "oauth_config.json"
@@ -142,7 +144,7 @@ def login(payload: LoginRequest):
         if not profile_exists:
             # Register user on the fly for test/demo emails if password valid
             user_record = {
-                "name": email.split("@")[0].capitalize(),
+                "name": "Vận Động Viên Trải Nghiệm" if email == DEMO_EMAIL else email.split("@")[0].capitalize(),
                 "email": email,
                 "password_hash": _hash_password(password),
                 "auth_provider": "local",
@@ -150,27 +152,50 @@ def login(payload: LoginRequest):
             users[email] = user_record
             save_users(users)
 
+    prev_email = CURRENT_SESSION.get("user_email")
     CURRENT_SESSION["user_email"] = email
     CURRENT_SESSION["is_logged_in"] = True
 
     profile = load_profile(email)
     if not profile:
-        profile = {
-            "name": user_record.get("name") if user_record else email.split("@")[0].capitalize(),
-            "email": email,
-            "age": 22,
-            "gender": "Nam",
-            "height_cm": 170.0,
-            "weight_kg": 65.0,
-            "days_per_week": 4,
-            "session_duration_minutes": 45,
-            "goal": "Tăng cơ & Sức mạnh",
-            "fitness_level": "Beginner (Người mới bắt đầu)",
-            "environment": "Tại nhà (Home Workout)",
-            "restrictions": ["Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"],
-            "equipment": ["Không có dụng cụ (Chỉ tập Bodyweight)"],
-        }
+        if email == DEMO_EMAIL:
+            profile = {
+                "name": "Vận Động Viên Trải Nghiệm",
+                "email": DEMO_EMAIL,
+                "age": 22,
+                "gender": "Nam",
+                "height_cm": 172.0,
+                "weight_kg": 65.0,
+                "days_per_week": 4,
+                "session_duration_minutes": 35,
+                "goal": "Sức bền & Tăng cơ Calisthenics",
+                "fitness_level": "Intermediate (Người đã có nền tảng)",
+                "environment": "Tại nhà / Phòng riêng",
+                "restrictions": ["Khớp gối yếu (Tránh Squat quá sâu, Jumping)"],
+                "equipment": ["Thảm yoga/thể dục", "Xà đơn gắn cửa"],
+            }
+        else:
+            profile = {
+                "name": user_record.get("name") if user_record else email.split("@")[0].capitalize(),
+                "email": email,
+                "age": 22,
+                "gender": "Nam",
+                "height_cm": 170.0,
+                "weight_kg": 65.0,
+                "days_per_week": 4,
+                "session_duration_minutes": 45,
+                "goal": "Tăng cơ & Sức mạnh",
+                "fitness_level": "Beginner (Người mới bắt đầu)",
+                "environment": "Tại nhà (Home Workout)",
+                "restrictions": ["Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"],
+                "equipment": ["Không có dụng cụ (Chỉ tập Bodyweight)"],
+            }
         save_profile(email, profile)
+
+    if email == DEMO_EMAIL:
+        seed_demo_progress_data()
+    elif prev_email == DEMO_EMAIL or prev_email != email:
+        reset_progress_state()
 
     return {
         "success": True,
@@ -219,6 +244,7 @@ def register(payload: RegisterRequest):
 
     CURRENT_SESSION["user_email"] = email
     CURRENT_SESSION["is_logged_in"] = True
+    reset_progress_state()
 
     return {
         "success": True,
@@ -239,8 +265,13 @@ def google_auth(payload: GoogleAuthRequest):
 
     if email in users or existing_profile:
         # Existing account -> Sign in immediately
+        prev_email = CURRENT_SESSION.get("user_email")
         CURRENT_SESSION["user_email"] = email
         CURRENT_SESSION["is_logged_in"] = True
+        if email == DEMO_EMAIL:
+            seed_demo_progress_data()
+        elif prev_email == DEMO_EMAIL or prev_email != email:
+            reset_progress_state()
 
         profile = existing_profile or {
             "name": payload.name or email.split("@")[0].capitalize(),
@@ -321,6 +352,7 @@ def google_complete_registration(payload: GoogleCompleteRegistrationRequest):
 
     CURRENT_SESSION["user_email"] = email
     CURRENT_SESSION["is_logged_in"] = True
+    reset_progress_state()
 
     return {
         "success": True,
@@ -333,4 +365,5 @@ def google_complete_registration(payload: GoogleCompleteRegistrationRequest):
 def logout():
     CURRENT_SESSION["user_email"] = None
     CURRENT_SESSION["is_logged_in"] = False
+    reset_progress_state()
     return {"success": True, "message": "Đã đăng xuất thành công."}

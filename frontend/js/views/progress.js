@@ -7,9 +7,19 @@
 import { API } from "../api.js";
 import { Toast } from "../components/toast.js";
 
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export const ProgressView = {
   evalMeta: null,
   latestEvaluation: null,
+  timeframe: "week",
   lastRenderTime: 0,
 
   async render(forceRefresh = false) {
@@ -22,13 +32,17 @@ export const ProgressView = {
     }
 
     try {
-      const [heatmapData, historyData, statsData, evalMetaData, evalsData, weekData] = await Promise.all([
+      const [heatmapData, historyData, statsData, evalMetaData, evalsData, weekData, analyticsData] = await Promise.all([
         API.progress.heatmap(),
         API.progress.history(),
         API.progress.stats(),
         API.progress.evaluationMeta(),
         API.progress.evaluations(),
         API.planner.getWeek().catch(() => null),
+        API.progress.analytics(this.timeframe).catch((err) => {
+          console.warn("Analytics API failed, falling back gracefully:", err);
+          return { __error: err.message || "Không thể tải dữ liệu biểu đồ." };
+        }),
       ]);
       this.lastRenderTime = Date.now();
 
@@ -41,32 +55,48 @@ export const ProgressView = {
         : 0;
       const evals = evalsData?.evaluations || [];
       this.evalsBySession = {};
+      // EVALUATION_HISTORY is newest-first; keep the newest evaluation when building the map
       evals.forEach((ev) => {
         if (ev.session_id) {
-          if (ev.scope === "exercise" && ev.exercise_id) {
-            this.evalsBySession[`${ev.session_id}_${ev.exercise_id}`] = ev;
-          } else {
-            this.evalsBySession[ev.session_id] = ev;
+          const key = (ev.scope === "exercise" && ev.exercise_id)
+            ? `${ev.session_id}_${ev.exercise_id}`
+            : ev.session_id;
+          if (!this.evalsBySession[key]) {
+            this.evalsBySession[key] = ev;
           }
         }
       });
       if (this.latestEvaluation && this.latestEvaluation.session_id) {
-        if (this.latestEvaluation.scope === "exercise" && this.latestEvaluation.exercise_id) {
-          this.evalsBySession[`${this.latestEvaluation.session_id}_${this.latestEvaluation.exercise_id}`] = this.latestEvaluation;
-        } else {
-          this.evalsBySession[this.latestEvaluation.session_id] = this.latestEvaluation;
-        }
+        const latestKey = (this.latestEvaluation.scope === "exercise" && this.latestEvaluation.exercise_id)
+          ? `${this.latestEvaluation.session_id}_${this.latestEvaluation.exercise_id}`
+          : this.latestEvaluation.session_id;
+        this.evalsBySession[latestKey] = this.latestEvaluation;
       }
 
-      // Xác định buổi tập đang chọn và kiểm tra xem buổi đó đã từng gửi khảo sát chưa
+      // Xác định buổi tập / bài tập đang chọn và kiểm tra xem mục đó đã từng gửi khảo sát chưa
       const initialSelectedSessionId = this.selectedSessionId || (history.length > 0 ? history[0].id : null);
       this.selectedSessionId = initialSelectedSessionId;
-      const initialEval = initialSelectedSessionId ? this.evalsBySession[initialSelectedSessionId] : null;
-      const hasEvaluated = Boolean(initialEval);
       const selectedHistoryItem = history.find((h) => h.id === initialSelectedSessionId) || (history.length > 0 ? history[0] : null);
-      const initialCompRate = selectedHistoryItem && selectedHistoryItem.completion_rate !== undefined
-        ? Math.round(selectedHistoryItem.completion_rate)
-        : latestHistoryComp;
+      const isExerciseScope = this.evalScope === "exercise";
+      const sessionExercises = selectedHistoryItem?.exercises || [];
+      const hasSelectedEx = sessionExercises.some((e) => e.id === this.selectedExerciseId);
+      const activeExerciseId = sessionExercises.length > 0
+        ? (hasSelectedEx ? this.selectedExerciseId : sessionExercises[0].id)
+        : null;
+      if (isExerciseScope) {
+        this.selectedExerciseId = activeExerciseId;
+      }
+      const activeExerciseObj = sessionExercises.find((e) => e.id === activeExerciseId) || null;
+      const initialEvalKey = (isExerciseScope && initialSelectedSessionId && activeExerciseId)
+        ? `${initialSelectedSessionId}_${activeExerciseId}`
+        : initialSelectedSessionId;
+      const initialEval = initialEvalKey ? this.evalsBySession[initialEvalKey] : null;
+      const hasEvaluated = Boolean(initialEval);
+      const initialCompRate = (isExerciseScope && activeExerciseObj && activeExerciseObj.completion_rate !== undefined)
+        ? Math.round(activeExerciseObj.completion_rate)
+        : (selectedHistoryItem && selectedHistoryItem.completion_rate !== undefined
+          ? Math.round(selectedHistoryItem.completion_rate)
+          : latestHistoryComp);
 
 
       // Kiểm tra ngày nghỉ phục hồi (Rest Day) & điều kiện hiển thị khảo sát
@@ -76,7 +106,8 @@ export const ProgressView = {
       const isTodayRestDay = todayPlan
         ? Boolean(todayPlan.is_rest || !todayPlan.exercises || todayPlan.exercises.length === 0)
         : false;
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const localNow = new Date();
+      const todayIso = `${localNow.getFullYear()}-${String(localNow.getMonth() + 1).padStart(2, "0")}-${String(localNow.getDate()).padStart(2, "0")}`;
       const hasWorkoutToday = history.some((h) => {
         return h.actual_date === todayIso || h.day === todayName || h.day === "Hôm nay";
       }) || Boolean(statsData?.has_worked_out_today);
@@ -96,7 +127,7 @@ export const ProgressView = {
         recStrategy = strat === "deload"
           ? "Deload -15%"
           : (strat === "overload" ? "Overload +10%" : (strat === "minor_deload" ? "Minor Deload -5%" : "Optimal Maintenance"));
-        evalTime = initialEval.created_at || "Vừa cập nhật";
+        evalTime = initialEval.created_at || initialEval.timestamp || "Vừa cập nhật";
       }
 
       const prs = statsData.personal_records || {
@@ -178,36 +209,39 @@ export const ProgressView = {
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
             ${Object.entries(prs).map(([name, val]) => `
               <div class="fitsense-card" style="padding: 1.1rem; text-align: center;">
-                <div style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 0.3rem;">${name}</div>
-                <div style="font-size: 1.6rem; font-weight: 800; color: var(--accent-amber);">🥇 ${val}</div>
+                <div style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 0.3rem;">${escapeHtml(name)}</div>
+                <div style="font-size: 1.6rem; font-weight: 800; color: var(--accent-amber);">🥇 ${escapeHtml(val)}</div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Kỷ lục cao nhất ghi nhận</div>
               </div>
             `).join("")}
           </div>
         </div>
 
-        <!-- 3. Weekly Volume Chart Section -->
+       <!-- 3. Interactive Plotly Progress Charts (SCRUM-21: Reps & Plank Hold) -->
         <div class="fitsense-card" style="margin-bottom: 2rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
             <div>
-              <h3 style="font-size: 1.15rem; font-weight: 800;">📈 Biểu đồ Khối lượng Rèn luyện theo Tuần</h3>
-              <p style="font-size: 0.82rem; color: var(--text-secondary);">Tăng tiến thể lực theo thời gian (Số Reps & Thời lượng)</p>
+              <h3 style="font-size: 1.15rem; font-weight: 800;">📈 Biểu đồ Thể lực &amp; Tiến bộ (Pandas + Plotly)</h3>
+              <p style="font-size: 0.82rem; color: var(--text-secondary);">
+                Theo dõi số Reps và Thời gian giữ Plank trực quan theo khoảng thời gian
+              </p>
             </div>
-            <span class="badge badge-emerald">Progressive Trend ↗️</span>
+            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;" id="progress-timeframe-filters">
+              <button type="button" class="btn ${this.timeframe === 'week' ? 'btn-primary' : 'btn-outline'}" data-tf="week" style="padding: 0.35rem 0.85rem; font-size: 0.82rem;">7 Ngày (Tuần)</button>
+              <button type="button" class="btn ${this.timeframe === 'month' ? 'btn-primary' : 'btn-outline'}" data-tf="month" style="padding: 0.35rem 0.85rem; font-size: 0.82rem;">30 Ngày (Tháng)</button>
+              <button type="button" class="btn ${this.timeframe === 'all' ? 'btn-primary' : 'btn-outline'}" data-tf="all" style="padding: 0.35rem 0.85rem; font-size: 0.82rem;">Tất cả</button>
+            </div>
           </div>
 
-          <div style="display: flex; align-items: flex-end; gap: 1.5rem; height: 180px; padding: 1rem 0; border-bottom: 1px solid var(--border-subtle); overflow-x: auto;">
-            ${weeklyVolume.map((item) => {
-              const maxReps = 400;
-              const barHeightPct = Math.round((item.reps / maxReps) * 100);
-              return `
-                <div style="flex: 1; min-width: 65px; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end;">
-                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--accent-cyan); margin-bottom: 0.35rem;">${item.reps} rep</span>
-                  <div style="width: 100%; max-width: 44px; height: ${barHeightPct}%; background: linear-gradient(180deg, var(--accent-cyan) 0%, rgba(56, 189, 248, 0.4) 100%); border-radius: 6px 6px 0 0; transition: height 0.4s ease;"></div>
-                  <span style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.5rem;">${item.week}</span>
-                </div>
-              `;
-            }).join("")}
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem;">
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.85rem;">
+              <div style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--accent-cyan);">💪 Tiến bộ Số Reps</div>
+              <div id="plotly-reps-chart" style="width: 100%; height: 240px;"></div>
+            </div>
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.85rem;">
+              <div style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--accent-emerald);">⏱️ Thời gian Giữ Plank (giây)</div>
+              <div id="plotly-plank-chart" style="width: 100%; height: 240px;"></div>
+            </div>
           </div>
         </div>
 
@@ -224,7 +258,7 @@ export const ProgressView = {
               return `
                 <div class="heatmap-card">
                   <div class="heatmap-header">
-                    <span class="heatmap-title">${m.name}</span>
+                    <span class="heatmap-title">${escapeHtml(m.name)}</span>
                     <span class="heatmap-pct" style="color: ${barColor};">${m.recovery_pct}%</span>
                   </div>
 
@@ -233,7 +267,7 @@ export const ProgressView = {
                   </div>
 
                   <div class="heatmap-footer">
-                    <span style="font-weight: 600; color: ${barColor};">${m.status}</span>
+                    <span style="font-weight: 600; color: ${barColor};">${escapeHtml(m.status)}</span>
                     <span>${m.hours_left > 0 ? `Còn ~${m.hours_left}h phục hồi` : "Phục hồi 100% ✨"}</span>
                   </div>
                 </div>
@@ -248,7 +282,7 @@ export const ProgressView = {
                 ✅ Nhóm cơ đã phục hồi hoàn toàn — NÊN TẬP HÔM NAY:
               </h5>
               <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                ${readyMuscles.length > 0 ? readyMuscles.map((m) => `<span class="muscle-pill" style="border-color: var(--accent-emerald);">${m.name}</span>`).join("") : "<span>Chưa có nhóm cơ nào đạt 100%</span>"}
+                ${readyMuscles.length > 0 ? readyMuscles.map((m) => `<span class="muscle-pill" style="border-color: var(--accent-emerald);">${escapeHtml(m.name)}</span>`).join("") : "<span>Chưa có nhóm cơ nào đạt 100%</span>"}
               </div>
             </div>
 
@@ -257,7 +291,7 @@ export const ProgressView = {
                 ⚠️ Nhóm cơ đang mỏi — CẦN NGHỈ NGƠI:
               </h5>
               <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                ${fatiguedMuscles.length > 0 ? fatiguedMuscles.map((m) => `<span class="muscle-pill" style="border-color: var(--accent-amber);">${m.name}</span>`).join("") : "<span style='color: var(--text-muted);'>Tất cả các cơ đều đã sẵn sàng!</span>"}
+                ${fatiguedMuscles.length > 0 ? fatiguedMuscles.map((m) => `<span class="muscle-pill" style="border-color: var(--accent-amber);">${escapeHtml(m.name)}</span>`).join("") : "<span style='color: var(--text-muted);'>Tất cả các cơ đều đã sẵn sàng!</span>"}
               </div>
             </div>
           </div>
@@ -271,7 +305,7 @@ export const ProgressView = {
                 <span style="font-size: 2.2rem;">🛌</span>
                 <div>
                   <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0 0 0.35rem 0; color: var(--text-primary);">
-                    Hôm nay là Ngày Nghỉ Phục Hồi Sinh Học (${todayName || "Hôm nay"})
+                    Hôm nay là Ngày Nghỉ Phục Hồi Sinh Học (${escapeHtml(todayName || "Hôm nay")})
                   </h3>
                   <p style="font-size: 0.88rem; color: var(--text-secondary); margin: 0; line-height: 1.55;">
                     💡 <b>Bạn muốn tập hôm nay?</b> Hãy vào tab <b>Kế hoạch</b> để đổi giáo án sang có bài tập.
@@ -314,11 +348,11 @@ export const ProgressView = {
                 <div id="eval-exercise-select-wrapper" style="display: ${this.evalScope === 'exercise' ? 'flex' : 'none'}; align-items: center; gap: 0.5rem; flex: 1; min-width: 260px; justify-content: flex-end;">
                   <label style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan); white-space: nowrap;">Chọn bài tập:</label>
                   <select class="form-control" id="eval-exercise-select" style="padding: 0.35rem 0.65rem; font-size: 0.85rem; max-width: 340px;">
-                    ${selectedHistoryItem?.exercises?.map((ex, idx) => `
-                      <option value="${ex.id}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${ex.primary_muscle || ''}" data-substitute="${ex.substitute || ''}" ${this.selectedExerciseId === ex.id || idx === 0 ? 'selected' : ''}>
-                        Bài ${idx + 1}: ${ex.name.split('(')[0].trim()} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
+                    ${sessionExercises.length > 0 ? sessionExercises.map((ex, idx) => `
+                      <option value="${escapeHtml(ex.id)}" data-name="${escapeHtml(ex.name)}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${escapeHtml(ex.primary_muscle || '')}" data-substitute="${escapeHtml(ex.substitute || '')}" ${ex.id === activeExerciseId ? 'selected' : ''}>
+                        Bài ${idx + 1}: ${escapeHtml((ex.name || '').split('(')[0].trim())} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
                       </option>
-                    `).join("") || '<option value="none">Buổi này chưa có danh sách bài</option>'}
+                    `).join("") : '<option value="none">Buổi này chưa có danh sách bài</option>'}
                   </select>
                 </div>
               </div>
@@ -331,8 +365,8 @@ export const ProgressView = {
                       const isSelected = initialSelectedSessionId ? (h.id === initialSelectedSessionId) : (i === 0);
                       const displayTitle = h.session_name || h.exercise_name;
                       return `
-                      <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}" ${isSelected ? "selected" : ""}>
-                        ${displayTitle} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
+                      <option value="${escapeHtml(h.id)}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}" ${isSelected ? "selected" : ""}>
+                        ${escapeHtml(displayTitle)} · 🕒 ${escapeHtml(h.timestamp || h.actual_date)} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
                       </option>
                     `;}).join("") : `<option value="none" data-comp="0">Chưa ghi nhận dữ liệu buổi tập (0%)</option>`}
                   </select>
@@ -513,15 +547,15 @@ export const ProgressView = {
               <h4 style="font-size: 1.15rem; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; margin: 0;">
                 💡 Khuyến nghị Tự động của Adaptive AI dành cho bạn
               </h4>
-              <span class="badge ${recBadge}" id="badge-rec-status">${recStrategy}</span>
+              <span class="badge ${escapeHtml(recBadge)}" id="badge-rec-status">${escapeHtml(recStrategy)}</span>
             </div>
 
             <div class="fitsense-card" id="box-adaptive-recommendation" style="background: var(--bg-surface); border: 1.5px solid var(--accent-cyan); padding: 1.35rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);">
               <h5 id="rec-title" style="font-size: 1.1rem; font-weight: 800; color: var(--accent-cyan); margin-bottom: 0.4rem;">
-                ${recTitle}
+                ${escapeHtml(recTitle)}
               </h5>
               <p id="rec-desc" style="font-size: 0.92rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">
-                ${recDesc}
+                ${escapeHtml(recDesc)}
               </p>
 
               <!-- Cool-down Stretches & Hydration Box -->
@@ -530,10 +564,10 @@ export const ProgressView = {
                   🧘 Lời khuyên Phục hồi Sinh học (Cool-down & Bù nước)
                 </div>
                 <div id="rec-stretches-list" style="font-size: 0.86rem; color: var(--text-secondary); line-height: 1.6;">
-                  ${initialEval?.recovery_items?.length ? initialEval.recovery_items.map(it => `<div>• <b>${it.target || it.muscle || "Vùng cơ"}:</b> ${it.stretch_name} (${it.guide}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("") : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>"}
+                  ${initialEval?.recovery_items?.length ? initialEval.recovery_items.map(it => `<div>• <b>${escapeHtml(it.target || it.muscle || "Vùng cơ")}:</b> ${escapeHtml(it.stretch_name)} (${escapeHtml(it.guide)}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("") : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>"}
                 </div>
                 <div id="rec-hydration-text" style="font-size: 0.84rem; color: var(--accent-cyan); margin-top: 0.5rem; font-weight: 600;">
-                  💧 ${initialEval?.hydration_advice || "Uống từng ngụm nhỏ 350ml–500ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."}
+                  💧 ${escapeHtml(initialEval?.hydration_advice || "Uống từng ngụm nhỏ 350ml–500ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập.")}
                 </div>
               </div>
 
@@ -542,7 +576,7 @@ export const ProgressView = {
                   ✨ Đã đồng bộ vào Kế hoạch tuần & Ma trận phục hồi sinh học
                 </span>
                 <span id="rec-timestamp">
-                  🕒 ${evalTime}
+                  🕒 ${escapeHtml(evalTime)}
                 </span>
               </div>
             </div>
@@ -580,17 +614,17 @@ export const ProgressView = {
               <tbody>
                 ${history.length > 0 ? history.map((item) => `
                   <tr>
-                    <td><b>${item.timestamp || item.actual_date}</b></td>
+                    <td><b>${escapeHtml(item.timestamp || item.actual_date)}</b></td>
                     <td>
                       <div style="font-weight: 700; color: var(--accent-cyan); display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-                        <span>${item.session_name || item.exercise_name}</span>
+                        <span>${escapeHtml(item.session_name || item.exercise_name)}</span>
                         ${item.exercises && item.exercises.length > 0 ? `<span class="badge badge-outline" style="font-size: 0.68rem; padding: 0.1rem 0.4rem;">${item.exercises.length} bài</span>` : ''}
                       </div>
                       ${item.exercises && item.exercises.length > 0 ? `
                         <div style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem;">
                           ${item.exercises.map(ex => `
                             <span style="font-size: 0.72rem; background: var(--bg-card); border: 1px solid var(--border-color); padding: 0.15rem 0.45rem; border-radius: 4px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 0.3rem;">
-                              <span>${ex.name.split('(')[0].trim()}</span>
+                              <span>${escapeHtml((ex.name || '').split('(')[0].trim())}</span>
                               <b style="color: var(--accent-emerald); font-weight: 700;">${ex.reps} reps</b>
                               ${ex.rpe ? `<span class="badge ${ex.rpe >= 8 ? 'badge-advanced' : ex.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}" style="font-size: 0.65rem; padding: 0.05rem 0.25rem;">RPE ${ex.rpe}</span>` : ''}
                             </span>
@@ -598,7 +632,7 @@ export const ProgressView = {
                         </div>
                       ` : ''}
                     </td>
-                    <td><span class="badge badge-beginner">${item.day || "Tập tự do"}</span></td>
+                    <td><span class="badge badge-beginner">${escapeHtml(item.day || "Tập tự do")}</span></td>
                     <td>${item.status === "abandoned" ? "Bỏ dở" : "Hoàn thành"}</td>
                     <td><strong>${item.reps}</strong> reps</td>
                     <td>${Math.floor(((item.duration_sec ?? item.duration_seconds) || 0) / 60)}p ${((item.duration_sec ?? item.duration_seconds) || 0) % 60}s</td>
@@ -606,7 +640,7 @@ export const ProgressView = {
                     <td style="text-align: center; white-space: nowrap;">
                       ${item.rpe === null || item.rpe === undefined ? `<span style="color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">—</span>` : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}" style="white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; padding: 0.2rem 0.55rem; font-weight: 700;" title="Thang đo mức độ gắng sức: RPE ${item.rpe}/10">${item.rpe}/10</span>`}
                     </td>
-                    <td style="color: var(--text-secondary); font-size: 0.82rem;">${item.notes || "—"}</td>
+                    <td style="color: var(--text-secondary); font-size: 0.82rem;">${item.notes ? escapeHtml(item.notes) : "—"}</td>
                   </tr>
                 `).join("") : `
                   <tr>
@@ -621,16 +655,23 @@ export const ProgressView = {
         </div>
       `;
 
-      this.bindEvaluationEvents(container);
+      this.bindEvaluationEvents(container, history);
+      this.renderPlotlyCharts(analyticsData);
+      this.bindTimeframeEvents(container);
     } catch (err) {
       console.error("Progress render error:", err);
       if (container) {
-        container.innerHTML = `<div class="fitsense-card" style="color: var(--accent-crimson);">Lỗi tải bảng đánh giá: ${err.message}</div>`;
+        container.innerHTML = "";
+        const errDiv = document.createElement("div");
+        errDiv.className = "fitsense-card";
+        errDiv.style.color = "var(--accent-crimson)";
+        errDiv.textContent = `Lỗi tải bảng đánh giá: ${err.message}`;
+        container.appendChild(errDiv);
       }
     }
   },
 
-  bindEvaluationEvents(container) {
+  bindEvaluationEvents(container, history = []) {
     if (!container) container = document.getElementById("view-progress");
     if (!container) return;
 
@@ -701,7 +742,7 @@ export const ProgressView = {
         const val = parseInt(btn.getAttribute("data-rpe"), 10);
         if (rpeSlider) rpeSlider.value = val;
         if (rpeDisplay) rpeDisplay.textContent = `${val}/10`;
-        if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${val}/10:</b> ${rpeDescriptions[val] || ""}`;
+        if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${val}/10:</b> ${escapeHtml(rpeDescriptions[val] || "")}`;
         updateRpePillActive(val);
         updateAdaptivePreview();
       });
@@ -710,7 +751,7 @@ export const ProgressView = {
     rpeSlider?.addEventListener("input", (e) => {
       const val = parseInt(e.target.value, 10);
       if (rpeDisplay) rpeDisplay.textContent = `${val}/10`;
-      if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${val}/10:</b> ${rpeDescriptions[val] || ""}`;
+      if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${val}/10:</b> ${escapeHtml(rpeDescriptions[val] || "")}`;
       updateRpePillActive(val);
       updateAdaptivePreview();
     });
@@ -776,8 +817,8 @@ export const ProgressView = {
         const activeExId = hasCurrentEx ? this.selectedExerciseId : selectedSession.exercises[0].id;
         this.selectedExerciseId = activeExId;
         exSelect.innerHTML = selectedSession.exercises.map((ex, idx) => `
-          <option value="${ex.id}" data-name="${ex.name}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${ex.primary_muscle || ''}" data-substitute="${ex.substitute || ''}" ${ex.id === activeExId ? 'selected' : ''}>
-            Bài ${idx + 1}: ${ex.name.split('(')[0].trim()} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
+          <option value="${escapeHtml(ex.id)}" data-name="${escapeHtml(ex.name)}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${escapeHtml(ex.primary_muscle || '')}" data-substitute="${escapeHtml(ex.substitute || '')}" ${ex.id === activeExId ? 'selected' : ''}>
+            Bài ${idx + 1}: ${escapeHtml((ex.name || '').split('(')[0].trim())} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
           </option>
         `).join("");
       } else {
@@ -845,7 +886,7 @@ export const ProgressView = {
         if (stretchesList) {
           const items = targetEval.recovery_items || [];
           stretchesList.innerHTML = items.length > 0
-            ? items.map(it => `<div>• <b>${it.target || it.muscle || "Vùng cơ"}:</b> ${it.stretch_name} (${it.guide}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("")
+            ? items.map(it => `<div>• <b>${escapeHtml(it.target || it.muscle || "Vùng cơ")}:</b> ${escapeHtml(it.stretch_name)} (${escapeHtml(it.guide)}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("")
             : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>";
         }
         if (hydrationText) {
@@ -858,7 +899,7 @@ export const ProgressView = {
         if (rpeSlider && targetEval.rpe) {
           rpeSlider.value = targetEval.rpe;
           if (rpeDisplay) rpeDisplay.textContent = `${targetEval.rpe}/10`;
-          if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${targetEval.rpe}/10:</b> ${rpeDescriptions[targetEval.rpe] || ""}`;
+          if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${targetEval.rpe}/10:</b> ${escapeHtml(rpeDescriptions[targetEval.rpe] || "")}`;
           updateRpePillActive(targetEval.rpe);
         }
         if (targetEval.doms_severity) {
@@ -897,7 +938,7 @@ export const ProgressView = {
         if (rpeSlider) {
           rpeSlider.value = defaultRpe;
           if (rpeDisplay) rpeDisplay.textContent = `${defaultRpe}/10`;
-          if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${defaultRpe}/10:</b> ${rpeDescriptions[defaultRpe] || ""}`;
+          if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${defaultRpe}/10:</b> ${escapeHtml(rpeDescriptions[defaultRpe] || "")}`;
           updateRpePillActive(defaultRpe);
         }
         const domsSelect = document.getElementById("eval-doms-severity");
@@ -948,6 +989,11 @@ export const ProgressView = {
       updateEvaluationViewForCurrentScope();
     });
 
+    // Sync form controls and recommendation box with current session/exercise selection on load
+    if (history.length > 0) {
+      updateEvaluationViewForCurrentScope();
+    }
+
     document.getElementById("btn-submit-evaluation")?.addEventListener("click", async () => {
       const sessionId = sessionSelect?.value;
       const selectedSession = history.find((h) => h.id === sessionId);
@@ -994,8 +1040,8 @@ export const ProgressView = {
         this.selectedSessionId = sessionId;
         if (isExerciseScope) this.selectedExerciseId = exerciseId;
         Toast.success(res.message || "🎉 Đã ghi nhận đánh giá thành công!");
-        import("../components/capybara.js").then((m) => m.Capybara.refresh());
-        await this.render();
+        import("../components/capybara.js?v=3.0.0").then((m) => m.Capybara.refresh());
+        await this.render(true);
 
         const recContainer = document.getElementById("eval-recommendation-container");
         if (recContainer) {
@@ -1005,6 +1051,95 @@ export const ProgressView = {
         Toast.error("Lỗi gửi đánh giá: " + err.message);
       }
     });
+  },
+
+  bindTimeframeEvents(container) {
+    container.querySelectorAll("#progress-timeframe-filters button[data-tf]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const nextTf = btn.getAttribute("data-tf");
+        if (nextTf && nextTf !== this.timeframe) {
+          this.timeframe = nextTf;
+          await this.render(true);
+        }
+      });
+    });
+  },
+
+  renderPlotlyCharts(analyticsData) {
+    const repsEl = document.getElementById("plotly-reps-chart");
+    const plankEl = document.getElementById("plotly-plank-chart");
+    if (!repsEl || !plankEl) return;
+
+    if (analyticsData?.__error) {
+      const safeText = "⚠️ Tạm thời chưa tải được dữ liệu biểu đồ. Các mục khác vẫn hoạt động bình thường.";
+      [repsEl, plankEl].forEach((el) => {
+        el.innerHTML = "";
+        const msgDiv = document.createElement("div");
+        msgDiv.style.cssText = "height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-amber); font-size: 0.85rem; text-align: center; padding: 1rem;";
+        msgDiv.textContent = safeText;
+        el.appendChild(msgDiv);
+      });
+      return;
+    }
+
+    const labels = analyticsData?.labels || [];
+    const repsSeries = analyticsData?.reps_series || [];
+    const plankSeries = analyticsData?.plank_series || [];
+
+    if (!window.Plotly) {
+      repsEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Đang tải thư viện Plotly...</div>`;
+      plankEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Đang tải thư viện Plotly...</div>`;
+      return;
+    }
+
+    if (labels.length === 0) {
+      const emptyMsg = `<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.85rem; text-align: center;">Chưa có dữ liệu trong khoảng thời gian này.</div>`;
+      repsEl.innerHTML = emptyMsg;
+      plankEl.innerHTML = emptyMsg;
+      return;
+    }
+
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const textColor = isDark ? "#cbd5e1" : "#334155";
+    const gridColor = isDark ? "rgba(148, 163, 184, 0.15)" : "rgba(15, 23, 42, 0.1)";
+
+    const baseLayout = {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
+      font: { color: textColor, family: "Inter, sans-serif", size: 11 },
+      margin: { t: 16, r: 16, b: 36, l: 42 },
+      xaxis: { gridcolor: gridColor },
+      yaxis: { gridcolor: gridColor, rangemode: "tozero" },
+    };
+
+    window.Plotly.newPlot(
+      repsEl,
+      [{
+        x: labels,
+        y: repsSeries,
+        type: "bar",
+        name: "Reps",
+        marker: { color: "#38bdf8", borderRadius: 4 },
+      }],
+      { ...baseLayout, yaxis: { ...baseLayout.yaxis, title: "Reps" } },
+      { responsive: true, displayModeBar: false }
+    );
+
+    window.Plotly.newPlot(
+      plankEl,
+      [{
+        x: labels,
+        y: plankSeries,
+        type: "scatter",
+        mode: "lines+markers",
+        fill: "tozeroy",
+        name: "Plank (s)",
+        line: { color: "#10b981", width: 2.5 },
+        marker: { size: 7, color: "#34d399" },
+      }],
+      { ...baseLayout, yaxis: { ...baseLayout.yaxis, title: "Giây (s)" } },
+      { responsive: true, displayModeBar: false }
+    );
   },
 };
 

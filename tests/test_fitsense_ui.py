@@ -364,6 +364,9 @@ class TestFitSenseUIModules(unittest.TestCase):
         self.assertIn("MAX_BATCH_SEND_INTERVAL_MS", js_src)
         self.assertIn("0.15 * bodyWidth", js_src)
         self.assertIn("st.checkbox(", session_src)
+        self.assertIn("exercise_type=_pose_exercise_type()", session_src)
+        self.assertIn("pose.is_too_close", session_src)
+        self.assertIn("pose.is_bad_angle", session_src)
         self.assertNotIn('get("mirror")', js_src)
 
     def test_apptest_full_navigation_and_ui_flows(self):

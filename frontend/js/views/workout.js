@@ -5,8 +5,9 @@
 
 import { API } from "../api.js";
 import { Toast } from "../components/toast.js";
-import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=voice-feedback-1";
+import { createVoiceCoach } from "/assets/webcam/voice_coach.mjs?v=voice-feedback-2";
 import { createCameraPositionMonitor, POSITION_MESSAGES } from "../camera_position.mjs";
+import { createVoiceCommands } from "../voice_commands.mjs";
 
 // Helper: Calculate joint angle in degrees from three 2D/3D points [0, 180]
 function angleAt(a, b, c) {
@@ -193,6 +194,11 @@ export const WorkoutView = {
   videoSourceType: "none", // 'none' | 'camera' | 'file'
   videoFileName: "",
   voiceCoach: null,
+  voiceCommands: null,
+  voiceCommandStatus: "Bật micro rồi nói “Bắt đầu”, “Dừng lại”, “Nghỉ hiệp” hoặc “Bài tiếp theo”.",
+  voiceCommandFeedback: "",
+  hudActionPending: false,
+  activeRestBeeps: 0,
   statusSpeech: null,
   poseRequest: null,
   poseSwitchRequest: null,
@@ -233,7 +239,7 @@ export const WorkoutView = {
       if (AudioCtx) this.audioCtx = new AudioCtx();
     }
     if (this.audioCtx && this.audioCtx.state === "suspended") {
-      this.audioCtx.resume();
+      this.audioCtx.resume().catch(e => console.debug("Audio resume error:", e));
     }
     return this.audioCtx;
   },
@@ -252,6 +258,14 @@ export const WorkoutView = {
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + duration);
+      if (ctx.state === "running") {
+        this.activeRestBeeps++;
+        osc.onended = () => {
+          this.activeRestBeeps--;
+          this.syncVoiceCommandBlock();
+        };
+        this.syncVoiceCommandBlock();
+      }
     } catch (e) {
       console.debug("Audio beep error:", e);
     }
@@ -278,7 +292,20 @@ export const WorkoutView = {
         if (status) status.textContent = text;
       },
       onEnabledChange: () => this.updateVoiceToggle(),
+      onPlaybackChange: () => this.syncVoiceCommandBlock(),
     });
+    if (!this.voiceCommands) {
+      this.voiceCommands = createVoiceCommands({
+        SpeechRecognition: window.SpeechRecognition ?? window.webkitSpeechRecognition,
+        onCommand: action => { void this.runWorkoutAction(action, true); },
+        onStatus: text => {
+          this.voiceCommandStatus = text;
+          this.updateVoiceCommandUI();
+        },
+        onEnabledChange: () => this.updateVoiceCommandUI(),
+      });
+      window.addEventListener("pagehide", () => this.voiceCommands.stop());
+    }
     this.positionMonitor ??= createCameraPositionMonitor({
       onChange: warning => {
         const notice = document.getElementById("camera-position-warning");
@@ -294,6 +321,9 @@ export const WorkoutView = {
 
     if (!forceRefresh && container.children.length > 0) {
       return;
+    }
+    if (this.exerciseList.length === 0) {
+      this.exerciseList = structuredClone(DEFAULT_SESSION_EXERCISES);
     }
 
     container.innerHTML = `
@@ -607,8 +637,8 @@ export const WorkoutView = {
                 ⏱️ Bật đồng hồ nghỉ (${this.restDurationSec}s)
               </button>
 
-              <button class="btn btn-outline" id="btn-toggle-workout" style="font-weight: 700;">
-                ⏸️ Tạm dừng tập
+              <button class="btn ${this.isWorkingOut ? "btn-outline" : "btn-emerald"}" id="btn-toggle-workout" style="font-weight: 700;">
+                ${this.isWorkingOut ? "⏸️ Tạm dừng tập" : this.sessionStartTime ? "▶️ Tiếp tục tập" : "▶️ Bắt đầu tập"}
               </button>
 
               <div class="hud-actions-row">
@@ -625,6 +655,12 @@ export const WorkoutView = {
                 <span class="badge" id="voice-status-tag">TẮT</span>
               </button>
               <small id="voice-playback-status" role="status"></small>
+              <button type="button" class="voice-coach-toggle" id="btn-toggle-voice-commands" aria-pressed="false" aria-describedby="voice-commands-status">
+                <span>🎙️ Khẩu lệnh</span>
+                <span class="badge" id="voice-commands-tag">TẮT</span>
+              </button>
+              <small id="voice-commands-status" role="status"></small>
+              <small id="voice-commands-feedback" aria-live="polite"></small>
 
               <button class="btn btn-primary" id="btn-finish-workout" style="margin-top: 0.5rem; font-weight: 700;">
                 🏁 Hoàn thành buổi tập
@@ -646,6 +682,7 @@ export const WorkoutView = {
     getPoseDetector().catch((e) => console.debug("Detector warming:", e));
 
     this.bindEvents();
+    this.renderUpNextListUI();
   },
 
   bindEvents() {
@@ -654,11 +691,7 @@ export const WorkoutView = {
 
     // Toggle workout start/pause
     container.querySelector("#btn-toggle-workout")?.addEventListener("click", () => {
-      if (this.isWorkingOut) {
-        this.pauseWorkout();
-      } else {
-        this.startWorkout();
-      }
+      void this.runWorkoutAction(this.isWorkingOut ? "pause" : "start");
     });
 
     // Camera buttons
@@ -691,6 +724,16 @@ export const WorkoutView = {
     container.querySelector("#btn-toggle-voice")?.addEventListener("click", () => {
       this.stopStatusSpeech();
       this.voiceCoach.toggle();
+    });
+    this.updateVoiceCommandUI();
+    container.querySelector("#btn-toggle-voice-commands")?.addEventListener("click", () => {
+      this.voiceCommandFeedback = "";
+      this.syncVoiceCommandBlock();
+      this.voiceCommands.toggle();
+      if (this.voiceCommands.enabled) {
+        // Unlock the rest chime during a user gesture, before the first spoken command.
+        try { this.getAudioContext(); } catch (e) { console.debug("Audio setup error:", e); }
+      }
     });
 
     // Finish Workout
@@ -783,7 +826,7 @@ export const WorkoutView = {
     });
 
     container.querySelector("#btn-sidebar-trigger-rest")?.addEventListener("click", () => {
-      this.startRestTimer(this.restDurationSec);
+      void this.runWorkoutAction("rest");
     });
 
     container.querySelector("#btn-manual-finish-set")?.addEventListener("click", () => {
@@ -791,11 +834,11 @@ export const WorkoutView = {
     });
 
     container.querySelector("#btn-manual-trigger-rest")?.addEventListener("click", () => {
-      this.startRestTimer(this.restDurationSec);
+      void this.runWorkoutAction("rest");
     });
 
     container.querySelector("#btn-top-skip-ex")?.addEventListener("click", () => {
-      this.skipToNextExercise();
+      void this.runWorkoutAction("next");
     });
 
     // Rest Timer Overlay Controls
@@ -931,10 +974,12 @@ export const WorkoutView = {
     if (mode === this.workoutMode) return this.ensureWorkoutSession();
     const request = this.changeWorkoutMode(mode);
     this.modeRequest = request;
+    this.syncVoiceCommandBlock();
     try {
       return await request;
     } finally {
       if (this.modeRequest === request) this.modeRequest = null;
+      this.syncVoiceCommandBlock();
     }
   },
 
@@ -942,14 +987,14 @@ export const WorkoutView = {
     const sessions = this.modeSessions;
     await this.sessionStartRequest;
     if (sessions !== this.modeSessions) return false;
-    const paused = this.leave();
+    const paused = this.leave({keepVoiceCommands: true});
     const epoch = this.poseEpoch;
     await paused;
     if (sessions !== this.modeSessions || epoch !== this.poseEpoch) return false;
     const fields = [
       "sessionId", "exerciseId", "exerciseName", "exerciseList", "currentExerciseIdx", "currentSet",
       "totalSets", "targetReps", "holdSeconds", "restSeconds", "restDurationSec", "restRemainingSec",
-      "isResting", "restNextInfo", "onRestFinishCallback", "repCount", "manualSetReps", "frameId",
+      "isResting", "restNextInfo", "restSoundPlayed", "onRestFinishCallback", "repCount", "manualSetReps", "frameId",
       "sessionStartTime", "sessionClosed",
     ];
     const previous = Object.fromEntries(fields.map(field => [field, this[field]]));
@@ -995,17 +1040,19 @@ export const WorkoutView = {
     return true;
   },
 
-  startRestTimer(seconds = null, nextInfo = "", onFinishCallback = null) {
+  startRestTimer(seconds = null, nextInfo = "", onFinishCallback = null, resumeExisting = false) {
     this.isResting = true;
-    this.restDurationSec = seconds ?? this.restDurationSec ?? 60;
-    this.restSeconds = this.restDurationSec;
-    this.restRemainingSec = this.restDurationSec;
-    this.restSoundPlayed = { 3: false, 2: false, 1: false, 0: false };
-    this.onRestFinishCallback = onFinishCallback;
-    this.restNextInfo = nextInfo;
+    if (!resumeExisting) {
+      this.restDurationSec = seconds ?? this.restDurationSec ?? 60;
+      this.restSeconds = this.restDurationSec;
+      this.restRemainingSec = this.restDurationSec;
+      this.restSoundPlayed = { 3: false, 2: false, 1: false, 0: false };
+      this.onRestFinishCallback = onFinishCallback;
+      this.restNextInfo = nextInfo;
+    }
 
     clearInterval(this.restTimerInterval);
-    if (this.restDurationSec === 0) {
+    if (this.restRemainingSec === 0) {
       this.finishRestPeriod();
       return;
     }
@@ -1015,14 +1062,14 @@ export const WorkoutView = {
     const manualRestBtn = document.getElementById("btn-manual-trigger-rest");
 
     if (nextInfoEl) {
-      nextInfoEl.textContent = nextInfo || `Chuẩn bị: Hiệp ${this.currentSet}/${this.totalSets} — ${this.exerciseName}`;
+      nextInfoEl.textContent = this.restNextInfo || `Chuẩn bị: Hiệp ${this.currentSet}/${this.totalSets} — ${this.exerciseName}`;
     }
 
     if (overlay) {
       overlay.style.display = "flex";
     }
 
-    this.speak(`Bắt đầu nghỉ giữa hiệp ${this.restRemainingSec} giây.`);
+    if (!resumeExisting) this.speak(`Bắt đầu nghỉ giữa hiệp ${this.restRemainingSec} giây.`);
     this.updateRestDisplay();
 
     const interval = setInterval(() => {
@@ -1189,21 +1236,11 @@ export const WorkoutView = {
   },
 
   skipToNextExercise() {
-    if (this.currentExerciseIdx + 1 < this.exerciseList.length) {
-      this.jumpToExercise(this.currentExerciseIdx + 1);
-    } else {
-      if (this.isResting) {
-        clearInterval(this.restTimerInterval);
-        this.isResting = false;
-        const overlay = document.getElementById("hud-rest-overlay");
-        if (overlay) overlay.style.display = "none";
-      }
-      Toast.info("Đây đã là bài tập cuối cùng trong buổi hôm nay!");
-    }
+    return this.jumpToExercise(this.currentExerciseIdx + 1);
   },
 
   async jumpToExercise(targetIdx) {
-    if (targetIdx < 0 || targetIdx >= this.exerciseList.length) return;
+    if (targetIdx < 0 || targetIdx >= this.exerciseList.length) return false;
 
     const targetEx = this.exerciseList[targetIdx];
     const exerciseId = targetEx.id || "squat";
@@ -1211,7 +1248,7 @@ export const WorkoutView = {
     const targetReps = parseInt(targetEx.reps) || 12;
     const totalSets = parseInt(targetEx.sets) || 3;
     const switched = await this.syncPoseExercise(exerciseId, exerciseName, targetReps, 1, totalSets, targetIdx);
-    if (!switched) return;
+    if (!switched) return false;
 
     clearInterval(this.restTimerInterval);
     this.restTimerInterval = null;
@@ -1220,6 +1257,7 @@ export const WorkoutView = {
     if (overlay) overlay.style.display = "none";
 
     this.currentExerciseIdx = targetIdx;
+    this.onRestFinishCallback = null;
     this.exerciseId = exerciseId;
     this.exerciseName = exerciseName;
     this.targetReps = targetReps;
@@ -1237,6 +1275,7 @@ export const WorkoutView = {
 
     Toast.success(`🎯 Chuyển sang bài: ${this.exerciseName}!`);
     this.speak(`Bắt đầu bài tập ${this.exerciseName}. Mục tiêu ${this.targetReps} lần.`);
+    return true;
   },
 
   async swapCurrentExercise(substituteName, substituteId = null) {
@@ -1390,7 +1429,7 @@ export const WorkoutView = {
         !await this.queueSessionPause(false) || epoch !== this.poseEpoch) return false;
     this.isWorkingOut = true;
     if (this.isResting && this.restTimerInterval === null) {
-      this.startRestTimer(this.restRemainingSec, this.restNextInfo, this.onRestFinishCallback);
+      this.startRestTimer(null, "", null, true);
     }
     const btn = document.getElementById("btn-toggle-workout");
     if (btn) {
@@ -2288,6 +2327,85 @@ export const WorkoutView = {
     }
   },
 
+  async runWorkoutAction(action, fromVoice = false) {
+    const report = (message, succeeded = false) => {
+      if (fromVoice && this.voiceCommands?.enabled) {
+        this.voiceCommandFeedback = message;
+        this.updateVoiceCommandUI();
+      } else if (!fromVoice && !succeeded) {
+        Toast.info(message);
+      }
+      return succeeded;
+    };
+    if (this.hudActionPending || this.poseSwitchRequest || this.modeRequest || this.sessionClosing) {
+      return report("Đang cập nhật buổi tập. Hãy thử lại sau khi thao tác xong.");
+    }
+    if (this.sessionClosed) return report("Phiên đã kết thúc. Hãy mở buổi tập mới.");
+
+    this.hudActionPending = true;
+    this.syncVoiceCommandBlock();
+    try {
+      switch (action) {
+        case "start":
+          if (this.isWorkingOut) return report("Buổi tập đang chạy.");
+          return await this.startWorkout()
+            ? report("Đã bắt đầu hoặc tiếp tục buổi tập.", true)
+            : report("Chưa thể bắt đầu buổi tập. Hãy thử lại.");
+        case "pause":
+          if (!this.isWorkingOut) return report("Buổi tập đang tạm dừng.");
+          return await this.pauseWorkout()
+            ? report("Đã tạm dừng và giữ số rep.", true)
+            : report("Đã tạm dừng trên màn hình. Chưa đồng bộ được phiên tập.");
+        case "rest":
+          if (!this.isWorkingOut) return report("Bắt đầu hoặc tiếp tục buổi tập trước khi nghỉ.");
+          if (this.isResting) return report("Đồng hồ nghỉ đang chạy.");
+          if (this.setCompletionTimer) return report("Đang chốt hiệp. Hãy chờ đồng hồ nghỉ.");
+          if (this.restDurationSec <= 0) return report("Hiệp này được đặt nghỉ 0 giây.");
+          this.startRestTimer(this.restDurationSec);
+          return report(`Đã bật đồng hồ nghỉ ${this.restDurationSec} giây.`, true);
+        case "next":
+          if (this.currentExerciseIdx + 1 >= this.exerciseList.length) {
+            return report("Đây là bài tập cuối cùng.");
+          }
+          return await this.skipToNextExercise()
+            ? report("Đã chuyển sang bài tiếp theo.", true)
+            : report("Chưa thể chuyển bài. Hãy thử lại.");
+        default:
+          return false;
+      }
+    } finally {
+      this.hudActionPending = false;
+      this.syncVoiceCommandBlock();
+    }
+  },
+
+  updateVoiceCommandUI() {
+    const {supported = false, enabled = false} = this.voiceCommands ?? {};
+    const button = document.getElementById("btn-toggle-voice-commands");
+    if (button) {
+      button.disabled = !supported;
+      button.setAttribute("aria-pressed", String(enabled));
+    }
+    const tag = document.getElementById("voice-commands-tag");
+    if (tag) tag.textContent = enabled ? "BẬT" : "TẮT";
+    const status = document.getElementById("voice-commands-status");
+    if (status) {
+      status.textContent = supported
+        ? this.voiceCommandStatus
+        : "Trình duyệt này chưa hỗ trợ khẩu lệnh. Bạn có thể dùng các nút điều khiển.";
+    }
+    const feedback = document.getElementById("voice-commands-feedback");
+    if (feedback) feedback.textContent = this.voiceCommandFeedback;
+  },
+
+  syncVoiceCommandBlock() {
+    const playing = this.voiceCoach?.busy || this.statusSpeech || this.activeRestBeeps > 0;
+    this.voiceCommands?.setBlocked(
+      playing ? "Đang chờ âm thanh FitSense phát xong…"
+        : this.hudActionPending || this.modeRequest ? "Đang cập nhật buổi tập…" : "",
+    );
+  },
+
   updateVoiceToggle() {
     const enabled = this.voiceCoach.enabled;
     const button = document.getElementById("btn-toggle-voice");
@@ -2312,6 +2430,7 @@ export const WorkoutView = {
     if (!this.statusSpeech) return;
     this.statusSpeech = null;
     window.speechSynthesis.cancel();
+    this.syncVoiceCommandBlock();
   },
 
   stopVoice() {
@@ -2319,7 +2438,11 @@ export const WorkoutView = {
     this.stopStatusSpeech();
   },
 
-  leave() {
+  leave({keepVoiceCommands = false} = {}) {
+    if (!keepVoiceCommands) {
+      this.voiceCommandFeedback = "";
+      this.voiceCommands?.stop();
+    }
     this.isWorkingOut = false;
     this.poseEpoch++;
     clearTimeout(this.setCompletionTimer);
@@ -2348,13 +2471,18 @@ export const WorkoutView = {
     utterance.lang = voice.lang;
     utterance.voice = voice;
     utterance.onend = utterance.onerror = () => {
-      if (this.statusSpeech === utterance) this.statusSpeech = null;
+      if (this.statusSpeech === utterance) {
+        this.statusSpeech = null;
+        this.syncVoiceCommandBlock();
+      }
     };
     this.statusSpeech = utterance;
+    this.syncVoiceCommandBlock();
     try {
       synth.speak(utterance);
     } catch {
       this.statusSpeech = null;
+      this.syncVoiceCommandBlock();
     }
   },
 

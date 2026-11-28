@@ -361,6 +361,9 @@ def reset_schedule():
     email = CURRENT_SESSION.get("user_email") or "guest"
     USER_SCHEDULES[email] = deepcopy(DEFAULT_WEEKLY_SCHEDULE)
     USER_WEEK_NUMBERS[email] = 1
+    from backend.routers.progress import AUTO_APPLIED_BASELINES
+    for key in [k for k in AUTO_APPLIED_BASELINES if k[0] == email]:
+        AUTO_APPLIED_BASELINES.pop(key, None)
     return {
         "success": True,
         "message": "Đã đặt lại lịch tập tuần mặc định.",
@@ -379,6 +382,9 @@ def advance_to_next_week():
     new_schedule = generate_next_week_schedule(current_schedule, week_number=next_week_num)
     USER_SCHEDULES[email] = new_schedule
     USER_WEEK_NUMBERS[email] = next_week_num
+    from backend.routers.progress import AUTO_APPLIED_BASELINES
+    for key in [k for k in AUTO_APPLIED_BASELINES if k[0] == email]:
+        AUTO_APPLIED_BASELINES.pop(key, None)
     return {
         "success": True,
         "message": f"🎉 Đã chuyển sang Tuần {next_week_num} thành công! Lịch tập được xoay chuyển nhóm cơ để triệt tiêu xung đột cơ bắp cuối tuần - đầu tuần.",

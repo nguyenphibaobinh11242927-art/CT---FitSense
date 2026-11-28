@@ -9,7 +9,7 @@ hiển thị tỷ lệ hoàn thành rho khách quan do AI đối chiếu (cố �
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 import streamlit as st
 
@@ -291,6 +291,25 @@ def check_is_streak_earned(rho: float, duration_sec: int, is_completed: bool = F
     return bool(rho >= 50 or duration_sec >= 600 or is_completed)
 
 
+def has_workout_on_date(results: dict | None, target_date: date | None = None) -> bool:
+    """Chỉ trả True nếu trong `results` có buổi tập thực sự diễn ra đúng ngày `target_date`."""
+    if not isinstance(results, dict) or not results:
+        return False
+    today = target_date or date.today()
+    iso_today = today.isoformat()
+    vn_today = today.strftime("%d/%m/%Y")
+    for item in results.values():
+        if not isinstance(item, dict):
+            continue
+        if item.get("actual_date") == iso_today:
+            return True
+        for ts_key in ("finished_at", "timestamp", "created_at"):
+            ts_val = str(item.get(ts_key, ""))
+            if vn_today in ts_val:
+                return True
+    return False
+
+
 def render_evaluation_view():
     """Hiển thị Màn hình Đánh giá toàn diện sau buổi tập (Post-Workout Evaluation - SCRUM-22)."""
     st.header("📝 Đánh giá Sau Buổi tập & Tối ưu Thích ứng Thể lực")
@@ -309,7 +328,7 @@ def render_evaluation_view():
     today_name = DAYS[datetime.now().weekday()]
     today_plan = next((d for d in schedule if d.get("day") == today_name), None) if isinstance(schedule, list) else None
     is_today_rest = bool(today_plan.get("is_rest") or not today_plan.get("exercises")) if today_plan else False
-    has_workout_today = st.session_state.get("has_worked_out_today", False) or bool(results)
+    has_workout_today = bool(st.session_state.get("has_worked_out_today", False)) or has_workout_on_date(results)
 
     if is_today_rest and not has_workout_today:
         st.info(
@@ -362,7 +381,12 @@ def render_evaluation_view():
         )
         reps_done = result.get("reps", 0) if result else 0
 
-    duration_sec = result.get("duration_seconds", result.get("duration_sec", 900)) if result else 900
+    raw_dur = None
+    if isinstance(result, dict):
+        raw_dur = result.get("duration_seconds")
+        if raw_dur is None:
+            raw_dur = result.get("duration_sec")
+    duration_sec = max(0, int(raw_dur)) if raw_dur is not None else 0
     minutes = duration_sec // 60
     seconds = duration_sec % 60
     calories = result.get("calories", round(reps_done * 0.4 + 45.0, 1)) if result else round(reps_done * 0.4 + 45.0, 1)
@@ -448,14 +472,14 @@ def render_evaluation_view():
             strategy_info = compute_adaptive_adjustment(completion_rate, rpe)
             if selected_exercise:
                 substitute = selected_exercise.get("substitute") or "biến thể nhẹ hơn"
-                if rpe >= 8 or completion_rate < 85:
+                if strategy_info["strategy"] in ("deload", "minor_deload"):
                     strategy_info["title"] = f"Khuyến nghị Tối ưu Động tác ({selected_exercise['name']}) 🔄"
                     strategy_info["action"] = (
                         f"Phát hiện động tác có tải trọng cao hoặc mỏi rõ rệt (RPE {rpe}/10). "
                         f"Buổi tới AI đề xuất chuyển sang biến thể nhẹ hơn: {substitute} để phục hồi khớp & bảo vệ cơ!"
                     )
                     strategy_info["badge_type"] = "warning"
-                elif completion_rate >= 90 and rpe <= 6:
+                elif strategy_info["strategy"] == "overload":
                     strategy_info["title"] = f"Khuyến nghị Tăng tiến Động tác ({selected_exercise['name']}) 🔥"
                     strategy_info["action"] = (
                         f"Xuất sắc! Bạn làm chủ kỹ thuật {selected_exercise['name']} hoàn hảo (RPE {rpe}/10). "

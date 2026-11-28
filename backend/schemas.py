@@ -173,13 +173,13 @@ class EvaluationSubmitRequest(BaseModel):
     session_label: Optional[str] = None
     exercise_id: Optional[str] = None
     exercise_name: Optional[str] = None
-    scope: Optional[str] = "session"  # "session" or "exercise"
+    scope: Literal["session", "exercise"] = "session"
     completion_rate: int = Field(default=80, ge=0, le=100)
     rpe: int = Field(default=5, ge=1, le=10)
     soreness: list[str] = Field(default_factory=list)
-    doms_severity: Optional[str] = "moderate"
-    satisfaction: Optional[str] = "satisfied"
-    duration_sec: Optional[int] = 0
+    doms_severity: Literal["normal", "moderate", "intense"] = "moderate"
+    satisfaction: Literal["very_satisfied", "satisfied", "neutral", "unsatisfied"] = "satisfied"
+    duration_sec: Optional[int] = Field(default=0, ge=0)
     note: str = ""
     auto_apply: bool = True
 

@@ -4,13 +4,15 @@ Chạy từ thư mục gốc:
 
 ```powershell
 python -m unittest discover -s tests -v
-node --test tests/test_frame_batching.mjs tests/test_overlay.mjs tests/test_webcam_session.mjs tests/test_voice_coach.mjs
+node --test tests/test_frame_batching.mjs tests/test_overlay.mjs tests/test_pose_diagnostics.mjs tests/test_webcam_session.mjs tests/test_voice_coach.mjs
 ```
 
 Với SCRUM-14, kiểm tra góc 90°, 180° và trường hợp hai mốc trùng nhau.
 Luồng webcam SCRUM-18 chỉ gửi pose khi góc gối thay đổi đáng kể, cử chỉ đang được giữ,
 trạng thái tracking đổi, hoặc đến heartbeat; FSM giữ gesture theo thời gian mili-giây.
 Test overlay kiểm tra phân màu trái/phải, smoothing One-Euro và thống kê FPS.
+Test pose diagnostics kiểm tra cờ đứng quá gần (debounce 1.1 giây) và thiếu góc nhìn cho
+chuỗi khớp squat/push-up; các cờ được gửi ngay khi trạng thái thay đổi và hiển thị trên HUD.
 
 Với SCRUM-15 và SCRUM-20, chạy `node --test tests/test_voice_coach.mjs tests/test_webcam_session.mjs`.
 Kiểm tra thực tế trong
