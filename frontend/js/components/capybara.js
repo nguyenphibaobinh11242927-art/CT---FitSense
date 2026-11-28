@@ -17,7 +17,10 @@ export const Capybara = {
   cycleTimer: null,
   hideTimeout: null,
   wanderTimer: null,
+  dismissTimer: null,
+  resumeTimer: null,
   isDismissedByUser: false,
+  isChatOpen: false,
   isPaused: false,
   isDragging: false,
   currentX: 0, // Translation offset X from default bottom-right
@@ -66,6 +69,7 @@ export const Capybara = {
 
     const onPointerDown = (e) => {
       if (e.button && e.button !== 0) return;
+      if (this.resumeTimer) clearTimeout(this.resumeTimer);
       this.isPaused = true;
       startX = e.clientX || e.touches?.[0]?.clientX || 0;
       startY = e.clientY || e.touches?.[0]?.clientY || 0;
@@ -104,14 +108,14 @@ export const Capybara = {
           setTimeout(() => { this.isDragging = false; }, 50);
           this.clampWithinScreen();
           // Resume wandering after 15s of idle in new position
-          setTimeout(() => { this.isPaused = false; }, 15000);
+          if (this.resumeTimer) clearTimeout(this.resumeTimer);
+          this.resumeTimer = setTimeout(() => {
+            if (!this.isChatOpen) this.isPaused = false;
+          }, 15000);
         } else if (elapsed < 350 && dragDistance < 6) {
-          // Plain click on Capybara!
-          this.isDismissedByUser = false;
-          this.nextQuote(true);
-          this.showBubble();
-          this.restartTimer();
-          setTimeout(() => { this.isPaused = false; }, 8000);
+          // Plain click on Capybara: Open Capybara AI Chat Dialog (SCRUM-31)!
+          this.setChatOpen(true);
+          import("./capybara_chat.js?v=3.0.0").then((m) => m.CapybaraChat?.open());
         }
       };
 
@@ -125,10 +129,16 @@ export const Capybara = {
     this.avatarEl.addEventListener("touchstart", onPointerDown, { passive: true });
 
     // Pause wandering when hovered
-    this.element.addEventListener("mouseenter", () => { this.isPaused = true; });
+    this.element.addEventListener("mouseenter", () => {
+      if (this.resumeTimer) clearTimeout(this.resumeTimer);
+      this.isPaused = true;
+    });
     this.element.addEventListener("mouseleave", () => {
-      if (!this.isDragging) {
-        setTimeout(() => { this.isPaused = false; }, 5000);
+      if (!this.isDragging && !this.isChatOpen) {
+        if (this.resumeTimer) clearTimeout(this.resumeTimer);
+        this.resumeTimer = setTimeout(() => {
+          if (!this.isChatOpen) this.isPaused = false;
+        }, 5000);
       }
     });
   },
@@ -138,7 +148,7 @@ export const Capybara = {
 
     // Every 22 seconds, take a walk along bottom dock
     this.wanderTimer = setInterval(() => {
-      if (this.isPaused || this.isDragging) return;
+      if (this.isChatOpen || this.isPaused || this.isDragging) return;
       const workoutView = document.getElementById("view-workout");
       if (workoutView && workoutView.classList.contains("active")) return;
 
@@ -147,7 +157,7 @@ export const Capybara = {
   },
 
   takeWalk() {
-    if (this.isPaused || this.isDragging) return;
+    if (this.isChatOpen || this.isPaused || this.isDragging) return;
 
     const screenWidth = window.innerWidth;
     const maxWalkLeft = Math.max(120, screenWidth - 280);
@@ -223,34 +233,62 @@ export const Capybara = {
     const HIDE_MS = 5000;
 
     // Initial show
-    this.showBubble();
-    this.hideTimeout = setTimeout(() => {
-      if (!this.isDismissedByUser) this.hideBubble(false);
-    }, SHOW_MS);
+    if (!this.isChatOpen) {
+      this.showBubble();
+      this.hideTimeout = setTimeout(() => {
+        if (!this.isDismissedByUser && !this.isChatOpen) this.hideBubble(false);
+      }, SHOW_MS);
+    }
 
     // Recurring intermittent cycle
     this.cycleTimer = setInterval(() => {
-      if (this.isDismissedByUser) return;
+      if (this.isChatOpen || this.isDismissedByUser) return;
 
       this.nextQuote(false);
       this.showBubble();
 
       if (this.hideTimeout) clearTimeout(this.hideTimeout);
       this.hideTimeout = setTimeout(() => {
-        if (!this.isDismissedByUser) this.hideBubble(false);
+        if (!this.isDismissedByUser && !this.isChatOpen) this.hideBubble(false);
       }, SHOW_MS);
     }, SHOW_MS + HIDE_MS);
   },
 
+  setChatOpen(isOpen) {
+    this.isChatOpen = Boolean(isOpen);
+    if (this.dismissTimer) {
+      clearTimeout(this.dismissTimer);
+      this.dismissTimer = null;
+    }
+    if (this.resumeTimer) {
+      clearTimeout(this.resumeTimer);
+      this.resumeTimer = null;
+    }
+    if (this.isChatOpen) {
+      this.isPaused = true;
+      if (this.hideTimeout) {
+        clearTimeout(this.hideTimeout);
+        this.hideTimeout = null;
+      }
+      this.hideBubble(false);
+    } else {
+      this.isPaused = false;
+      this.isDismissedByUser = false;
+      this.showBubble();
+      this.restartTimer();
+    }
+  },
+
   restartTimer() {
     if (this.hideTimeout) clearTimeout(this.hideTimeout);
+    if (this.isChatOpen) return;
     this.hideTimeout = setTimeout(() => {
-      if (!this.isDismissedByUser) this.hideBubble(false);
+      if (!this.isDismissedByUser && !this.isChatOpen) this.hideBubble(false);
     }, 7500);
   },
 
   showBubble() {
-    if (!this.bubbleEl) return;
+    if (!this.bubbleEl || this.isChatOpen) return;
     this.bubbleEl.classList.remove("hidden");
     this.updateBubbleDirection();
   },
@@ -261,8 +299,10 @@ export const Capybara = {
 
     if (dismissedByUser) {
       this.isDismissedByUser = true;
-      setTimeout(() => {
+      if (this.dismissTimer) clearTimeout(this.dismissTimer);
+      this.dismissTimer = setTimeout(() => {
         this.isDismissedByUser = false;
+        this.dismissTimer = null;
       }, 30000);
     }
   },

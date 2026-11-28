@@ -17,8 +17,13 @@ async function request(endpoint, options = {}) {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      const errorMsg = data.detail || `Lỗi yêu cầu: ${response.status}`;
-      throw new Error(errorMsg);
+      const errorMsg =
+        typeof data.detail === "string"
+          ? data.detail
+          : `Lỗi yêu cầu: ${response.status}`;
+      const err = new Error(errorMsg);
+      err.status = response.status;
+      throw err;
     }
     return data;
   } catch (err) {
@@ -183,5 +188,9 @@ export const API = {
 
   capybara: {
     status: () => request("/api/capybara/status"),
+    chat: (message) => request("/api/capybara/chat", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
   },
 };
