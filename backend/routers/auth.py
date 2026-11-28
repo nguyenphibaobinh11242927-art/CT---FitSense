@@ -190,6 +190,11 @@ def login(payload: LoginRequest):
                 "restrictions": ["Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"],
                 "equipment": ["Không có dụng cụ (Chỉ tập Bodyweight)"],
             }
+        if email == DEMO_EMAIL:
+            profile["name"] = "Vận Động Viên Trải Nghiệm"
+        save_profile(email, profile)
+    elif email == DEMO_EMAIL and (not profile.get("name") or profile.get("name", "").strip().lower() == "demo"):
+        profile["name"] = "Vận Động Viên Trải Nghiệm"
         save_profile(email, profile)
 
     if email == DEMO_EMAIL:

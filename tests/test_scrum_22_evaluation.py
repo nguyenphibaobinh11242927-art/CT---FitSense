@@ -13,23 +13,49 @@ Kiểm thử toàn diện:
 """
 
 from copy import deepcopy
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from backend.main import app
 import src.evaluation_view as evaluation_view
+import src.profile as profile_mod
 
 
 class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
     def setUp(self):
         import backend.routers.progress as progress_mod
         import backend.routers.planner as planner_mod
-        from backend.routers.auth import CURRENT_SESSION
+        import backend.routers.auth as auth_mod
+
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp_dir.cleanup)
+        tmp_root = Path(self._tmp_dir.name)
+        tmp_users = tmp_root / "users.json"
+        self._tmp_profiles = tmp_root / "profiles"
+
+        def _tmp_load(identifier):
+            return profile_mod.load_profile(identifier, directory=self._tmp_profiles)
+
+        def _tmp_save(identifier, profile):
+            return profile_mod.save_profile(identifier, profile, directory=self._tmp_profiles)
+
+        for patcher in (
+            patch.object(auth_mod, "USERS_FILE", tmp_users),
+            patch.object(auth_mod, "load_profile", side_effect=_tmp_load),
+            patch.object(auth_mod, "save_profile", side_effect=_tmp_save),
+            patch.object(planner_mod, "load_profile", side_effect=_tmp_load),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
         progress_mod.reset_progress_state()
         planner_mod.USER_SCHEDULES.clear()
         planner_mod.USER_WEEK_NUMBERS.clear()
-        CURRENT_SESSION["user_email"] = None
-        CURRENT_SESSION["is_logged_in"] = False
+        auth_mod.CURRENT_SESSION["user_email"] = None
+        auth_mod.CURRENT_SESSION["is_logged_in"] = False
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -506,18 +532,20 @@ class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
         self.assertIn("Giữ nguyên", ev["recommendation"]["title"])
 
     def test_auto_apply_initializes_schedule_prevents_compounding_and_skips_empty(self):
-        """17. Kiểm tra auto_apply khởi tạo lịch khi chưa mở Planner, không cộng dồn khi gửi lại, và bỏ qua session_id='none'."""
+        """17. Kiểm tra auto_apply khởi tạo lịch khi chưa mở Planner, không cộng dồn khi gửi lại, và từ chối session_id='none'."""
         from backend.routers.planner import USER_SCHEDULES
         from backend.routers.auth import CURRENT_SESSION
+        import backend.routers.progress as progress_mod
         test_email = "fresh_auto_apply_user@fitsense.vn"
         USER_SCHEDULES.pop(test_email, None)
         CURRENT_SESSION["user_email"] = test_email
 
-        # 1. session_id='none', comp=0 không được kích hoạt Deload auto_apply
+        # 1. session_id='none' -> 400 Bad Request, không lưu EVALUATION_HISTORY ảo và không đụng USER_SCHEDULES
         res_empty = self.client.post("/api/progress/evaluate", json={
             "session_id": "none", "completion_rate": 0, "rpe": 5, "auto_apply": True,
         })
-        self.assertEqual(res_empty.status_code, 200)
+        self.assertEqual(res_empty.status_code, 400)
+        self.assertEqual(len(progress_mod.EVALUATION_HISTORY), 0)
         self.assertNotIn(test_email, USER_SCHEDULES)
 
         # 2. Chưa mở Planner (USER_SCHEDULES chưa có key) -> auto_apply tự gọi get_user_schedule()
@@ -578,6 +606,84 @@ class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
             }
         }
         self.assertTrue(evaluation_view.has_workout_on_date(today_results))
+
+    def test_demo_legacy_profile_upgrade_and_relogin_preservation(self):
+        """20. Kiểm tra nâng cấp profile Demo cũ trên đĩa và giữ nguyên buổi vừa tập khi đăng nhập lại demo."""
+        profile_mod.save_profile("demo@fitsense.vn", {
+            "name": "Demo",
+            "email": "demo@fitsense.vn",
+            "age": 22,
+            "gender": "Nam",
+            "height_cm": 170.0,
+            "weight_kg": 65.0,
+            "days_per_week": 4,
+            "session_duration_minutes": 35,
+            "goal": "Sức bền",
+            "fitness_level": "Intermediate",
+            "environment": "Tại nhà",
+            "restrictions": ["Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"],
+            "equipment": ["Không có dụng cụ (Chỉ tập Bodyweight)"],
+        }, directory=self._tmp_profiles)
+
+        # Đăng nhập lần 1: tên "Demo" phải được nâng cấp lên "Vận Động Viên Trải Nghiệm"
+        res1 = self.client.post("/api/auth/login", json={"email": "demo@fitsense.vn", "password": "demo123"})
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(res1.json()["user"]["name"], "Vận Động Viên Trải Nghiệm")
+
+        # Ghi thêm 1 buổi tập mới trong phiên demo
+        import backend.routers.progress as progress_mod
+        progress_mod.record_workout(exercise_id="push_up", reps=20, duration_sec=300, rpe=6)
+        count_after_workout = len(progress_mod.WORKOUT_HISTORY)
+        self.assertGreaterEqual(count_after_workout, 5)
+
+        # Đăng nhập lại demo (chưa logout): KHÔNG được ghi đè mất buổi tập mới
+        res2 = self.client.post("/api/auth/login", json={"email": "demo@fitsense.vn", "password": "demo123"})
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(len(progress_mod.WORKOUT_HISTORY), count_after_workout)
+
+    def test_no_duplicate_history_no_adhoc_compounding_and_maintenance_protects_completed(self):
+        """21. Chống trùng WORKOUT_HISTORY, chống cộng dồn khi session_id=None, maintenance không sửa ngày completed và swap xóa baseline."""
+        import backend.routers.progress as progress_mod
+        from backend.routers.planner import USER_SCHEDULES
+        from backend.routers.auth import CURRENT_SESSION
+        test_email = "edge_auto_apply@fitsense.vn"
+        CURRENT_SESSION["user_email"] = test_email
+
+        # 1. Gửi 2 lần cùng session_id mới chưa có trong WORKOUT_HISTORY -> chỉ tạo đúng 1 bản ghi w-custom
+        for rpe_val in (6, 7):
+            res = self.client.post("/api/progress/evaluate", json={
+                "session_id": "w-custom", "completion_rate": 80, "rpe": rpe_val, "auto_apply": False,
+            })
+            self.assertEqual(res.status_code, 200)
+        custom_rows = [w for w in progress_mod.WORKOUT_HISTORY if w["id"] == "w-custom"]
+        self.assertEqual(len(custom_rows), 1)
+        self.assertEqual(custom_rows[0]["rpe"], 7)
+
+        # 2. Gửi 2 lần Deload với session_id=None -> __adhoc__ key ngăn cộng dồn *0.85 *0.85
+        for _ in range(2):
+            self.assertEqual(self.client.post("/api/progress/evaluate", json={
+                "session_id": None, "completion_rate": 60, "rpe": 9, "auto_apply": True,
+            }).status_code, 200)
+        self.assertEqual(USER_SCHEDULES[test_email][0]["exercises"][0]["reps"], 10)
+
+        # 3. Nếu Thứ 2 chuyển thành completed rồi gửi lại maintenance, Thứ 2 vẫn phải giữ 10 (không bị restore)
+        #    trong khi Thứ 3 (planned) được restore về baseline ban đầu
+        USER_SCHEDULES[test_email][0]["workout_status"] = "completed"
+        USER_SCHEDULES[test_email][0]["is_completed"] = True
+        self.assertEqual(self.client.post("/api/progress/evaluate", json={
+            "session_id": None, "completion_rate": 90, "rpe": 7, "auto_apply": True,
+        }).status_code, 200)
+        self.assertEqual(USER_SCHEDULES[test_email][0]["exercises"][0]["reps"], 10)
+        self.assertEqual(USER_SCHEDULES[test_email][1]["exercises"][0]["reps"], "15")
+
+        # 4. Khi sửa ngày qua /api/planner/update-day -> baseline của user phải được xóa sạch
+        self.assertIn((test_email, "__adhoc__"), progress_mod.AUTO_APPLIED_BASELINES)
+        res_upd = self.client.post("/api/planner/update-day", json={
+            "day": "Thứ 3", "focus": "Chỉnh tay", "is_rest": False,
+            "exercises": [{"id": "squat", "name": "Squat Thể dục", "reps": 18, "sets": 3}],
+        })
+        self.assertEqual(res_upd.status_code, 200)
+        self.assertNotIn((test_email, "__adhoc__"), progress_mod.AUTO_APPLIED_BASELINES)
 
 
 if __name__ == "__main__":

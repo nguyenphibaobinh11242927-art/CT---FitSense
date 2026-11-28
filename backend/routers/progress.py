@@ -2,7 +2,7 @@
 
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.schemas import EvaluationSubmitRequest
@@ -54,6 +54,12 @@ IS_DEMO_PROGRESS_LOADED = False
 AUTO_APPLIED_BASELINES: dict[tuple[str, str], dict[tuple[int, int], Any]] = {}
 
 
+def clear_auto_applied_baselines(email: str) -> None:
+    """Clear stored auto_apply baselines for a user after their schedule changes."""
+    for key in [k for k in AUTO_APPLIED_BASELINES if k[0] == email]:
+        AUTO_APPLIED_BASELINES.pop(key, None)
+
+
 def reset_progress_state() -> None:
     """Reset in-memory progress/evaluation state to a clean empty user state."""
     global HAS_WORKED_OUT_TODAY, IS_DEMO_PROGRESS_LOADED
@@ -67,9 +73,11 @@ def reset_progress_state() -> None:
     IS_DEMO_PROGRESS_LOADED = False
 
 
-def seed_demo_progress_data() -> None:
+def seed_demo_progress_data(force: bool = False) -> None:
     """Populate realistic pre-seeded workout & evaluation data exclusively for demo@fitsense.vn."""
     global HAS_WORKED_OUT_TODAY, IS_DEMO_PROGRESS_LOADED
+    if IS_DEMO_PROGRESS_LOADED and not force:
+        return
     now_dt = datetime.now()
     today_date = date.today()
     now_ts = now_dt.strftime("%d/%m/%Y %H:%M")
@@ -377,6 +385,7 @@ def record_workout(
     status: str = "completed",
     mode: Optional[str] = None,
     sets: Optional[list[dict[str, Any]]] = None,
+    record_id: Optional[str] = None,
 ) -> dict[str, Any]:
     global HAS_WORKED_OUT_TODAY
     if status == "completed":
@@ -390,7 +399,7 @@ def record_workout(
     comp_rate = completion_rate if completion_rate is not None else 100.0
 
     record = {
-        "id": f"w-{len(WORKOUT_HISTORY) + 1:02d}",
+        "id": record_id or f"w-{len(WORKOUT_HISTORY) + 1:02d}",
         "exercise_id": exercise_id,
         "exercise_name": ex_name,
         "actual_date": date.today().isoformat(),
@@ -563,6 +572,12 @@ def _apply_rep_adjustment(curr_reps: Any, strategy: str, multiplier: float) -> A
 @router.post("/evaluate")
 def submit_evaluation(payload: EvaluationSubmitRequest):
     global HAS_WORKED_OUT_TODAY
+    if payload.session_id == "none":
+        raise HTTPException(
+            status_code=400,
+            detail="Chưa có buổi tập nào để đánh giá. Hãy hoàn thành ít nhất một buổi tập trước khi gửi khảo sát!",
+        )
+
     comp = payload.completion_rate
     user_rpe = payload.rpe
     
@@ -688,6 +703,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             calories=round(est_reps * 0.4 + 45.0, 1),
             day=payload.session_label or "Buổi tập vừa thực hiện",
             status="completed" if is_completed else "abandoned",
+            record_id=payload.session_id or None,
         )
 
     EVALUATION_HISTORY.insert(0, eval_record)
@@ -701,24 +717,26 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             email = CURRENT_SESSION.get("user_email") or "guest"
             schedule = get_user_schedule(email)
             if schedule:
-                apply_key = None
-                if payload.session_id:
-                    apply_key = (
-                        f"{payload.session_id}:{payload.exercise_id}"
-                        if payload.scope == "exercise" and payload.exercise_id
-                        else payload.session_id
-                    )
-                baseline = AUTO_APPLIED_BASELINES.get((email, apply_key)) if apply_key else None
+                base_session_key = payload.session_id or "__adhoc__"
+                apply_key = (
+                    f"{base_session_key}:{payload.exercise_id}"
+                    if payload.scope == "exercise" and payload.exercise_id
+                    else base_session_key
+                )
+                baseline = AUTO_APPLIED_BASELINES.get((email, apply_key))
 
                 if strategy == "maintenance":
                     if baseline:
                         for (d_idx, e_idx), orig_reps in baseline.items():
                             if 0 <= d_idx < len(schedule):
-                                exs = schedule[d_idx].get("exercises", [])
+                                day_entry = schedule[d_idx]
+                                if day_entry.get("is_rest") or day_entry.get("workout_status") == "completed" or day_entry.get("is_completed"):
+                                    continue
+                                exs = day_entry.get("exercises", [])
                                 if 0 <= e_idx < len(exs):
                                     exs[e_idx]["reps"] = orig_reps
                 else:
-                    if apply_key and baseline is None:
+                    if baseline is None:
                         baseline = {}
                         for d_idx, d in enumerate(schedule):
                             if d.get("is_rest") or d.get("workout_status") == "completed" or d.get("is_completed"):
@@ -739,7 +757,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
                             # Respect scope: if scope is 'exercise', only adjust the targeted exercise
                             if payload.scope == "exercise" and not _exercise_matches_evaluation(ex, payload):
                                 continue
-                            source_reps = baseline.get((d_idx, e_idx), ex.get("reps")) if baseline is not None else ex.get("reps")
+                            source_reps = baseline.get((d_idx, e_idx), ex.get("reps"))
                             ex["reps"] = _apply_rep_adjustment(source_reps, strategy, multiplier)
         except Exception:
             pass

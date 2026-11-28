@@ -291,6 +291,8 @@ def generate_schedule(payload: PlanGenerationRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     USER_SCHEDULES[email] = new_plan
+    from backend.routers.progress import clear_auto_applied_baselines
+    clear_auto_applied_baselines(email)
     return {
         "success": True,
         "message": "AI đã tạo thành công giáo án tuần cá nhân hóa!",
@@ -349,6 +351,8 @@ def swap_exercise(payload: ExerciseSwapRequest):
             "substitute": current.get("name"),
         }
 
+    from backend.routers.progress import clear_auto_applied_baselines
+    clear_auto_applied_baselines(email)
     return {
         "success": True,
         "message": f"Đã đổi sang bài {new_ex['name']} thành công!",
@@ -361,9 +365,8 @@ def reset_schedule():
     email = CURRENT_SESSION.get("user_email") or "guest"
     USER_SCHEDULES[email] = deepcopy(DEFAULT_WEEKLY_SCHEDULE)
     USER_WEEK_NUMBERS[email] = 1
-    from backend.routers.progress import AUTO_APPLIED_BASELINES
-    for key in [k for k in AUTO_APPLIED_BASELINES if k[0] == email]:
-        AUTO_APPLIED_BASELINES.pop(key, None)
+    from backend.routers.progress import clear_auto_applied_baselines
+    clear_auto_applied_baselines(email)
     return {
         "success": True,
         "message": "Đã đặt lại lịch tập tuần mặc định.",
@@ -382,9 +385,8 @@ def advance_to_next_week():
     new_schedule = generate_next_week_schedule(current_schedule, week_number=next_week_num)
     USER_SCHEDULES[email] = new_schedule
     USER_WEEK_NUMBERS[email] = next_week_num
-    from backend.routers.progress import AUTO_APPLIED_BASELINES
-    for key in [k for k in AUTO_APPLIED_BASELINES if k[0] == email]:
-        AUTO_APPLIED_BASELINES.pop(key, None)
+    from backend.routers.progress import clear_auto_applied_baselines
+    clear_auto_applied_baselines(email)
     return {
         "success": True,
         "message": f"🎉 Đã chuyển sang Tuần {next_week_num} thành công! Lịch tập được xoay chuyển nhóm cơ để triệt tiêu xung đột cơ bắp cuối tuần - đầu tuần.",
@@ -412,6 +414,8 @@ def upload_custom_plan(payload: PlanUploadRequest):
         if not parsed:
             raise ValueError("Không tìm thấy dữ liệu giáo án trong file.")
         USER_SCHEDULES[email] = parsed
+        from backend.routers.progress import clear_auto_applied_baselines
+        clear_auto_applied_baselines(email)
         return {
             "success": True,
             "message": f"Đã nạp giáo án từ file {payload.filename} thành công!",
@@ -469,7 +473,9 @@ def update_single_day(payload: DayUpdateRequest):
         "ai_reason": "Chỉnh sửa thủ công bởi người dùng.",
         "exercises": [] if payload.is_rest else cleaned_exercises,
     }
-    
+    from backend.routers.progress import clear_auto_applied_baselines
+    clear_auto_applied_baselines(email)
+
     return {
         "success": True,
         "message": f"Đã lưu chỉnh sửa cho {payload.day}!",
@@ -560,6 +566,8 @@ def realign_schedule_with_profile(email: str, profile_data: dict) -> list[str]:
         USER_SCHEDULES[email] = schedule
         if not CURRENT_SESSION.get("user_email") or CURRENT_SESSION.get("user_email") == "guest":
             USER_SCHEDULES["guest"] = schedule
+        from backend.routers.progress import clear_auto_applied_baselines
+        clear_auto_applied_baselines(email)
     return changes
 
 
@@ -583,6 +591,8 @@ def start_day_workout(payload: StartDayWorkoutRequest):
         )
         _add_catalog_ids(active_workout, get_catalog())
         USER_SCHEDULES[email] = updated_schedule
+        from backend.routers.progress import clear_auto_applied_baselines
+        clear_auto_applied_baselines(email)
         is_rearranged = (source["day"] != today_name)
         message = (
             f"Đã bắt đầu tập giáo án {source['day']} thay cho hôm nay ({today_name})! AI đã tự động sắp xếp lại các ngày còn lại trong tuần ({method})."

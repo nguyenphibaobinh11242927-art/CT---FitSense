@@ -19,8 +19,23 @@ function escapeHtml(str) {
 export const ProgressView = {
   evalMeta: null,
   latestEvaluation: null,
+  selectedSessionId: null,
+  evalScope: "session",
+  selectedExerciseId: null,
+  evalsBySession: {},
   timeframe: "week",
   lastRenderTime: 0,
+
+  resetState() {
+    this.latestEvaluation = null;
+    this.selectedSessionId = null;
+    this.evalScope = "session";
+    this.selectedExerciseId = null;
+    this.evalsBySession = {};
+    this.lastRenderTime = 0;
+    const container = document.getElementById("view-progress");
+    if (container) container.innerHTML = "";
+  },
 
   async render(forceRefresh = false) {
     const container = document.getElementById("view-progress");
@@ -66,15 +81,23 @@ export const ProgressView = {
           }
         }
       });
-      if (this.latestEvaluation && this.latestEvaluation.session_id) {
+      if (this.latestEvaluation && this.latestEvaluation.session_id && history.some((h) => h.id === this.latestEvaluation.session_id)) {
         const latestKey = (this.latestEvaluation.scope === "exercise" && this.latestEvaluation.exercise_id)
           ? `${this.latestEvaluation.session_id}_${this.latestEvaluation.exercise_id}`
           : this.latestEvaluation.session_id;
         this.evalsBySession[latestKey] = this.latestEvaluation;
+      } else {
+        this.latestEvaluation = null;
       }
 
       // Xác định buổi tập / bài tập đang chọn và kiểm tra xem mục đó đã từng gửi khảo sát chưa
-      const initialSelectedSessionId = this.selectedSessionId || (history.length > 0 ? history[0].id : null);
+      const hasSelectedInHistory = this.selectedSessionId && history.some((h) => h.id === this.selectedSessionId);
+      if (!hasSelectedInHistory) {
+        this.selectedExerciseId = null;
+      }
+      const initialSelectedSessionId = hasSelectedInHistory
+        ? this.selectedSessionId
+        : (history.length > 0 ? history[0].id : null);
       this.selectedSessionId = initialSelectedSessionId;
       const selectedHistoryItem = history.find((h) => h.id === initialSelectedSessionId) || (history.length > 0 ? history[0] : null);
       const isExerciseScope = this.evalScope === "exercise";
@@ -92,8 +115,8 @@ export const ProgressView = {
         : initialSelectedSessionId;
       const initialEval = initialEvalKey ? this.evalsBySession[initialEvalKey] : null;
       const hasEvaluated = Boolean(initialEval);
-      const initialCompRate = (isExerciseScope && activeExerciseObj && activeExerciseObj.completion_rate !== undefined)
-        ? Math.round(activeExerciseObj.completion_rate)
+      const initialCompRate = isExerciseScope
+        ? (activeExerciseObj ? Math.round(activeExerciseObj.completion_rate ?? 0) : 0)
         : (selectedHistoryItem && selectedHistoryItem.completion_rate !== undefined
           ? Math.round(selectedHistoryItem.completion_rate)
           : latestHistoryComp);
@@ -108,8 +131,12 @@ export const ProgressView = {
         : false;
       const localNow = new Date();
       const todayIso = `${localNow.getFullYear()}-${String(localNow.getMonth() + 1).padStart(2, "0")}-${String(localNow.getDate()).padStart(2, "0")}`;
+      const todayDmy = `${String(localNow.getDate()).padStart(2, "0")}/${String(localNow.getMonth() + 1).padStart(2, "0")}/${localNow.getFullYear()}`;
       const hasWorkoutToday = history.some((h) => {
-        return h.actual_date === todayIso || h.day === todayName || h.day === "Hôm nay";
+        if (h.actual_date) {
+          return h.actual_date === todayIso;
+        }
+        return h.day === "Hôm nay" || String(h.timestamp || "").includes(todayDmy);
       }) || Boolean(statsData?.has_worked_out_today);
       const shouldShowSurvey = !isTodayRestDay || hasWorkoutToday;
 
@@ -349,10 +376,10 @@ export const ProgressView = {
                   <label style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan); white-space: nowrap;">Chọn bài tập:</label>
                   <select class="form-control" id="eval-exercise-select" style="padding: 0.35rem 0.65rem; font-size: 0.85rem; max-width: 340px;">
                     ${sessionExercises.length > 0 ? sessionExercises.map((ex, idx) => `
-                      <option value="${escapeHtml(ex.id)}" data-name="${escapeHtml(ex.name)}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${escapeHtml(ex.primary_muscle || '')}" data-substitute="${escapeHtml(ex.substitute || '')}" ${ex.id === activeExerciseId ? 'selected' : ''}>
-                        Bài ${idx + 1}: ${escapeHtml((ex.name || '').split('(')[0].trim())} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
+                      <option value="${escapeHtml(ex.id)}" data-name="${escapeHtml(ex.name)}" data-comp="${ex.completion_rate ?? 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${escapeHtml(ex.primary_muscle || '')}" data-substitute="${escapeHtml(ex.substitute || '')}" ${ex.id === activeExerciseId ? 'selected' : ''}>
+                        Bài ${idx + 1}: ${escapeHtml((ex.name || '').split('(')[0].trim())} (${ex.reps} reps · AI: ${ex.completion_rate ?? 100}%)
                       </option>
-                    `).join("") : '<option value="none">Buổi này chưa có danh sách bài</option>'}
+                    `).join("") : '<option value="" data-comp="0">Buổi này chưa có danh sách bài</option>'}
                   </select>
                 </div>
               </div>
@@ -535,7 +562,7 @@ export const ProgressView = {
                 <span>✨ Tự động áp dụng tối ưu hóa này vào Kế hoạch tuần tới</span>
               </label>
 
-              <button class="btn btn-primary" id="btn-submit-evaluation" style="padding: 0.75rem 2.25rem; font-weight: 800; font-size: 0.95rem; border-radius: var(--radius-full);">
+              <button type="button" class="btn btn-primary" id="btn-submit-evaluation" ${!hasHistory ? 'disabled title="Hãy hoàn thành ít nhất 1 buổi tập trước khi gửi khảo sát"' : ''} style="padding: 0.75rem 2.25rem; font-weight: 800; font-size: 0.95rem; border-radius: var(--radius-full); ${!hasHistory ? 'opacity: 0.55; cursor: not-allowed;' : ''}">
                 💾 Gửi Khảo sát & Nhận Đề xuất AI
               </button>
             </div>
@@ -817,12 +844,13 @@ export const ProgressView = {
         const activeExId = hasCurrentEx ? this.selectedExerciseId : selectedSession.exercises[0].id;
         this.selectedExerciseId = activeExId;
         exSelect.innerHTML = selectedSession.exercises.map((ex, idx) => `
-          <option value="${escapeHtml(ex.id)}" data-name="${escapeHtml(ex.name)}" data-comp="${ex.completion_rate || 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${escapeHtml(ex.primary_muscle || '')}" data-substitute="${escapeHtml(ex.substitute || '')}" ${ex.id === activeExId ? 'selected' : ''}>
-            Bài ${idx + 1}: ${escapeHtml((ex.name || '').split('(')[0].trim())} (${ex.reps} reps · AI: ${ex.completion_rate || 100}%)
+          <option value="${escapeHtml(ex.id)}" data-name="${escapeHtml(ex.name)}" data-comp="${ex.completion_rate ?? 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${escapeHtml(ex.primary_muscle || '')}" data-substitute="${escapeHtml(ex.substitute || '')}" ${ex.id === activeExId ? 'selected' : ''}>
+            Bài ${idx + 1}: ${escapeHtml((ex.name || '').split('(')[0].trim())} (${ex.reps} reps · AI: ${ex.completion_rate ?? 100}%)
           </option>
         `).join("");
       } else {
-        exSelect.innerHTML = `<option value="">(Không có bài tập con)</option>`;
+        this.selectedExerciseId = null;
+        exSelect.innerHTML = `<option value="" data-comp="0">(Không có bài tập con)</option>`;
       }
     };
 
@@ -830,7 +858,7 @@ export const ProgressView = {
       const selectedId = sessionSelect?.value;
       const selectedSession = history.find((h) => h.id === selectedId);
       const isExerciseScope = this.evalScope === "exercise";
-      const currentExId = isExerciseScope ? exSelect?.value : null;
+      const currentExId = isExerciseScope ? (exSelect?.value || null) : null;
 
       // Update completion rate progress
       let compNum = 0;
@@ -838,12 +866,16 @@ export const ProgressView = {
       if (isExerciseScope) {
         const opt = exSelect?.selectedOptions?.[0];
         const val = opt?.getAttribute("data-comp");
-        compNum = val !== null && val !== undefined ? Math.round(parseFloat(val)) : 100;
+        compNum = (opt && opt.value && opt.value !== "none" && val !== null && val !== undefined && val !== "")
+          ? Math.round(parseFloat(val))
+          : 0;
         labelText = "🤖 Tỉ lệ hoàn thành của bài tập này:";
       } else {
         const opt = sessionSelect?.selectedOptions?.[0];
         const val = opt?.getAttribute("data-comp");
-        compNum = val !== null && val !== undefined ? Math.round(parseFloat(val)) : 100;
+        compNum = (opt && opt.value && opt.value !== "none" && val !== null && val !== undefined && val !== "")
+          ? Math.round(parseFloat(val))
+          : 0;
         labelText = "🤖 Tỉ lệ hoàn thành của buổi tập này:";
       }
 
@@ -996,6 +1028,10 @@ export const ProgressView = {
 
     document.getElementById("btn-submit-evaluation")?.addEventListener("click", async () => {
       const sessionId = sessionSelect?.value;
+      if (!sessionId || sessionId === "none") {
+        Toast.warning("Chưa có buổi tập nào để gửi khảo sát. Hãy hoàn thành 1 buổi tập trước nhé!");
+        return;
+      }
       const selectedSession = history.find((h) => h.id === sessionId);
       const sessionLabel = sessionSelect?.options[sessionSelect.selectedIndex]?.text || "Buổi tập vừa thực hiện";
       const isExerciseScope = this.evalScope === "exercise";
