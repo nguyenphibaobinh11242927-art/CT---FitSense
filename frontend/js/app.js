@@ -52,6 +52,9 @@ class FitSenseApp {
 
     // Global helper methods for cross-view navigation
     window.navigateTo = (viewName, forceRefresh = false) => this.switchView(viewName, true, forceRefresh);
+    window.App = {
+      navigate: (viewName, forceRefresh = true) => this.switchView(viewName, true, forceRefresh),
+    };
     window.startWorkoutSession = (
       exId,
       exName,

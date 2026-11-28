@@ -1,15 +1,17 @@
 /**
- * Capybara AI Assistant Chat Dialog Component (SCRUM-31)
+ * Capybara AI Assistant Chat Dialog Component (SCRUM-31 & SCRUM-32)
  * Features:
  * - Interactive Dialog Modal with smooth pop-from-capy animation
  * - Quick Prompt Chips with 1-click send & inline direct editing (✏️)
  * - Persistent chat history via localStorage
- * - Seamless integration with Action Card (SCRUM-32) & Audio Feedback
- * - Full Dark / Light Theme & Responsive Mobile Compatibility
+ * - Seamless integration with Action Card & 4 Dynamic SVG Expressions (SCRUM-32)
+ * - 404/405 local fallback, singleton AudioContext, and companion state lock
  */
 
-import { API } from "../api.js";
-import { Toast } from "./toast.js";
+import { API } from "../api.js?v=3.0.0";
+import { Toast } from "./toast.js?v=3.0.0";
+import { createCapyAvatarElement, resolveCapyMood } from "./capybara_expressions.js?v=3.0.0";
+import { createActionCardElement, normalizeActionCard } from "./capybara_action_card.js?v=3.0.0";
 
 const STORAGE_KEY = "fitsense_capy_chat_history";
 
@@ -41,18 +43,10 @@ const DEFAULT_CHIPS = [
   },
 ];
 
-// Vector SVG avatar expressions (Modular hook for SCRUM-32)
-const CAPY_AVATARS = {
-  happy: "🥰",
-  worried: "🥺",
-  thinking: "🤔",
-  proud: "😎",
-  default: "🦫",
-};
-
 export const CapybaraChat = {
   modal: null,
   dialogBox: null,
+  headerAvatar: null,
   closeBtn: null,
   clearBtn: null,
   chipsContainer: null,
@@ -69,6 +63,7 @@ export const CapybaraChat = {
   init() {
     this.modal = document.getElementById("modal-capybara-chat");
     this.dialogBox = document.getElementById("capy-chat-dialog-box");
+    this.headerAvatar = document.getElementById("capy-header-avatar");
     this.closeBtn = document.getElementById("btn-capy-chat-close");
     this.clearBtn = document.getElementById("btn-capy-clear-chat");
     this.chipsContainer = document.getElementById("capy-chips-list");
@@ -83,28 +78,43 @@ export const CapybaraChat = {
     this.loadMessages();
     this.renderChips();
     this.renderMessages();
+    this.syncHeaderAvatar();
+  },
+
+  updateHeaderAvatar(mood = "happy") {
+    if (!this.headerAvatar) return;
+    const svgAvatar = createCapyAvatarElement(mood);
+    if (!svgAvatar) return;
+    this.headerAvatar.classList.add("has-svg-avatar");
+    this.headerAvatar.setAttribute("data-mood", svgAvatar.getAttribute("data-mood") || "happy");
+    this.headerAvatar.innerHTML = "";
+    this.headerAvatar.appendChild(svgAvatar);
+  },
+
+  syncHeaderAvatar() {
+    for (let i = this.messages.length - 1; i >= 0; i -= 1) {
+      if (this.messages[i]?.role === "assistant") {
+        this.updateHeaderAvatar(resolveCapyMood(this.messages[i]));
+        return;
+      }
+    }
+    this.updateHeaderAvatar("happy");
   },
 
   setupEventListeners() {
-    // Close button
     this.closeBtn?.addEventListener("click", () => this.close());
-
-    // Clear history button
     this.clearBtn?.addEventListener("click", () => this.clearHistory());
 
-    // Backdrop click
     this.modal?.addEventListener("click", (e) => {
       if (e.target === this.modal) this.close();
     });
 
-    // Escape key
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && this.isOpen) {
         this.close();
       }
     });
 
-    // Form submission
     this.form?.addEventListener("submit", (e) => {
       e.preventDefault();
       this.handleFormSubmit();
@@ -123,6 +133,7 @@ export const CapybaraChat = {
     });
 
     this.renderMessages();
+    this.syncHeaderAvatar();
     setTimeout(() => {
       this.scrollToBottom(false);
       this.input?.focus();
@@ -178,6 +189,7 @@ export const CapybaraChat = {
         role: "assistant",
         content: "Xin chào! Mình là Capybara 🦫✨, huấn luyện viên đồng hành Calisthenics của bạn. Mình có thể giúp bạn giải đáp thắc mắc về bài tập, đổi bài an toàn khi đau chấn thương, hoặc điều chỉnh lịch tập. Bạn cần Capybara hỗ trợ gì hôm nay?",
         time: this.getCurrentTime(),
+        mood: "happy",
         emotion: "happy",
         actionCard: null,
       },
@@ -199,6 +211,7 @@ export const CapybaraChat = {
         role: "assistant",
         content: "Cuộc trò chuyện đã được làm mới! Capybara đã sẵn sàng hỗ trợ bạn. Bạn cần tư vấn bài tập hay điều chỉnh lịch tập nào? 🦫✨",
         time: this.getCurrentTime(),
+        mood: "happy",
         emotion: "happy",
         actionCard: null,
       },
@@ -206,14 +219,10 @@ export const CapybaraChat = {
     this.saveMessages();
     this.renderChips();
     this.renderMessages();
+    this.updateHeaderAvatar("happy");
     Toast.show("Đã làm mới đoạn chat cùng Capybara!", "info");
   },
 
-  /**
-   * Render Quick Prompt Chips
-   * - Click text: Sends immediately (1-click response)
-   * - Click ✏️: Inline editing directly inside the chip widget
-   */
   renderChips() {
     if (!this.chipsContainer) return;
     this.chipsContainer.innerHTML = "";
@@ -223,20 +232,17 @@ export const CapybaraChat = {
       chipEl.className = "capy-chip";
       chipEl.dataset.chipId = chip.id;
 
-      // Normal state markup
       chipEl.innerHTML = `
         <span class="capy-chip-text" title="Nhấp để gửi câu hỏi này ngay">${this.escapeHtml(chip.label)}</span>
         <button type="button" class="capy-chip-edit-btn" title="Chỉnh sửa trực tiếp câu này trước khi gửi">✏️</button>
       `;
 
-      // 1. Click text -> Send immediately
       const textSpan = chipEl.querySelector(".capy-chip-text");
       textSpan.addEventListener("click", () => {
         if (this.isLoading) return;
         this.sendMessage(chip.prompt);
       });
 
-      // 2. Click ✏️ -> Inline direct editing
       const editBtn = chipEl.querySelector(".capy-chip-edit-btn");
       editBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -247,9 +253,6 @@ export const CapybaraChat = {
     });
   },
 
-  /**
-   * Transforms chip into an inline text editor right at its position
-   */
   enableInlineChipEdit(chipEl, chip) {
     chipEl.classList.add("is-editing");
     chipEl.innerHTML = `
@@ -270,14 +273,14 @@ export const CapybaraChat = {
     const doConfirm = () => {
       if (this.isLoading) return;
       const editedText = input.value.trim();
-      this.renderChips(); // Restore chips
+      this.renderChips();
       if (editedText) {
         this.sendMessage(editedText);
       }
     };
 
     const doCancel = () => {
-      this.renderChips(); // Restore chips
+      this.renderChips();
     };
 
     chipEl.addEventListener("keydown", (e) => {
@@ -318,96 +321,89 @@ export const CapybaraChat = {
     if (!this.messagesContainer) return;
     this.messagesContainer.innerHTML = "";
 
+    const fragment = document.createDocumentFragment();
+
     this.messages.forEach((msg) => {
       const isAssistant = msg.role === "assistant";
       const row = document.createElement("div");
       row.className = `capy-msg-row ${isAssistant ? "assistant" : "user"}`;
 
-      // Avatar
-      const avatarIcon = isAssistant
-        ? (CAPY_AVATARS[msg.emotion] || CAPY_AVATARS.default)
-        : "👤";
+      const avatarBox = document.createElement("div");
+      avatarBox.className = "capy-msg-avatar";
 
-      let actionCardHtml = "";
+      if (isAssistant) {
+        const mood = resolveCapyMood(msg);
+        avatarBox.classList.add("has-svg-avatar");
+        avatarBox.setAttribute("data-mood", mood);
+        const svgAvatar = createCapyAvatarElement(mood);
+        if (svgAvatar) {
+          avatarBox.appendChild(svgAvatar);
+        }
+      } else {
+        avatarBox.title = "Bạn";
+        avatarBox.textContent = "👤";
+      }
+
+      const bubble = document.createElement("div");
+      bubble.className = "capy-msg-bubble";
+
+      const contentEl = document.createElement("div");
+      contentEl.className = "capy-msg-content";
+      contentEl.innerHTML = this.formatMessageContent(msg.content);
+      bubble.appendChild(contentEl);
+
       if (msg.actionCard) {
-        actionCardHtml = this.renderActionCardHtml(msg.actionCard);
-      }
-
-      row.innerHTML = `
-        <div class="capy-msg-avatar" title="${isAssistant ? 'Trợ lý Capybara AI' : 'Bạn'}">
-          ${avatarIcon}
-        </div>
-        <div class="capy-msg-bubble">
-          <div class="capy-msg-content">${this.formatMessageContent(msg.content)}</div>
-          ${actionCardHtml}
-          <div class="capy-msg-time">${msg.time || ""}</div>
-        </div>
-      `;
-
-      // Setup action card navigation button if present
-      const navBtn = row.querySelector(".action-card-btn");
-      if (navBtn) {
-        navBtn.addEventListener("click", () => {
-          this.close();
-          if (typeof window.navigateTo === "function") {
-            window.navigateTo("planner", true);
-          } else {
-            window.location.hash = "#planner";
-          }
+        const cardEl = createActionCardElement(msg.actionCard, {
+          onBeforeNavigate: () => this.close(),
         });
+        if (cardEl) {
+          bubble.appendChild(cardEl);
+        }
       }
 
-      this.messagesContainer.appendChild(row);
+      const timeEl = document.createElement("div");
+      timeEl.className = "capy-msg-time";
+      timeEl.textContent = msg.time || "";
+      bubble.appendChild(timeEl);
+
+      row.appendChild(avatarBox);
+      row.appendChild(bubble);
+      fragment.appendChild(row);
     });
-  },
 
-  /**
-   * Action Card Component HTML (SCRUM-32 Integration & Support)
-   */
-  renderActionCardHtml(card) {
-    if (!card) return "";
-
-    const title = card.title || "🔄 Cập nhật Kế hoạch Tập luyện";
-    const badge = card.badge || "Đổi bài do chấn thương";
-    const oldLabel = card.old || "Bài cũ";
-    const newLabel = card.new || "Bài mới";
-    const note = card.note || "Tự động tối ưu bảo vệ khớp và nhóm cơ";
-
-    return `
-      <div class="capy-action-card">
-        <div class="action-card-header">
-          <span class="action-badge">${this.escapeHtml(badge)}</span>
-        </div>
-        <div class="action-swap-row">
-          <span class="action-old">${this.escapeHtml(oldLabel)}</span>
-          <span class="action-arrow">➔</span>
-          <span class="action-new">${this.escapeHtml(newLabel)}</span>
-        </div>
-        <div class="action-note">${this.escapeHtml(note)}</div>
-        <button type="button" class="action-card-btn">
-          <span>📋</span> Xem Kế hoạch Tuần
-        </button>
-      </div>
-    `;
+    this.messagesContainer.appendChild(fragment);
   },
 
   showTypingIndicator() {
     const existing = document.getElementById("capy-typing-row");
     if (existing) return;
 
+    this.updateHeaderAvatar("thinking");
+
     const row = document.createElement("div");
     row.id = "capy-typing-row";
     row.className = "capy-msg-row assistant";
-    row.innerHTML = `
-      <div class="capy-msg-avatar" title="Trợ lý Capybara AI">🦫</div>
-      <div class="capy-msg-bubble">
-        <div class="capy-typing-indicator">
-          <span class="capy-typing-dot"></span>
-          <span class="capy-typing-dot"></span>
-          <span class="capy-typing-dot"></span>
-        </div>
+
+    const avatarBox = document.createElement("div");
+    avatarBox.className = "capy-msg-avatar has-svg-avatar";
+    avatarBox.setAttribute("data-mood", "thinking");
+    const thinkingAvatar = createCapyAvatarElement("thinking");
+    if (thinkingAvatar) {
+      avatarBox.appendChild(thinkingAvatar);
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "capy-msg-bubble";
+    bubble.innerHTML = `
+      <div class="capy-typing-indicator">
+        <span class="capy-typing-dot"></span>
+        <span class="capy-typing-dot"></span>
+        <span class="capy-typing-dot"></span>
       </div>
     `;
+
+    row.appendChild(avatarBox);
+    row.appendChild(bubble);
     this.messagesContainer.appendChild(row);
     this.scrollToBottom();
   },
@@ -572,7 +568,6 @@ export const CapybaraChat = {
     const text = String(rawText || "").trim().slice(0, 1000);
     if (!text || this.isLoading) return;
 
-    // 1. Add user message
     this.messages.push({
       role: "user",
       content: text,
@@ -590,80 +585,30 @@ export const CapybaraChat = {
       const res = await this.requestChatReply(text);
       this.removeTypingIndicator();
 
-      let emotion = "happy";
-      let actionCard = null;
+      const actionCard = normalizeActionCard(res);
+      const mood = resolveCapyMood({
+        mood: res?.mood ?? res?.emotion,
+        intent: res?.intent,
+        action: res?.action ?? res?.action_required,
+        reply: res?.reply,
+      });
 
-      // 1. Emotion mapping
-      if (res.intent === "INJURY_REPORT") {
-        emotion = "worried";
-      } else if (res.action === "move_workout_day" || res.action === "apply_instant_deload") {
-        emotion = "thinking";
-      }
-
-      // 2. Action Card mapping (ONLY when res.action is a concrete action)
-      if (res.action === "swap_exercise_for_injury") {
-        const joint = res.params?.joint;
-        let oldEx = "Squat (Gánh đùi)";
-        let newEx = "Glute Bridge (Cầu mông)";
-        let note = "Thay bài tập giảm áp lực tối đa lên khớp gối";
-
-        if (joint === "wrist") {
-          oldEx = "Standard Push-up (Chống đẩy)";
-          newEx = "Forearm Plank (Plank cẳng tay)";
-          note = "Thay bài tránh dồn trọng lượng gập cổ tay";
-        } else if (joint === "shoulder") {
-          oldEx = "Pike Push-up (Đẩy vai dốc)";
-          newEx = "Incline Push-up (Chống đẩy dốc)";
-          note = "Giảm tải áp lực góc xoay của khớp vai";
-        } else if (joint === "lower_back") {
-          oldEx = "Leg Raise (Nâng chân)";
-          newEx = "Dead Bug (Bọ chết siết bụng)";
-          note = "Bảo vệ đĩa đệm và cơ thắt lưng dưới";
-        }
-
-        actionCard = {
-          title: "🔄 Đổi bài tập bảo vệ khớp",
-          badge: "🛡️ Tránh chấn thương",
-          old: oldEx,
-          new: newEx,
-          note: note,
-        };
-        this.playSuccessChime();
-      } else if (res.action === "move_workout_day") {
-        const fromD = res.params?.from_day || "Hôm nay";
-        const toD = res.params?.to_day || "Ngày mai";
-
-        actionCard = {
-          title: "📅 Dời lịch tập luyện",
-          badge: "⚡ Hoán đổi lịch tuần",
-          old: fromD,
-          new: toD,
-          note: `Đã dời buổi tập từ ${fromD} sang ${toD} trong giáo án`,
-        };
-        this.playSuccessChime();
-      } else if (res.action === "apply_instant_deload") {
-        const pct = res.params?.percentage ? Math.round(res.params.percentage * 100) : 30;
-
-        actionCard = {
-          title: "📉 Giảm tải cường độ (Deload)",
-          badge: "🌿 Hồi phục cơ bắp",
-          old: "100% Khối lượng",
-          new: `${100 - pct}% (Giảm ${pct}%)`,
-          note: `Giảm ${pct}% số reps và hiệp để cơ thể phục hồi tốt hơn`,
-        };
+      if (actionCard) {
         this.playSuccessChime();
       }
 
       this.messages.push({
         role: "assistant",
-        content: res.reply || "Capybara nghe bạn rồi! 🦫✨",
+        content: res?.reply || "Capybara nghe bạn rồi! 🦫✨",
         time: this.getCurrentTime(),
-        emotion: emotion,
-        actionCard: actionCard,
+        mood,
+        emotion: mood,
+        actionCard,
       });
 
       this.saveMessages();
       this.renderMessages();
+      this.updateHeaderAvatar(mood);
       this.scrollToBottom();
     } catch (err) {
       console.error("Capybara chat error:", err);
@@ -672,11 +617,13 @@ export const CapybaraChat = {
         role: "assistant",
         content: "Capybara đang gặp chút trục trặc mạng nhỏ, nhưng đừng lo bạn cứ nghỉ ngơi một chút rồi thử lại nhé! 🦫✨",
         time: this.getCurrentTime(),
-        emotion: "thinking",
+        mood: "worried",
+        emotion: "worried",
         actionCard: null,
       });
       this.saveMessages();
       this.renderMessages();
+      this.updateHeaderAvatar("worried");
       this.scrollToBottom();
     } finally {
       this.isLoading = false;
@@ -685,10 +632,6 @@ export const CapybaraChat = {
     }
   },
 
-  /**
-   * Sound effect: Celebratory chime synthesized via Web Audio API
-   * Played ONLY when Capy performs a workout reschedule/action
-   */
   playSuccessChime() {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -702,7 +645,6 @@ export const CapybaraChat = {
       }
 
       const now = ctx.currentTime;
-      // High pleasant notes: C5 (523.25Hz), E5 (659.25Hz), G5 (783.99Hz)
       const freqs = [523.25, 659.25, 783.99];
       freqs.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
@@ -734,9 +676,7 @@ export const CapybaraChat = {
   formatMessageContent(content) {
     if (!content) return "";
     let safe = this.escapeHtml(content);
-    // Format bold **text**
     safe = safe.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-    // Format newlines
     safe = safe.replace(/\n/g, "<br/>");
     return safe;
   },

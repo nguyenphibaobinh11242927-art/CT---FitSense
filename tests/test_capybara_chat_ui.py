@@ -16,6 +16,8 @@ class TestCapybaraChatUI(unittest.TestCase):
         cls.companion_js_path = os.path.join(cls.base_dir, "frontend", "js", "components", "capybara.js")
         cls.api_js_path = os.path.join(cls.base_dir, "frontend", "js", "api.js")
         cls.app_js_path = os.path.join(cls.base_dir, "frontend", "js", "app.js")
+        cls.expressions_js_path = os.path.join(cls.base_dir, "frontend", "js", "components", "capybara_expressions.js")
+        cls.action_card_js_path = os.path.join(cls.base_dir, "frontend", "js", "components", "capybara_action_card.js")
 
     def test_html_modal_structure(self):
         """Đảm bảo frontend/index.html chứa đầy đủ cấu trúc modal Capybara Chat."""
@@ -69,7 +71,9 @@ class TestCapybaraChatUI(unittest.TestCase):
         self.assertIn("loadMessages", js)
         self.assertIn("saveMessages", js)
         self.assertIn("clearHistory", js)
-        self.assertIn("renderActionCardHtml", js)
+        self.assertIn("createActionCardElement", js)
+        self.assertIn("createCapyAvatarElement", js)
+        self.assertIn("resolveCapyMood", js)
         self.assertIn("playSuccessChime", js)
         self.assertIn("fitsense_capy_chat_history", js)
 
@@ -166,27 +170,40 @@ class TestCapybaraChatUI(unittest.TestCase):
         self.assertIn("Capybara đã sẵn sàng hỗ trợ bạn", chat_js)
 
     def test_action_card_conditional_and_joint_mapping(self):
-        """Kiểm tra Action Card chỉ tạo khi có res.action và mapping đúng bài theo khớp."""
+        """Kiểm tra Action Card chỉ tạo khi có res.action và mapping đúng bài theo khớp (SCRUM-31 + SCRUM-32)."""
+        self.assertTrue(os.path.exists(self.expressions_js_path))
+        self.assertTrue(os.path.exists(self.action_card_js_path))
+
         with open(self.chat_js_path, "r", encoding="utf-8") as f:
             chat_js = f.read()
+        with open(self.expressions_js_path, "r", encoding="utf-8") as f:
+            expr_js = f.read()
+        with open(self.action_card_js_path, "r", encoding="utf-8") as f:
+            card_js = f.read()
 
-        # res.intent chỉ set emotion, không tạo Action Card ảo
-        self.assertIn('if (res.intent === "INJURY_REPORT") {\n        emotion = "worried";\n      }', chat_js)
-        self.assertIn('if (res.action === "swap_exercise_for_injury")', chat_js)
+        # Chat delegate sang module SCRUM-32 (resolveCapyMood & normalizeActionCard)
+        self.assertIn("normalizeActionCard(res)", chat_js)
+        self.assertIn("resolveCapyMood(", chat_js)
+
+        # res.intent chỉ set mood worried, không tạo Action Card ảo khi thiếu action
+        self.assertIn('intent === "INJURY_REPORT"', expr_js)
+        self.assertIn('return "worried";', expr_js)
+        self.assertIn("if (!action) return null;", card_js)
+        self.assertIn('if (action === "swap_exercise_for_injury")', card_js)
 
         # Mapping chi tiết theo từng khớp
-        self.assertIn('joint === "wrist"', chat_js)
-        self.assertIn("Standard Push-up (Chống đẩy)", chat_js)
-        self.assertIn("Forearm Plank (Plank cẳng tay)", chat_js)
-        self.assertIn('joint === "shoulder"', chat_js)
-        self.assertIn("Pike Push-up (Đẩy vai dốc)", chat_js)
-        self.assertIn("Incline Push-up (Chống đẩy dốc)", chat_js)
-        self.assertIn('joint === "lower_back"', chat_js)
-        self.assertIn("Leg Raise (Nâng chân)", chat_js)
-        self.assertIn("Dead Bug (Bọ chết siết bụng)", chat_js)
-        self.assertIn("Squat (Gánh đùi)", chat_js)
-        self.assertIn("Glute Bridge (Cầu mông)", chat_js)
-
+        self.assertIn("wrist:", card_js)
+        self.assertIn("Standard Push-up (Chống đẩy)", card_js)
+        self.assertIn("Forearm Plank (Plank cẳng tay)", card_js)
+        self.assertIn("shoulder:", card_js)
+        self.assertIn("Pike Push-up (Đẩy vai dốc)", card_js)
+        self.assertIn("Incline Push-up (Chống đẩy dốc)", card_js)
+        self.assertIn("lower_back:", card_js)
+        self.assertIn("Leg Raise (Nâng chân)", card_js)
+        self.assertIn("Dead Bug (Bọ chết siết bụng)", card_js)
+        self.assertIn("knee:", card_js)
+        self.assertIn("Squat (Gánh đùi)", card_js)
+        self.assertIn("Glute Bridge (Cầu mông)", card_js)
 
 
 if __name__ == "__main__":
