@@ -7,11 +7,35 @@
 import { API } from "../api.js";
 import { Toast } from "../components/toast.js";
 
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export const ProgressView = {
   evalMeta: null,
   latestEvaluation: null,
+  selectedSessionId: null,
+  evalScope: "session",
+  selectedExerciseId: null,
+  evalsBySession: {},
   timeframe: "week",
   lastRenderTime: 0,
+
+  resetState() {
+    this.latestEvaluation = null;
+    this.selectedSessionId = null;
+    this.evalScope = "session";
+    this.selectedExerciseId = null;
+    this.evalsBySession = {};
+    this.lastRenderTime = 0;
+    const container = document.getElementById("view-progress");
+    if (container) container.innerHTML = "";
+  },
 
   async render(forceRefresh = false) {
     const container = document.getElementById("view-progress");
@@ -23,12 +47,13 @@ export const ProgressView = {
     }
 
     try {
-      const [heatmapData, historyData, statsData, evalMetaData, evalsData, analyticsData] = await Promise.all([
+      const [heatmapData, historyData, statsData, evalMetaData, evalsData, weekData, analyticsData] = await Promise.all([
         API.progress.heatmap(),
         API.progress.history(),
         API.progress.stats(),
         API.progress.evaluationMeta(),
         API.progress.evaluations(),
+        API.planner.getWeek().catch(() => null),
         API.progress.analytics(this.timeframe).catch((err) => {
           console.warn("Analytics API failed, falling back gracefully:", err);
           return { __error: err.message || "Không thể tải dữ liệu biểu đồ." };
@@ -39,12 +64,81 @@ export const ProgressView = {
       this.evalMeta = evalMetaData;
       const muscles = heatmapData.muscles || [];
       const history = historyData.history || [];
-      const latestHistoryComp = history.length > 0 && history[0].completion_rate !== undefined
+      const hasHistory = history.length > 0;
+      const latestHistoryComp = hasHistory && history[0].completion_rate !== undefined
         ? Math.round(history[0].completion_rate)
-        : 100;
+        : 0;
       const evals = evalsData?.evaluations || [];
-      const latestEval = this.latestEvaluation || (evals.length > 0 ? evals[0] : null);
-      const hasEvaluated = Boolean(latestEval);
+      this.evalsBySession = {};
+      // EVALUATION_HISTORY is newest-first; keep the newest evaluation when building the map
+      evals.forEach((ev) => {
+        if (ev.session_id) {
+          const key = (ev.scope === "exercise" && ev.exercise_id)
+            ? `${ev.session_id}_${ev.exercise_id}`
+            : ev.session_id;
+          if (!this.evalsBySession[key]) {
+            this.evalsBySession[key] = ev;
+          }
+        }
+      });
+      if (this.latestEvaluation && this.latestEvaluation.session_id && history.some((h) => h.id === this.latestEvaluation.session_id)) {
+        const latestKey = (this.latestEvaluation.scope === "exercise" && this.latestEvaluation.exercise_id)
+          ? `${this.latestEvaluation.session_id}_${this.latestEvaluation.exercise_id}`
+          : this.latestEvaluation.session_id;
+        this.evalsBySession[latestKey] = this.latestEvaluation;
+      } else {
+        this.latestEvaluation = null;
+      }
+
+      // Xác định buổi tập / bài tập đang chọn và kiểm tra xem mục đó đã từng gửi khảo sát chưa
+      const hasSelectedInHistory = this.selectedSessionId && history.some((h) => h.id === this.selectedSessionId);
+      if (!hasSelectedInHistory) {
+        this.selectedExerciseId = null;
+      }
+      const initialSelectedSessionId = hasSelectedInHistory
+        ? this.selectedSessionId
+        : (history.length > 0 ? history[0].id : null);
+      this.selectedSessionId = initialSelectedSessionId;
+      const selectedHistoryItem = history.find((h) => h.id === initialSelectedSessionId) || (history.length > 0 ? history[0] : null);
+      const isExerciseScope = this.evalScope === "exercise";
+      const sessionExercises = selectedHistoryItem?.exercises || [];
+      const hasSelectedEx = sessionExercises.some((e) => e.id === this.selectedExerciseId);
+      const activeExerciseId = sessionExercises.length > 0
+        ? (hasSelectedEx ? this.selectedExerciseId : sessionExercises[0].id)
+        : null;
+      if (isExerciseScope) {
+        this.selectedExerciseId = activeExerciseId;
+      }
+      const activeExerciseObj = sessionExercises.find((e) => e.id === activeExerciseId) || null;
+      const initialEvalKey = (isExerciseScope && initialSelectedSessionId && activeExerciseId)
+        ? `${initialSelectedSessionId}_${activeExerciseId}`
+        : initialSelectedSessionId;
+      const initialEval = initialEvalKey ? this.evalsBySession[initialEvalKey] : null;
+      const hasEvaluated = Boolean(initialEval);
+      const initialCompRate = isExerciseScope
+        ? (activeExerciseObj ? Math.round(activeExerciseObj.completion_rate ?? 0) : 0)
+        : (selectedHistoryItem && selectedHistoryItem.completion_rate !== undefined
+          ? Math.round(selectedHistoryItem.completion_rate)
+          : latestHistoryComp);
+
+
+      // Kiểm tra ngày nghỉ phục hồi (Rest Day) & điều kiện hiển thị khảo sát
+      const schedule = weekData?.schedule || [];
+      const todayName = weekData?.today_name || "";
+      const todayPlan = schedule.find((d) => d.day === todayName);
+      const isTodayRestDay = todayPlan
+        ? Boolean(todayPlan.is_rest || !todayPlan.exercises || todayPlan.exercises.length === 0)
+        : false;
+      const localNow = new Date();
+      const todayIso = `${localNow.getFullYear()}-${String(localNow.getMonth() + 1).padStart(2, "0")}-${String(localNow.getDate()).padStart(2, "0")}`;
+      const todayDmy = `${String(localNow.getDate()).padStart(2, "0")}/${String(localNow.getMonth() + 1).padStart(2, "0")}/${localNow.getFullYear()}`;
+      const hasWorkoutToday = history.some((h) => {
+        if (h.actual_date) {
+          return h.actual_date === todayIso;
+        }
+        return h.day === "Hôm nay" || String(h.timestamp || "").includes(todayDmy);
+      }) || Boolean(statsData?.has_worked_out_today);
+      const shouldShowSurvey = !isTodayRestDay || hasWorkoutToday;
 
       let recBadge = "badge-intermediate";
       let recStrategy = "Optimal Maintenance";
@@ -52,14 +146,15 @@ export const ProgressView = {
       let recDesc = "Duy trì khối lượng và nhịp tập hiện tại để xây dựng nền tảng bền vững cho chu kỳ tuần tới!";
       let evalTime = "Vừa cập nhật";
 
-      if (latestEval && latestEval.recommendation) {
-        recBadge = latestEval.recommendation.badge || "badge-intermediate";
-        recTitle = latestEval.recommendation.title || recTitle;
-        recDesc = latestEval.recommendation.action || recDesc;
-        recStrategy = latestEval.recommendation.strategy === "deload"
+      if (initialEval && initialEval.recommendation) {
+        recBadge = initialEval.recommendation.badge || "badge-intermediate";
+        recTitle = initialEval.recommendation.title || recTitle;
+        recDesc = initialEval.recommendation.action || recDesc;
+        const strat = initialEval.recommendation.strategy || initialEval.strategy || "maintenance";
+        recStrategy = strat === "deload"
           ? "Deload -15%"
-          : (latestEval.recommendation.strategy === "overload" ? "Overload +10%" : "Optimal Maintenance");
-        evalTime = latestEval.created_at || "Vừa cập nhật";
+          : (strat === "overload" ? "Overload +10%" : (strat === "minor_deload" ? "Minor Deload -5%" : "Optimal Maintenance"));
+        evalTime = initialEval.created_at || initialEval.timestamp || "Vừa cập nhật";
       }
 
       const prs = statsData.personal_records || {
@@ -141,8 +236,8 @@ export const ProgressView = {
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
             ${Object.entries(prs).map(([name, val]) => `
               <div class="fitsense-card" style="padding: 1.1rem; text-align: center;">
-                <div style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 0.3rem;">${name}</div>
-                <div style="font-size: 1.6rem; font-weight: 800; color: var(--accent-amber);">🥇 ${val}</div>
+                <div style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 0.3rem;">${escapeHtml(name)}</div>
+                <div style="font-size: 1.6rem; font-weight: 800; color: var(--accent-amber);">🥇 ${escapeHtml(val)}</div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Kỷ lục cao nhất ghi nhận</div>
               </div>
             `).join("")}
@@ -190,7 +285,7 @@ export const ProgressView = {
               return `
                 <div class="heatmap-card">
                   <div class="heatmap-header">
-                    <span class="heatmap-title">${m.name}</span>
+                    <span class="heatmap-title">${escapeHtml(m.name)}</span>
                     <span class="heatmap-pct" style="color: ${barColor};">${m.recovery_pct}%</span>
                   </div>
 
@@ -199,7 +294,7 @@ export const ProgressView = {
                   </div>
 
                   <div class="heatmap-footer">
-                    <span style="font-weight: 600; color: ${barColor};">${m.status}</span>
+                    <span style="font-weight: 600; color: ${barColor};">${escapeHtml(m.status)}</span>
                     <span>${m.hours_left > 0 ? `Còn ~${m.hours_left}h phục hồi` : "Phục hồi 100% ✨"}</span>
                   </div>
                 </div>
@@ -214,7 +309,7 @@ export const ProgressView = {
                 ✅ Nhóm cơ đã phục hồi hoàn toàn — NÊN TẬP HÔM NAY:
               </h5>
               <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                ${readyMuscles.length > 0 ? readyMuscles.map((m) => `<span class="muscle-pill" style="border-color: var(--accent-emerald);">${m.name}</span>`).join("") : "<span>Chưa có nhóm cơ nào đạt 100%</span>"}
+                ${readyMuscles.length > 0 ? readyMuscles.map((m) => `<span class="muscle-pill" style="border-color: var(--accent-emerald);">${escapeHtml(m.name)}</span>`).join("") : "<span>Chưa có nhóm cơ nào đạt 100%</span>"}
               </div>
             </div>
 
@@ -223,56 +318,107 @@ export const ProgressView = {
                 ⚠️ Nhóm cơ đang mỏi — CẦN NGHỈ NGƠI:
               </h5>
               <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                ${fatiguedMuscles.length > 0 ? fatiguedMuscles.map((m) => `<span class="muscle-pill" style="border-color: var(--accent-amber);">${m.name}</span>`).join("") : "<span style='color: var(--text-muted);'>Tất cả các cơ đều đã sẵn sàng!</span>"}
+                ${fatiguedMuscles.length > 0 ? fatiguedMuscles.map((m) => `<span class="muscle-pill" style="border-color: var(--accent-amber);">${escapeHtml(m.name)}</span>`).join("") : "<span style='color: var(--text-muted);'>Tất cả các cơ đều đã sẵn sàng!</span>"}
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 5. Post-Workout Survey & Adaptive AI Recommendations Section -->
-        <div class="fitsense-card" style="margin-bottom: 2rem;" id="section-evaluation-survey">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
-            <div>
-              <h3 style="font-size: 1.25rem; font-weight: 800;">📝 Khảo sát Đánh giá Sau Buổi tập & Tối ưu Thích ứng Thể lực</h3>
-              <p style="font-size: 0.85rem; color: var(--text-secondary);">
-                AI tự động đối chiếu tỉ lệ hoàn thành, kết hợp thang đo Borg RPE (1-10) để tự động điều chỉnh giáo án kế tiếp (Deload hoặc Tăng tiến).
-              </p>
+        <!-- 5. Rest Day Notice or Post-Workout Survey Section -->
+        ${!shouldShowSurvey ? `
+          <div class="fitsense-card" style="margin-bottom: 2rem; border-left: 4px solid var(--accent-cyan); background: rgba(56, 189, 248, 0.04);" id="section-rest-day-card">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+              <div style="display: flex; align-items: center; gap: 1.15rem;">
+                <span style="font-size: 2.2rem;">🛌</span>
+                <div>
+                  <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0 0 0.35rem 0; color: var(--text-primary);">
+                    Hôm nay là Ngày Nghỉ Phục Hồi Sinh Học (${escapeHtml(todayName || "Hôm nay")})
+                  </h3>
+                  <p style="font-size: 0.88rem; color: var(--text-secondary); margin: 0; line-height: 1.55;">
+                    💡 <b>Bạn muốn tập hôm nay?</b> Hãy vào tab <b>Kế hoạch</b> để đổi giáo án sang có bài tập.
+                  </p>
+                </div>
+              </div>
+              <button class="btn btn-primary btn-sm" id="btn-goto-planner" style="white-space: nowrap; border-radius: var(--radius-full); padding: 0.5rem 1.25rem;">
+                📅 Mở Kế hoạch Tuần
+              </button>
             </div>
-            <span class="badge badge-intermediate">Adaptive AI Engine</span>
           </div>
-
-          <form id="form-post-workout-evaluation" onsubmit="return false;">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" style="font-weight: 700;">Chọn buổi tập cần đánh giá:</label>
-                <select class="form-control" id="eval-session-select">
-                  ${history.length > 0 ? history.map((h, i) => `
-                    <option value="${h.id}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 100}">
-                      ${h.exercise_name} · 🕒 ${h.timestamp || h.actual_date} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 100}%)
-                    </option>
-                  `).join("") : `<option value="current" data-comp="100">Buổi tập vừa thực hiện (Mặc định)</option>`}
-                </select>
+        ` : `
+          <!-- 5. Post-Workout Survey & Adaptive AI Recommendations Section -->
+          <div class="fitsense-card" style="margin-bottom: 2rem;" id="section-evaluation-survey">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <h3 style="font-size: 1.25rem; font-weight: 800;">📝 Khảo sát Đánh giá Sau Buổi tập & Tối ưu Thích ứng Thể lực</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                  AI tự động đối chiếu tỉ lệ hoàn thành của <b>buổi tập được chọn</b>, kết hợp thang đo Borg RPE (1-10) để tự động điều chỉnh giáo án kế tiếp (Deload hoặc Tăng tiến).
+                </p>
               </div>
-
-              <!-- AI Estimated Completion Rate (Cố định khách quan theo dữ liệu AI) -->
-              <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; font-weight: 700;">
-                  <span>🤖 Tỉ lệ hoàn thành do AI đối chiếu:</span>
-                  <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-intermediate" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;">🔒 AI Verified</span>
-                    <strong id="eval-comp-rate-val" style="color: var(--accent-cyan); font-size: 1.15rem;">${latestHistoryComp}%</strong>
-                  </div>
-                </label>
-                <!-- Thanh tiến trình cố định - không cho phép kéo chỉnh sửa thủ công -->
-                <div style="background: var(--bg-card); border-radius: 999px; height: 10px; overflow: hidden; margin-top: 0.6rem; border: 1px solid var(--border-color); position: relative;">
-                  <div id="eval-comp-progress-fill" style="width: ${latestHistoryComp}%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald)); border-radius: 999px; transition: width 0.35s ease;"></div>
-                </div>
-                <input type="hidden" id="eval-comp-rate" value="${latestHistoryComp}" />
-                <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
-                  <span>🔒 Số liệu được AI đo đạc khách quan từ buổi tập và tự động cố định.</span>
-                </div>
-              </div>
+              <span class="badge badge-intermediate">Adaptive AI Engine</span>
             </div>
+
+            <form id="form-post-workout-evaluation" onsubmit="return false;">
+              <!-- Scope Selector (Theo Buổi / Theo Bài) -->
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; padding: 0.65rem 0.9rem; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 0.65rem;">
+                  <span style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary);">🎯 Phạm vi khảo sát:</span>
+                  <div style="display: inline-flex; background: var(--bg-surface); padding: 3px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <button type="button" id="eval-scope-session-btn" class="btn btn-sm ${this.evalScope !== 'exercise' ? 'btn-primary' : 'btn-ghost'}" style="font-size: 0.78rem; padding: 0.25rem 0.75rem; border-radius: 6px; font-weight: 700;">
+                      📋 Toàn bộ Buổi tập
+                    </button>
+                    <button type="button" id="eval-scope-exercise-btn" class="btn btn-sm ${this.evalScope === 'exercise' ? 'btn-primary' : 'btn-ghost'}" style="font-size: 0.78rem; padding: 0.25rem 0.75rem; border-radius: 6px; font-weight: 700;">
+                      🎯 Từng Bài tập trong buổi
+                    </button>
+                  </div>
+                </div>
+
+                <div id="eval-exercise-select-wrapper" style="display: ${this.evalScope === 'exercise' ? 'flex' : 'none'}; align-items: center; gap: 0.5rem; flex: 1; min-width: 260px; justify-content: flex-end;">
+                  <label style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan); white-space: nowrap;">Chọn bài tập:</label>
+                  <select class="form-control" id="eval-exercise-select" style="padding: 0.35rem 0.65rem; font-size: 0.85rem; max-width: 340px;">
+                    ${sessionExercises.length > 0 ? sessionExercises.map((ex, idx) => `
+                      <option value="${escapeHtml(ex.id)}" data-name="${escapeHtml(ex.name)}" data-comp="${ex.completion_rate ?? 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${escapeHtml(ex.primary_muscle || '')}" data-substitute="${escapeHtml(ex.substitute || '')}" ${ex.id === activeExerciseId ? 'selected' : ''}>
+                        Bài ${idx + 1}: ${escapeHtml((ex.name || '').split('(')[0].trim())} (${ex.reps} reps · AI: ${ex.completion_rate ?? 100}%)
+                      </option>
+                    `).join("") : '<option value="" data-comp="0">Buổi này chưa có danh sách bài</option>'}
+                  </select>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 700;">Chọn buổi tập cần đánh giá:</label>
+                  <select class="form-control" id="eval-session-select">
+                    ${hasHistory ? history.map((h, i) => {
+                      const isSelected = initialSelectedSessionId ? (h.id === initialSelectedSessionId) : (i === 0);
+                      const displayTitle = h.session_name || h.exercise_name;
+                      return `
+                      <option value="${escapeHtml(h.id)}" data-reps="${h.reps}" data-comp="${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}" ${isSelected ? "selected" : ""}>
+                        ${escapeHtml(displayTitle)} · 🕒 ${escapeHtml(h.timestamp || h.actual_date)} (${h.reps} reps · AI: ${h.completion_rate !== undefined ? Math.round(h.completion_rate) : 0}%)
+                      </option>
+                    `;}).join("") : `<option value="none" data-comp="0">Chưa ghi nhận dữ liệu buổi tập (0%)</option>`}
+                  </select>
+                </div>
+
+                <!-- AI Estimated Completion Rate (Cố định khách quan cho 1 buổi tập hoặc 1 bài tập được chọn) -->
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; font-weight: 700;">
+                    <span id="eval-comp-label">🤖 ${this.evalScope === 'exercise' ? 'Tỉ lệ hoàn thành của bài tập này:' : 'Tỉ lệ hoàn thành của buổi tập này:'}</span>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                      <span class="badge ${hasHistory ? 'badge-intermediate' : 'badge-outline'}" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="eval-comp-badge">${hasHistory ? '🔒 AI Verified' : 'Chưa có dữ liệu'}</span>
+                      <strong id="eval-comp-rate-val" style="color: var(--accent-cyan); font-size: 1.15rem;">${initialCompRate}%</strong>
+                    </div>
+                  </label>
+                  <!-- Thanh tiến trình cố định - đo đạc riêng cho 1 buổi tập hoặc bài tập -->
+                  <div style="background: var(--bg-card); border-radius: 999px; height: 10px; overflow: hidden; margin-top: 0.6rem; border: 1px solid var(--border-color); position: relative;">
+                    <div id="eval-comp-progress-fill" style="width: ${initialCompRate}%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald)); border-radius: 999px; transition: width 0.35s ease;"></div>
+                  </div>
+                  <input type="hidden" id="eval-comp-rate" value="${initialCompRate}" />
+                  <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
+                    <span id="eval-comp-hint">${hasHistory ? "🔒 Đo đạc độc lập cho mục tiêu được chọn (không cộng dồn hay chia trung bình)." : "⚠️ Chưa ghi nhận dữ liệu buổi tập. Hãy hoàn thành buổi tập tại Phòng tập để AI đo đạc tỉ lệ thực tế."}</span>
+                  </div>
+                </div>
+              </div>
+
 
             <!-- Borg RPE Slider (1 - 10) & Interactive Stepper -->
             <div class="form-group">
@@ -381,6 +527,28 @@ export const ProgressView = {
               </div>
             </div>
 
+            <!-- DOMS Severity & Satisfaction Rating (SCRUM-22 Yêu cầu 69) -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 700;">Mức độ mỏi cơ cục bộ (DOMS):</label>
+                <select class="form-control" id="eval-doms-severity">
+                  <option value="normal">🟢 Bình thường (Căng cơ nhẹ, phục hồi nhanh)</option>
+                  <option value="moderate" selected>🟡 Vừa phải (Mỏi rõ rệt sau bài tập, cần nghỉ ngơi)</option>
+                  <option value="intense">🔴 Đau nhức (Căng cứng khó chịu, cần giãn cơ & chườm)</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 700;">Mức độ hài lòng về buổi tập:</label>
+                <select class="form-control" id="eval-satisfaction">
+                  <option value="very_satisfied">🌟 Rất hài lòng (Đúng kế hoạch, thể lực sung mãn)</option>
+                  <option value="satisfied" selected>👍 Hài lòng (Hoàn thành tốt các hiệp chính)</option>
+                  <option value="neutral">😐 Bình thường (Đạt yêu cầu tối thiểu)</option>
+                  <option value="unsatisfied">⚡ Cần cải thiện (Đuối sức hoặc đứt quãng)</option>
+                </select>
+              </div>
+            </div>
+
             <!-- User Note -->
             <div class="form-group">
               <label class="form-label" style="font-weight: 700;">Ghi chú cảm xúc & thể trạng (tùy chọn):</label>
@@ -394,7 +562,7 @@ export const ProgressView = {
                 <span>✨ Tự động áp dụng tối ưu hóa này vào Kế hoạch tuần tới</span>
               </label>
 
-              <button class="btn btn-primary" id="btn-submit-evaluation" style="padding: 0.75rem 2.25rem; font-weight: 800; font-size: 0.95rem; border-radius: var(--radius-full);">
+              <button type="button" class="btn btn-primary" id="btn-submit-evaluation" ${!hasHistory ? 'disabled title="Hãy hoàn thành ít nhất 1 buổi tập trước khi gửi khảo sát"' : ''} style="padding: 0.75rem 2.25rem; font-weight: 800; font-size: 0.95rem; border-radius: var(--radius-full); ${!hasHistory ? 'opacity: 0.55; cursor: not-allowed;' : ''}">
                 💾 Gửi Khảo sát & Nhận Đề xuất AI
               </button>
             </div>
@@ -406,28 +574,42 @@ export const ProgressView = {
               <h4 style="font-size: 1.15rem; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; margin: 0;">
                 💡 Khuyến nghị Tự động của Adaptive AI dành cho bạn
               </h4>
-              <span class="badge ${recBadge}" id="badge-rec-status">${recStrategy}</span>
+              <span class="badge ${escapeHtml(recBadge)}" id="badge-rec-status">${escapeHtml(recStrategy)}</span>
             </div>
 
             <div class="fitsense-card" id="box-adaptive-recommendation" style="background: var(--bg-surface); border: 1.5px solid var(--accent-cyan); padding: 1.35rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);">
               <h5 id="rec-title" style="font-size: 1.1rem; font-weight: 800; color: var(--accent-cyan); margin-bottom: 0.4rem;">
-                ${recTitle}
+                ${escapeHtml(recTitle)}
               </h5>
               <p id="rec-desc" style="font-size: 0.92rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">
-                ${recDesc}
+                ${escapeHtml(recDesc)}
               </p>
 
-              <div style="padding-top: 0.75rem; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.82rem; color: var(--text-muted);">
+              <!-- Cool-down Stretches & Hydration Box -->
+              <div id="rec-cooldown-box" style="margin-top: 1rem; padding: 1rem; background: var(--bg-card); border-radius: var(--radius-md); border-left: 3px solid var(--accent-emerald);">
+                <div style="font-weight: 700; color: var(--accent-emerald); font-size: 0.92rem; margin-bottom: 0.4rem;">
+                  🧘 Lời khuyên Phục hồi Sinh học (Cool-down & Bù nước)
+                </div>
+                <div id="rec-stretches-list" style="font-size: 0.86rem; color: var(--text-secondary); line-height: 1.6;">
+                  ${initialEval?.recovery_items?.length ? initialEval.recovery_items.map(it => `<div>• <b>${escapeHtml(it.target || it.muscle || "Vùng cơ")}:</b> ${escapeHtml(it.stretch_name)} (${escapeHtml(it.guide)}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("") : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>"}
+                </div>
+                <div id="rec-hydration-text" style="font-size: 0.84rem; color: var(--accent-cyan); margin-top: 0.5rem; font-weight: 600;">
+                  💧 ${escapeHtml(initialEval?.hydration_advice || "Uống từng ngụm nhỏ 350ml–500ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập.")}
+                </div>
+              </div>
+
+              <div style="padding-top: 0.75rem; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.82rem; color: var(--text-muted); margin-top: 1rem;">
                 <span style="color: var(--accent-emerald); font-weight: 600;">
                   ✨ Đã đồng bộ vào Kế hoạch tuần & Ma trận phục hồi sinh học
                 </span>
                 <span id="rec-timestamp">
-                  🕒 ${evalTime}
+                  🕒 ${escapeHtml(evalTime)}
                 </span>
               </div>
             </div>
           </div>
         </div>
+        `}
 
         <!-- 6. Detailed Workout History Table -->
         <div class="fitsense-card">
@@ -452,26 +634,40 @@ export const ProgressView = {
                   <th>Số Reps</th>
                   <th>Thời lượng</th>
                   <th>Calo tiêu hao</th>
-                  <th>RPE</th>
+                  <th style="text-align: center; min-width: 75px;">RPE</th>
                   <th>Ghi chú</th>
                 </tr>
               </thead>
               <tbody>
                 ${history.length > 0 ? history.map((item) => `
                   <tr>
-                    <td><b>${item.timestamp || item.actual_date}</b></td>
-                    <td><span style="color: var(--accent-cyan); font-weight: 700;">${item.exercise_name}</span></td>
-                    <td><span class="badge badge-beginner">${item.day || "Tập tự do"}</span></td>
+                    <td><b>${escapeHtml(item.timestamp || item.actual_date)}</b></td>
+                    <td>
+                      <div style="font-weight: 700; color: var(--accent-cyan); display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                        <span>${escapeHtml(item.session_name || item.exercise_name)}</span>
+                        ${item.exercises && item.exercises.length > 0 ? `<span class="badge badge-outline" style="font-size: 0.68rem; padding: 0.1rem 0.4rem;">${item.exercises.length} bài</span>` : ''}
+                      </div>
+                      ${item.exercises && item.exercises.length > 0 ? `
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem;">
+                          ${item.exercises.map(ex => `
+                            <span style="font-size: 0.72rem; background: var(--bg-card); border: 1px solid var(--border-color); padding: 0.15rem 0.45rem; border-radius: 4px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 0.3rem;">
+                              <span>${escapeHtml((ex.name || '').split('(')[0].trim())}</span>
+                              <b style="color: var(--accent-emerald); font-weight: 700;">${ex.reps} reps</b>
+                              ${ex.rpe ? `<span class="badge ${ex.rpe >= 8 ? 'badge-advanced' : ex.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}" style="font-size: 0.65rem; padding: 0.05rem 0.25rem;">RPE ${ex.rpe}</span>` : ''}
+                            </span>
+                          `).join("")}
+                        </div>
+                      ` : ''}
+                    </td>
+                    <td><span class="badge badge-beginner">${escapeHtml(item.day || "Tập tự do")}</span></td>
                     <td>${item.status === "abandoned" ? "Bỏ dở" : "Hoàn thành"}</td>
                     <td><strong>${item.reps}</strong> reps</td>
-                    <td>${Math.floor((item.duration_sec || 0) / 60)}p ${(item.duration_sec || 0) % 60}s</td>
+                    <td>${Math.floor(((item.duration_sec ?? item.duration_seconds) || 0) / 60)}p ${((item.duration_sec ?? item.duration_seconds) || 0) % 60}s</td>
                     <td><span style="color: var(--accent-emerald); font-weight: 700;">${item.calories || 0} kcal</span></td>
-                    <td>
-                      ${item.rpe === null ? "—" : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}">
-                        RPE ${item.rpe || 7}/10
-                      </span>`}
+                    <td style="text-align: center; white-space: nowrap;">
+                      ${item.rpe === null || item.rpe === undefined ? `<span style="color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">—</span>` : `<span class="badge ${item.rpe >= 8 ? 'badge-advanced' : item.rpe >= 6 ? 'badge-intermediate' : 'badge-beginner'}" style="white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; padding: 0.2rem 0.55rem; font-weight: 700;" title="Thang đo mức độ gắng sức: RPE ${item.rpe}/10">${item.rpe}/10</span>`}
                     </td>
-                    <td style="color: var(--text-secondary); font-size: 0.82rem;">${item.notes || "—"}</td>
+                    <td style="color: var(--text-secondary); font-size: 0.82rem;">${item.notes ? escapeHtml(item.notes) : "—"}</td>
                   </tr>
                 `).join("") : `
                   <tr>
@@ -486,21 +682,32 @@ export const ProgressView = {
         </div>
       `;
 
-      this.bindEvaluationEvents(container);
+      this.bindEvaluationEvents(container, history);
       this.renderPlotlyCharts(analyticsData);
       this.bindTimeframeEvents(container);
     } catch (err) {
       console.error("Progress render error:", err);
       if (container) {
-        container.innerHTML = `<div class="fitsense-card" style="color: var(--accent-crimson);">Lỗi tải bảng đánh giá: ${err.message}</div>`;
+        container.innerHTML = "";
+        const errDiv = document.createElement("div");
+        errDiv.className = "fitsense-card";
+        errDiv.style.color = "var(--accent-crimson)";
+        errDiv.textContent = `Lỗi tải bảng đánh giá: ${err.message}`;
+        container.appendChild(errDiv);
       }
     }
   },
 
-  bindEvaluationEvents(container) {
+  bindEvaluationEvents(container, history = []) {
     if (!container) container = document.getElementById("view-progress");
     if (!container) return;
+
+    container.querySelector("#btn-goto-planner")?.addEventListener("click", () => {
+      if (window.navigateTo) window.navigateTo("planner");
+    });
+
     const rpeSlider = document.getElementById("eval-rpe-slider");
+    if (!rpeSlider) return;
     const rpeDisplay = document.getElementById("eval-rpe-display");
     const rpeDescBox = document.getElementById("eval-rpe-desc-box");
     const compSlider = document.getElementById("eval-comp-rate");
@@ -533,7 +740,11 @@ export const ProgressView = {
       if (comp < 70 || rpe >= 9) {
         if (badgeEl) { badgeEl.className = "badge badge-advanced"; badgeEl.textContent = "Deload -15%"; }
         if (titleEl) { titleEl.textContent = "🩹 Khuyến nghị Giảm tải (Deload Strategy -15%) 📉"; titleEl.style.color = "var(--accent-crimson)"; }
-        if (descEl) { descEl.textContent = `AI ghi nhận mức hoàn thành ${comp}% với độ gắng sức ${rpe}/10 😮‍💨. Hành động: Tự động giảm 1–2 sets hoặc tăng thời gian nghỉ giữa hiệp thêm 15 giây cho buổi kế tiếp để bảo vệ khớp!`; }
+        if (descEl) { descEl.textContent = `AI ghi nhận mức hoàn thành ${comp}% với độ gắng sức ${rpe}/10 😮‍💨. Hành động: Tự động giảm 15% số reps hoặc tăng thời gian nghỉ giữa hiệp thêm 15 giây cho buổi kế tiếp để bảo vệ khớp!`; }
+      } else if ((comp >= 70 && comp < 85) || (rpe === 8 && comp < 90)) {
+        if (badgeEl) { badgeEl.className = "badge badge-intermediate"; badgeEl.textContent = "Minor Deload -5%"; }
+        if (titleEl) { titleEl.textContent = "🛡️ Khuyến nghị Giảm nhẹ Củng cố Thể lực (-5%) 📉"; titleEl.style.color = "var(--accent-amber)"; }
+        if (descEl) { descEl.textContent = `Khối lượng tập vừa qua hơi vượt ngưỡng nhẹ (${comp}%, RPE ${rpe}/10) 😐. Hành động: Tự động tinh chỉnh giảm nhẹ -5% số reps và chuẩn hóa form động tác!`; }
       } else if (comp >= 90 && rpe <= 6) {
         if (badgeEl) { badgeEl.className = "badge badge-emerald"; badgeEl.textContent = "Overload +10%"; }
         if (titleEl) { titleEl.textContent = "🚀 Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥"; titleEl.style.color = "var(--accent-emerald)"; }
@@ -558,7 +769,7 @@ export const ProgressView = {
         const val = parseInt(btn.getAttribute("data-rpe"), 10);
         if (rpeSlider) rpeSlider.value = val;
         if (rpeDisplay) rpeDisplay.textContent = `${val}/10`;
-        if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${val}/10:</b> ${rpeDescriptions[val] || ""}`;
+        if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${val}/10:</b> ${escapeHtml(rpeDescriptions[val] || "")}`;
         updateRpePillActive(val);
         updateAdaptivePreview();
       });
@@ -567,7 +778,7 @@ export const ProgressView = {
     rpeSlider?.addEventListener("input", (e) => {
       const val = parseInt(e.target.value, 10);
       if (rpeDisplay) rpeDisplay.textContent = `${val}/10`;
-      if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${val}/10:</b> ${rpeDescriptions[val] || ""}`;
+      if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${val}/10:</b> ${escapeHtml(rpeDescriptions[val] || "")}`;
       updateRpePillActive(val);
       updateAdaptivePreview();
     });
@@ -619,26 +830,222 @@ export const ProgressView = {
     });
 
     const sessionSelect = document.getElementById("eval-session-select");
-    sessionSelect?.addEventListener("change", () => {
-      const opt = sessionSelect.selectedOptions?.[0];
-      const compVal = opt?.getAttribute("data-comp");
-      if (compVal !== null && compVal !== undefined) {
-        const compNum = Math.round(parseFloat(compVal));
-        if (compSlider) compSlider.value = compNum;
-        if (compDisplay) compDisplay.textContent = `${compNum}%`;
-        const fillBar = document.getElementById("eval-comp-progress-fill");
-        if (fillBar) fillBar.style.width = `${compNum}%`;
-        updateAdaptivePreview();
+    const scopeSessionBtn = document.getElementById("eval-scope-session-btn");
+    const scopeExerciseBtn = document.getElementById("eval-scope-exercise-btn");
+    const exSelectWrapper = document.getElementById("eval-exercise-select-wrapper");
+    const exSelect = document.getElementById("eval-exercise-select");
+
+    const refreshExerciseSelectOptions = () => {
+      const selectedId = sessionSelect?.value;
+      const selectedSession = history.find((h) => h.id === selectedId);
+      if (!exSelect) return;
+      if (selectedSession?.exercises && selectedSession.exercises.length > 0) {
+        const hasCurrentEx = selectedSession.exercises.some((e) => e.id === this.selectedExerciseId);
+        const activeExId = hasCurrentEx ? this.selectedExerciseId : selectedSession.exercises[0].id;
+        this.selectedExerciseId = activeExId;
+        exSelect.innerHTML = selectedSession.exercises.map((ex, idx) => `
+          <option value="${escapeHtml(ex.id)}" data-name="${escapeHtml(ex.name)}" data-comp="${ex.completion_rate ?? 100}" data-reps="${ex.reps}" data-target="${ex.target_reps || ex.reps}" data-muscle="${escapeHtml(ex.primary_muscle || '')}" data-substitute="${escapeHtml(ex.substitute || '')}" ${ex.id === activeExId ? 'selected' : ''}>
+            Bài ${idx + 1}: ${escapeHtml((ex.name || '').split('(')[0].trim())} (${ex.reps} reps · AI: ${ex.completion_rate ?? 100}%)
+          </option>
+        `).join("");
+      } else {
+        this.selectedExerciseId = null;
+        exSelect.innerHTML = `<option value="" data-comp="0">(Không có bài tập con)</option>`;
       }
+    };
+
+    const updateEvaluationViewForCurrentScope = () => {
+      const selectedId = sessionSelect?.value;
+      const selectedSession = history.find((h) => h.id === selectedId);
+      const isExerciseScope = this.evalScope === "exercise";
+      const currentExId = isExerciseScope ? (exSelect?.value || null) : null;
+
+      // Update completion rate progress
+      let compNum = 0;
+      let labelText = "🤖 Tỉ lệ hoàn thành của buổi tập này:";
+      if (isExerciseScope) {
+        const opt = exSelect?.selectedOptions?.[0];
+        const val = opt?.getAttribute("data-comp");
+        compNum = (opt && opt.value && opt.value !== "none" && val !== null && val !== undefined && val !== "")
+          ? Math.round(parseFloat(val))
+          : 0;
+        labelText = "🤖 Tỉ lệ hoàn thành của bài tập này:";
+      } else {
+        const opt = sessionSelect?.selectedOptions?.[0];
+        const val = opt?.getAttribute("data-comp");
+        compNum = (opt && opt.value && opt.value !== "none" && val !== null && val !== undefined && val !== "")
+          ? Math.round(parseFloat(val))
+          : 0;
+        labelText = "🤖 Tỉ lệ hoàn thành của buổi tập này:";
+      }
+
+      const compLabel = document.getElementById("eval-comp-label");
+      if (compLabel) compLabel.textContent = labelText;
+      if (compSlider) compSlider.value = compNum;
+      if (compDisplay) compDisplay.textContent = `${compNum}%`;
+      const fillBar = document.getElementById("eval-comp-progress-fill");
+      if (fillBar) fillBar.style.width = `${compNum}%`;
+
+      // Determine target evaluation key
+      const targetEvalKey = isExerciseScope && currentExId ? `${selectedId}_${currentExId}` : selectedId;
+      const targetEval = this.evalsBySession ? this.evalsBySession[targetEvalKey] : null;
+      const recContainer = document.getElementById("eval-recommendation-container");
+
+      if (targetEval) {
+        if (recContainer) recContainer.style.display = "block";
+        const badgeEl = document.getElementById("badge-rec-status");
+        const titleEl = document.getElementById("rec-title");
+        const descEl = document.getElementById("rec-desc");
+        const stretchesList = document.getElementById("rec-stretches-list");
+        const hydrationText = document.getElementById("rec-hydration-text");
+        const timeEl = document.getElementById("rec-timestamp");
+
+        const strat = targetEval.recommendation?.strategy || targetEval.strategy || "maintenance";
+        const badgeClass = targetEval.recommendation?.badge || (strat === "deload" ? "badge-advanced" : (strat === "overload" ? "badge-emerald" : (strat === "minor_deload" ? "badge-warning" : "badge-intermediate")));
+        const stratLabel = strat === "deload" ? "Deload -15%" : (strat === "overload" ? "Overload +10%" : (strat === "minor_deload" ? "Minor Deload -5%" : "Optimal Maintenance"));
+
+        if (badgeEl) {
+          badgeEl.className = `badge ${badgeClass}`;
+          badgeEl.textContent = stratLabel;
+        }
+        if (titleEl) {
+          titleEl.textContent = targetEval.recommendation?.title || "Khuyến nghị Adaptive AI";
+          titleEl.style.color = strat === "deload" ? "var(--accent-crimson)" : (strat === "overload" ? "var(--accent-emerald)" : (strat === "minor_deload" ? "var(--accent-amber)" : "var(--accent-cyan)"));
+        }
+        if (descEl) {
+          descEl.textContent = targetEval.recommendation?.action || "Duy trì khối lượng và nhịp tập hiện tại!";
+        }
+        if (stretchesList) {
+          const items = targetEval.recovery_items || [];
+          stretchesList.innerHTML = items.length > 0
+            ? items.map(it => `<div>• <b>${escapeHtml(it.target || it.muscle || "Vùng cơ")}:</b> ${escapeHtml(it.stretch_name)} (${escapeHtml(it.guide)}) - Nghỉ khuyến nghị: ${it.rest_hours}h</div>`).join("")
+            : "<div>• <b>Toàn thân:</b> Giãn cơ thả lỏng nhẹ nhàng và hít thở sâu 3–5 phút.</div>";
+        }
+        if (hydrationText) {
+          hydrationText.textContent = `💧 ${targetEval.hydration_advice || "Uống từng ngụm nhỏ 350ml–500ml nước lọc hoặc bù điện giải trong 30 phút sau khi tập."}`;
+        }
+        if (timeEl) {
+          timeEl.textContent = `🕒 ${targetEval.created_at || targetEval.timestamp || "Đã ghi nhận"}`;
+        }
+
+        if (rpeSlider && targetEval.rpe) {
+          rpeSlider.value = targetEval.rpe;
+          if (rpeDisplay) rpeDisplay.textContent = `${targetEval.rpe}/10`;
+          if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${targetEval.rpe}/10:</b> ${escapeHtml(rpeDescriptions[targetEval.rpe] || "")}`;
+          updateRpePillActive(targetEval.rpe);
+        }
+        if (targetEval.doms_severity) {
+          const domsSelect = document.getElementById("eval-doms-severity");
+          if (domsSelect) domsSelect.value = targetEval.doms_severity;
+        }
+        if (targetEval.satisfaction) {
+          const satSelect = document.getElementById("eval-satisfaction");
+          if (satSelect) satSelect.value = targetEval.satisfaction;
+        }
+        if (targetEval.note !== undefined) {
+          const noteArea = document.getElementById("eval-user-note");
+          if (noteArea) noteArea.value = targetEval.note || "";
+        }
+        const targetSoreness = targetEval.soreness || targetEval.muscle_soreness || [];
+        sorenessCards.forEach(card => {
+          const val = card.getAttribute("data-val");
+          const shouldBeActive = targetSoreness.includes(val);
+          card.classList.toggle("active", shouldBeActive);
+          const chk = card.querySelector("input[type='checkbox']");
+          if (chk) chk.checked = shouldBeActive;
+        });
+      } else {
+        // Chưa đánh giá: ẩn khuyến nghị
+        if (recContainer) recContainer.style.display = "none";
+
+        let defaultRpe = 5;
+        let defaultMuscle = "Không đau mỏi gì đặc biệt";
+        if (isExerciseScope && selectedSession?.exercises) {
+          const exObj = selectedSession.exercises.find((e) => e.id === currentExId);
+          if (exObj) {
+            defaultRpe = exObj.rpe || 5;
+            defaultMuscle = exObj.primary_muscle || defaultMuscle;
+          }
+        }
+        if (rpeSlider) {
+          rpeSlider.value = defaultRpe;
+          if (rpeDisplay) rpeDisplay.textContent = `${defaultRpe}/10`;
+          if (rpeDescBox) rpeDescBox.innerHTML = `<b>Mức RPE ${defaultRpe}/10:</b> ${escapeHtml(rpeDescriptions[defaultRpe] || "")}`;
+          updateRpePillActive(defaultRpe);
+        }
+        const domsSelect = document.getElementById("eval-doms-severity");
+        if (domsSelect) domsSelect.value = "moderate";
+        const satSelect = document.getElementById("eval-satisfaction");
+        if (satSelect) satSelect.value = "satisfied";
+        const noteArea = document.getElementById("eval-user-note");
+        if (noteArea) noteArea.value = "";
+
+        sorenessCards.forEach(card => {
+          const val = card.getAttribute("data-val");
+          const isMatch = val === defaultMuscle || (defaultMuscle === "Không đau mỏi gì đặc biệt" && val === "Không đau mỏi gì đặc biệt");
+          card.classList.toggle("active", isMatch);
+          const chk = card.querySelector("input[type='checkbox']");
+          if (chk) chk.checked = isMatch;
+        });
+      }
+    };
+
+    scopeSessionBtn?.addEventListener("click", () => {
+      this.evalScope = "session";
+      scopeSessionBtn.className = "btn btn-sm btn-primary";
+      scopeExerciseBtn.className = "btn btn-sm btn-ghost";
+      if (exSelectWrapper) exSelectWrapper.style.display = "none";
+      updateEvaluationViewForCurrentScope();
     });
+
+    scopeExerciseBtn?.addEventListener("click", () => {
+      this.evalScope = "exercise";
+      scopeExerciseBtn.className = "btn btn-sm btn-primary";
+      scopeSessionBtn.className = "btn btn-sm btn-ghost";
+      if (exSelectWrapper) exSelectWrapper.style.display = "flex";
+      refreshExerciseSelectOptions();
+      updateEvaluationViewForCurrentScope();
+    });
+
+    exSelect?.addEventListener("change", () => {
+      this.selectedExerciseId = exSelect.value;
+      updateEvaluationViewForCurrentScope();
+    });
+
+    sessionSelect?.addEventListener("change", () => {
+      const selectedId = sessionSelect.value;
+      this.selectedSessionId = selectedId;
+      if (this.evalScope === "exercise") {
+        refreshExerciseSelectOptions();
+      }
+      updateEvaluationViewForCurrentScope();
+    });
+
+    // Sync form controls and recommendation box with current session/exercise selection on load
+    if (history.length > 0) {
+      updateEvaluationViewForCurrentScope();
+    }
 
     document.getElementById("btn-submit-evaluation")?.addEventListener("click", async () => {
       const sessionId = sessionSelect?.value;
+      if (!sessionId || sessionId === "none") {
+        Toast.warning("Chưa có buổi tập nào để gửi khảo sát. Hãy hoàn thành 1 buổi tập trước nhé!");
+        return;
+      }
+      const selectedSession = history.find((h) => h.id === sessionId);
       const sessionLabel = sessionSelect?.options[sessionSelect.selectedIndex]?.text || "Buổi tập vừa thực hiện";
+      const isExerciseScope = this.evalScope === "exercise";
+      const exerciseId = isExerciseScope ? exSelect?.value : null;
+      const exerciseOpt = exSelect?.selectedOptions?.[0];
+      const exerciseName = isExerciseScope ? (exerciseOpt?.getAttribute("data-name") || exerciseOpt?.text || "") : null;
+      const durationSec = selectedSession?.duration_sec ?? selectedSession?.duration_seconds ?? 0;
+
       const comp = parseInt(compSlider?.value || 90, 10);
       const rpe = parseInt(rpeSlider?.value || 5, 10);
+      const domsSeverity = document.getElementById("eval-doms-severity")?.value || "moderate";
+      const satisfaction = document.getElementById("eval-satisfaction")?.value || "satisfied";
       const note = document.getElementById("eval-user-note")?.value || "";
-      const autoApply = document.getElementById("eval-auto-apply")?.checked || true;
+      const autoApply = document.getElementById("eval-auto-apply")?.checked ?? true;
 
       const checkedSoreness = [];
       document.querySelectorAll("input[name='soreness_item']:checked").forEach((chk) => {
@@ -649,17 +1056,28 @@ export const ProgressView = {
         const res = await API.progress.submitEvaluation({
           session_id: sessionId,
           session_label: sessionLabel,
+          scope: isExerciseScope ? "exercise" : "session",
+          exercise_id: exerciseId,
+          exercise_name: exerciseName,
           completion_rate: comp,
           rpe,
+          duration_sec: durationSec,
           soreness: checkedSoreness,
+          doms_severity: domsSeverity,
+          satisfaction: satisfaction,
           note,
           auto_apply: autoApply,
         });
 
         this.latestEvaluation = res.evaluation;
+        if (!this.evalsBySession) this.evalsBySession = {};
+        const evalKey = isExerciseScope && exerciseId ? `${sessionId}_${exerciseId}` : sessionId;
+        this.evalsBySession[evalKey] = res.evaluation;
+        this.selectedSessionId = sessionId;
+        if (isExerciseScope) this.selectedExerciseId = exerciseId;
         Toast.success(res.message || "🎉 Đã ghi nhận đánh giá thành công!");
-        import("../components/capybara.js").then((m) => m.Capybara.refresh());
-        await this.render();
+        import("../components/capybara.js?v=3.0.0").then((m) => m.Capybara.refresh());
+        await this.render(true);
 
         const recContainer = document.getElementById("eval-recommendation-container");
         if (recContainer) {
@@ -677,7 +1095,7 @@ export const ProgressView = {
         const nextTf = btn.getAttribute("data-tf");
         if (nextTf && nextTf !== this.timeframe) {
           this.timeframe = nextTf;
-          await this.render();
+          await this.render(true);
         }
       });
     });
@@ -760,3 +1178,4 @@ export const ProgressView = {
     );
   },
 };
+

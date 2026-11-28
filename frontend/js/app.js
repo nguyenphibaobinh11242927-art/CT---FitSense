@@ -89,6 +89,8 @@ class FitSenseApp {
   }
 
   showAuthGate() {
+    this._activeUserEmail = null;
+    ProgressView.resetState();
     const gate = document.getElementById("auth-gate-screen");
     const appWrapper = document.getElementById("app-wrapper");
     if (gate) gate.style.display = "flex";
@@ -96,6 +98,11 @@ class FitSenseApp {
   }
 
   async showApp(user) {
+    const nextEmail = user?.email || null;
+    if (this._activeUserEmail !== nextEmail) {
+      ProgressView.resetState();
+      this._activeUserEmail = nextEmail;
+    }
     const gate = document.getElementById("auth-gate-screen");
     const appWrapper = document.getElementById("app-wrapper");
     if (gate) gate.style.display = "none";

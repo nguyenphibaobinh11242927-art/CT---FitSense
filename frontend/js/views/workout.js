@@ -2542,16 +2542,19 @@ export const WorkoutView = {
 
       ${abandoned ? "" : `<div style="margin-bottom: 1.5rem;">
         <label class="form-label" style="font-size: 0.95rem;">
-          Đánh giá mức độ kiệt sức RPE (Rate of Perceived Exertion: 1 - 10):
+          Đánh giá mức độ kiệt sức RPE (Borg Scale 1 - 10):
         </label>
         <div style="display: flex; align-items: center; gap: 1rem; margin-top: 0.5rem;">
-          <input type="range" id="rpe-slider" min="1" max="10" value="7" style="flex: 1; accent-color: var(--accent-cyan);" />
-          <span id="rpe-display-val" style="font-size: 1.5rem; font-weight: 800; color: var(--accent-cyan); width: 40px; text-align: center;">7</span>
+          <input type="range" id="rpe-slider" min="1" max="10" value="5" style="flex: 1; accent-color: var(--accent-cyan);" />
+          <span id="rpe-display-val" style="font-size: 1.5rem; font-weight: 800; color: var(--accent-cyan); width: 40px; text-align: center;">5</span>
         </div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.3rem;">
-          <span>1: Rất nhẹ</span>
-          <span>5: Vừa phải</span>
-          <span>10: Kiệt sức tối đa</span>
+        <div id="rpe-modal-desc" style="font-size: 0.85rem; color: var(--accent-amber); font-weight: 600; margin-top: 0.35rem; text-align: center;">
+          😤 Vừa sức lý tưởng (Nhịp tập ổn định)
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem;">
+          <span>1: Rất nhẹ 😌</span>
+          <span>5: Vừa sức 😤</span>
+          <span>10: Kiệt sức 🤯</span>
         </div>
       </div>
 
@@ -2563,7 +2566,7 @@ export const WorkoutView = {
       <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
         ${abandoned ? '<button class="btn btn-outline" id="btn-cancel-abandon">Quay lại</button>' : ""}
         <button class="btn btn-emerald" id="btn-submit-rpe" style="width: 100%;">
-          ${abandoned ? "Xác nhận bỏ dở" : "💾 Lưu kết quả & Cập nhật ma trận phục hồi"}
+          ${abandoned ? "Xác nhận bỏ dở" : "💾 Lưu kết quả & Mở Màn hình Đánh giá Phục hồi"}
         </button>
       </div>
     `;
@@ -2572,15 +2575,30 @@ export const WorkoutView = {
 
     const slider = body.querySelector("#rpe-slider");
     const valDisp = body.querySelector("#rpe-display-val");
+    const descDisp = body.querySelector("#rpe-modal-desc");
+    const rpeDescs = {
+      1: "😌 Rất nhẹ (Gần như không thấy mệt)",
+      2: "🙂 Nhẹ nhàng, hít thở thoải mái",
+      3: "😊 Vừa phải (Bắt đầu làm nóng cơ thể)",
+      4: "😉 Hơi thử thách nhẹ, còn rất nhiều sức",
+      5: "😤 Vừa sức lý tưởng (Nhịp tập ổn định)",
+      6: "😅 Khá mệt nhưng vẫn kiểm soát kỹ thuật",
+      7: "😓 Nặng (Cơ bắp bắt đầu mỏi rõ rệt)",
+      8: "😫 Rất mệt (Thở dốc, cần tập trung cao)",
+      9: "🥵 Cực kỳ nặng (Gần ngưỡng chịu đựng)",
+      10: "🤯 Kiệt sức hoàn toàn (Không thể làm thêm 1 rep)"
+    };
     slider?.addEventListener("input", (e) => {
-      if (valDisp) valDisp.textContent = e.target.value;
+      const v = parseInt(e.target.value) || 5;
+      if (valDisp) valDisp.textContent = v;
+      if (descDisp) descDisp.textContent = rpeDescs[v] || "";
     });
     body.querySelector("#btn-cancel-abandon")?.addEventListener("click", () => modal.classList.remove("active"));
 
     body.querySelector("#btn-submit-rpe")?.addEventListener("click", async () => {
       if (sessionId !== this.sessionId || this.sessionClosing || this.sessionClosed) return;
       this.sessionClosing = true;
-      const rpeVal = parseInt(slider?.value) || 7;
+      const rpeVal = parseInt(slider?.value) || 5;
       const notes = body.querySelector("#rpe-notes")?.value || "";
 
       try {

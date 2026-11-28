@@ -171,9 +171,16 @@ class StartDayWorkoutRequest(BaseModel):
 class EvaluationSubmitRequest(BaseModel):
     session_id: Optional[str] = None
     session_label: Optional[str] = None
+    exercise_id: Optional[str] = None
+    exercise_name: Optional[str] = None
+    scope: Literal["session", "exercise"] = "session"
     completion_rate: int = Field(default=80, ge=0, le=100)
     rpe: int = Field(default=5, ge=1, le=10)
     soreness: list[str] = Field(default_factory=list)
+    doms_severity: Literal["normal", "moderate", "intense"] = "moderate"
+    satisfaction: Literal["very_satisfied", "satisfied", "neutral", "unsatisfied"] = "satisfied"
+    duration_sec: Optional[int] = Field(default=0, ge=0)
     note: str = ""
     auto_apply: bool = True
+
 

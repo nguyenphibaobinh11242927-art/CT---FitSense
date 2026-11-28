@@ -11,7 +11,147 @@ EMAIL_REGEX = re.compile(
     r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+"
 )
-MOCK_DEMO_EMAILS = {"khanh@fitsense.vn", "yu@fitsense.vn", "admin@fitsense.vn", "test@gmail.com"}
+MOCK_DEMO_EMAILS = {"khanh@fitsense.vn", "yu@fitsense.vn", "admin@fitsense.vn", "test@gmail.com", "demo@fitsense.vn"}
+
+
+def populate_demo_user_session(state: dict) -> None:
+    """Khởi tạo đầy đủ dữ liệu demo phong phú cho tài khoản trải nghiệm (SCRUM-22)."""
+    state["is_logged_in"] = True
+    state["user_profile"] = {
+        "name": "Vận Động Viên Trải Nghiệm",
+        "email": "demo@fitsense.vn",
+        "gender": "Nam",
+        "weight_kg": 65.0,
+        "height_cm": 172.0,
+        "age": 22,
+        "bmi": 22.0,
+        "fitness_level": "Intermediate (Người đã có nền tảng)",
+        "goal": "Sức bền & Tăng cơ Calisthenics",
+        "restrictions": ["Khớp gối yếu (Tránh Squat quá sâu, Jumping)"],
+        "environment": "Tại nhà / Phòng riêng",
+        "equipment": ["Thảm yoga/thể dục", "Xà đơn gắn cửa"],
+        "days_per_week": 4,
+        "session_duration_minutes": 35,
+    }
+    state["streak_info"] = {
+        "current_streak": 4,
+        "longest_streak": 6,
+        "min_threshold_pct": 70,
+    }
+    state["personal_records"] = {
+        "Squat liên tục": "45 Reps",
+        "Push-up chuẩn": "36 Reps",
+        "Plank giữ tối đa": "75 Giây",
+        "Buổi tập dài nhất": "32 Phút",
+    }
+    state["has_worked_out_today"] = True
+    state["session_history"] = [
+        {"Ngày": "16/11/2026", "Bài tập": "Thân trên: Ngực & Tay sau (3 bài)", "Số reps": 96, "Thời lượng": "14 phút", "Calo (kcal)": 78.5, "RPE": "—", "Tỉ lệ hoàn thành": "100%"},
+        {"Ngày": "17/11/2026", "Bài tập": "Thân dưới & Mông (3 bài)", "Số reps": 115, "Thời lượng": "16 phút", "Calo (kcal)": 95.0, "RPE": "—", "Tỉ lệ hoàn thành": "90%"},
+        {"Ngày": "20/11/2026", "Bài tập": "Toàn thân & Sức bền tim mạch (2 bài)", "Số reps": 70, "Thời lượng": "12 phút", "Calo (kcal)": 65.0, "RPE": "8/10", "Tỉ lệ hoàn thành": "85%"},
+        {"Ngày": "22/11/2026", "Bài tập": "Giãn cơ & Khớp dẻo dai (2 bài)", "Số reps": 60, "Thời lượng": "10 phút", "Calo (kcal)": 55.0, "RPE": "5/10", "Tỉ lệ hoàn thành": "100%"},
+    ]
+    state["workout_results"] = {
+        "demo-sess-04": {
+            "session_id": "demo-sess-04",
+            "session_name": "Chủ Nhật: Giãn cơ & Khớp dẻo dai (2 bài)",
+            "mode": "ai",
+            "reps": 60,
+            "target_reps": 60,
+            "duration_seconds": 600,
+            "calories": 55.0,
+            "finished_at": "17:45 22/11/2026",
+            "completion_rate": 100.0,
+            "exercises": [
+                {"id": "plank", "name": "Plank Tĩnh (Core Stability)", "reps": 60, "target_reps": 60, "sets": 3, "primary_muscle": "Bụng & Core", "rpe": 5, "completion_rate": 100.0, "substitute": "Dead Bug"},
+                {"id": "stretch", "name": "Giãn cơ toàn thân (Full Body Stretch)", "reps": 60, "target_reps": 60, "sets": 2, "primary_muscle": "Toàn thân & Tim mạch", "rpe": 5, "completion_rate": 100.0, "substitute": "Child Pose"},
+            ],
+        },
+        "demo-sess-03": {
+            "session_id": "demo-sess-03",
+            "session_name": "Thứ 6: Toàn thân & Sức bền tim mạch (2 bài)",
+            "mode": "ai",
+            "reps": 70,
+            "target_reps": 75,
+            "duration_seconds": 720,
+            "calories": 65.0,
+            "finished_at": "18:00 20/11/2026",
+            "completion_rate": 85.7,
+            "exercises": [
+                {"id": "jumping_jacks", "name": "Jumping Jacks (Nhảy dang tay nhẹ)", "reps": 40, "target_reps": 40, "sets": 3, "primary_muscle": "Toàn thân & Tim mạch", "rpe": 7, "completion_rate": 100.0, "substitute": "Step Jacks"},
+                {"id": "mountain_climbers", "name": "Mountain Climbers (Leo núi trên thảm)", "reps": 30, "target_reps": 35, "sets": 3, "primary_muscle": "Bụng & Core", "rpe": 8, "completion_rate": 85.7, "substitute": "Plank Shoulder Tap"},
+            ],
+        },
+        "demo-sess-02": {
+            "session_id": "demo-sess-02",
+            "session_name": "Thứ 3: Thân dưới & Mông (3 bài)",
+            "mode": "ai",
+            "reps": 115,
+            "target_reps": 125,
+            "duration_seconds": 960,
+            "calories": 95.0,
+            "finished_at": "19:15 17/11/2026",
+            "completion_rate": 90.0,
+            "exercises": [
+                {"id": "squat", "name": "Squat Thể dục (Bodyweight Squat)", "reps": 45, "target_reps": 50, "sets": 4, "primary_muscle": "Cơ đùi trước (Quads)", "rpe": None, "completion_rate": 90.0, "substitute": "Wall Sit (Ngồi tựa tường)"},
+                {"id": "glute_bridge", "name": "Glute Bridge (Nâng mông trên thảm)", "reps": 40, "target_reps": 40, "sets": 3, "primary_muscle": "Cơ mông (Glutes)", "rpe": None, "completion_rate": 100.0, "substitute": "Single Leg Bridge"},
+                {"id": "calf_raises", "name": "Calf Raises (Nhón bắp chân)", "reps": 30, "target_reps": 35, "sets": 3, "primary_muscle": "Bắp chân", "rpe": None, "completion_rate": 85.7, "substitute": "Seated Calf Raise"},
+            ],
+        },
+        "demo-sess-01": {
+            "session_id": "demo-sess-01",
+            "session_name": "Thứ 2: Thân trên: Ngực & Tay sau (3 bài)",
+            "mode": "ai",
+            "reps": 96,
+            "target_reps": 96,
+            "duration_seconds": 840,
+            "calories": 78.5,
+            "finished_at": "18:30 16/11/2026",
+            "completion_rate": 100.0,
+            "exercises": [
+                {"id": "push_up", "name": "Standard Push-up (Hít đất chuẩn)", "reps": 36, "target_reps": 36, "sets": 3, "primary_muscle": "Cơ ngực (Chest)", "rpe": None, "completion_rate": 100.0, "substitute": "Knee Push-up"},
+                {"id": "bench_dip", "name": "Dips trên ghế (Bench Dips)", "reps": 30, "target_reps": 30, "sets": 3, "primary_muscle": "Tay sau (Triceps)", "rpe": None, "completion_rate": 100.0, "substitute": "Diamond Push-up"},
+                {"id": "plank", "name": "Plank Tĩnh (Core Stability)", "reps": 30, "target_reps": 30, "sets": 3, "primary_muscle": "Bụng & Core", "rpe": None, "completion_rate": 100.0, "substitute": "Dead Bug"},
+            ],
+        },
+    }
+    state["workout_event_history"] = [
+        {"session_id": "demo-sess-01", "actual_date": "2026-11-16", "source_day": "Thứ 2", "focus": "Thân trên: Ngực & Tay sau", "muscle_tags": ["Ngực (Chest)", "Tay sau"], "reps": 36, "status": "completed", "finished_at": "18:30 16/11/2026", "completion_rate": 100.0},
+        {"session_id": "demo-sess-02", "actual_date": "2026-11-17", "source_day": "Thứ 3", "focus": "Thân dưới & Mông", "muscle_tags": ["Đùi trước (Quads)", "Mông (Glutes)"], "reps": 45, "status": "completed", "finished_at": "19:15 17/11/2026", "completion_rate": 90.0},
+        {"session_id": "demo-sess-03", "actual_date": "2026-11-20", "source_day": "Thứ 6", "focus": "Thân trên: Tay sau & Ngực", "muscle_tags": ["Tay sau (Triceps)"], "reps": 30, "status": "completed", "finished_at": "18:00 20/11/2026", "completion_rate": 85.7},
+        {"session_id": "demo-sess-04", "actual_date": "2026-11-22", "source_day": "Chủ Nhật", "focus": "Bụng & Core Thể lực", "muscle_tags": ["Bụng & Core"], "reps": 60, "status": "completed", "finished_at": "17:45 22/11/2026", "completion_rate": 100.0},
+    ]
+    state["evaluations_by_session"] = {
+        "demo-sess-04": {
+            "session_id": "demo-sess-04",
+            "completion_rate": 100,
+            "rpe": 5,
+            "soreness": ["Lưng & Cột sống"],
+            "strategy": {
+                "strategy": "overload",
+                "title": "Khuyến nghị Tăng tiến Tải trọng (Progressive Overload +10%) 🔥",
+                "action": "Xuất sắc! Buổi sau sẽ tự động tăng 2 reps/set hoặc gợi ý biến thể nâng cao để bứt phá giới hạn!",
+                "badge_type": "success",
+            },
+        },
+        "demo-sess-03": {
+            "session_id": "demo-sess-03",
+            "completion_rate": 86,
+            "rpe": 8,
+            "soreness": ["Cơ ngực (Chest)", "Cổ tay"],
+            "strategy": {
+                "strategy": "minor_deload",
+                "title": "🛡️ Khuyến nghị Giảm nhẹ Củng cố Thể lực (-5%) 📉",
+                "action": "Khối lượng tập vừa qua hơi vượt ngưỡng nhẹ. Tự động tinh chỉnh giảm nhẹ -5% số reps và chuẩn hóa form động tác!",
+                "badge_type": "warning",
+            },
+        },
+    }
+    try:
+        from src.weekly_plan_storage import load_week_state
+        load_week_state(state)
+    except Exception:
+        pass
 
 
 def is_valid_email(email: str) -> bool:
@@ -103,6 +243,11 @@ def render_auth_view():
                             st.rerun()
                         elif matched_record:
                             st.error("Mật khẩu không chính xác! Vui lòng kiểm tra lại.")
+                        elif clean_email == "demo@fitsense.vn":
+                            populate_demo_user_session(st.session_state)
+                            st.success(f"Đăng nhập thành công! Chào mừng bạn {st.session_state['user_profile']['name']}.")
+                            st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
+                            st.rerun()
                         elif clean_email in MOCK_DEMO_EMAILS:
                             # Mock login account (đã qua kiểm tra email & mật khẩu >= 6 ký tự)
                             st.session_state["is_logged_in"] = True
@@ -129,25 +274,9 @@ def render_auth_view():
 
             st.markdown("---")
             st.markdown("**Hoặc trải nghiệm nhanh không cần mật khẩu:**")
+            st.caption("🔑 Tài khoản Demo: `demo@fitsense.vn` | Mật khẩu: `demo123` (hoặc bấm nút dưới để vào ngay)")
             if st.button("🚀 Vào ngay với Tài khoản Trải nghiệm (Demo User)", use_container_width=True):
-                st.session_state["is_logged_in"] = True
-                st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 70}
-                st.session_state["session_history"] = []
-                st.session_state["user_profile"] = {
-                    "name": "Vận Động Viên Trải Nghiệm",
-                    "email": "demo@fitsense.vn",
-                    "weight_kg": 60.0,
-                    "height_cm": 168.0,
-                    "age": 22,
-                    "bmi": 21.3,
-                    "fitness_level": "Beginner",
-                    "goal": "Duy trì thể lực & Săn chắc",
-                    "restrictions": [],
-                    "environment": "Tại nhà",
-                    "equipment": ["Thảm yoga/thể dục"],
-                    "days_per_week": 3,
-                    "session_duration_minutes": 30,
-                }
+                populate_demo_user_session(st.session_state)
                 st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"
                 st.rerun()
 

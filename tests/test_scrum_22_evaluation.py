@@ -1,0 +1,690 @@
+"""Unit & Integration Tests for SCRUM-22: Post-Workout Evaluation & Adaptive AI.
+
+Phân hệ CT: D7. Post-Workout Evaluation & Adaptive Deload (Yêu cầu 69 – 71).
+Kiểm thử toàn diện:
+  1. Tính toán tỉ lệ hoàn thành rho, định dạng nhãn buổi tập kèm thời gian thực.
+  2. Thang đo mức độ gắng sức RPE (Borg Scale 1-10) kèm emoji, giá trị mặc định = 5.
+  3. Khảo sát mỏi cơ cục bộ DOMS và mức độ hài lòng buổi tập.
+  4. Thuật toán Thích ứng Tải trọng 4 bậc theo CT Section 4.4 (Deload -15%, Giảm nhẹ -5%, Duy trì 1.00x, Tăng tiến +10%).
+  5. Lời khuyên phục hồi sinh học: Giờ nghỉ cơ bắp (24h/48h), bài tập giãn cơ cool-down và lượng nước bù.
+  6. Tự động áp dụng và bảo toàn tính toàn vẹn của Kế hoạch tuần (không sửa buổi quá khứ).
+  7. Công thức bảo toàn chuỗi Streak công bằng theo CT Section 4.5 (rho >= 50% hoặc T >= 600s).
+  8. Tích hợp Backend REST API (/api/progress/evaluate, /api/progress/evaluations, /api/progress/evaluation-meta).
+"""
+
+from copy import deepcopy
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+from fastapi.testclient import TestClient
+
+from backend.main import app
+import src.evaluation_view as evaluation_view
+import src.profile as profile_mod
+
+
+class TestScrum22PostWorkoutEvaluation(unittest.TestCase):
+    def setUp(self):
+        import backend.routers.progress as progress_mod
+        import backend.routers.planner as planner_mod
+        import backend.routers.auth as auth_mod
+
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp_dir.cleanup)
+        tmp_root = Path(self._tmp_dir.name)
+        tmp_users = tmp_root / "users.json"
+        self._tmp_profiles = tmp_root / "profiles"
+
+        def _tmp_load(identifier):
+            return profile_mod.load_profile(identifier, directory=self._tmp_profiles)
+
+        def _tmp_save(identifier, profile):
+            return profile_mod.save_profile(identifier, profile, directory=self._tmp_profiles)
+
+        for patcher in (
+            patch.object(auth_mod, "USERS_FILE", tmp_users),
+            patch.object(auth_mod, "load_profile", side_effect=_tmp_load),
+            patch.object(auth_mod, "save_profile", side_effect=_tmp_save),
+            patch.object(planner_mod, "load_profile", side_effect=_tmp_load),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        progress_mod.reset_progress_state()
+        planner_mod.USER_SCHEDULES.clear()
+        planner_mod.USER_WEEK_NUMBERS.clear()
+        auth_mod.CURRENT_SESSION["user_email"] = None
+        auth_mod.CURRENT_SESSION["is_logged_in"] = False
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        import backend.routers.progress as progress_mod
+        import backend.routers.planner as planner_mod
+        from backend.routers.auth import CURRENT_SESSION
+        progress_mod.reset_progress_state()
+        planner_mod.USER_SCHEDULES.clear()
+        planner_mod.USER_WEEK_NUMBERS.clear()
+        CURRENT_SESSION["user_email"] = None
+        CURRENT_SESSION["is_logged_in"] = False
+
+    def test_session_label_format_and_ai_completion_rate(self):
+        """1. Kiểm tra định dạng nhãn buổi tập có thời gian thực và AI tự tính tỷ lệ rho."""
+        record = {
+            "session_name": "Thứ 4 - Lưng & Tay trước",
+            "mode": "ai",
+            "status": "completed",
+            "reps": 30,
+            "target_reps": 36,
+            "finished_at": "18:45 15/11/2026",
+            "duration_seconds": 960,
+        }
+        label = evaluation_view.format_session_label(record)
+        self.assertIn("Thứ 4 - Lưng & Tay trước", label)
+        self.assertIn("18:45 15/11/2026", label)
+        self.assertIn("30 rep", label)
+
+        pct, calc_label, detail = evaluation_view.compute_ai_completion_rate({}, selected_result=record)
+        self.assertEqual(pct, 83)  # round(30 * 100 / 36) = 83%
+        self.assertIn("30/36 reps", detail)
+        self.assertEqual(label, calc_label)
+
+    def test_rpe_borg_scale_emojis_and_default(self):
+        """2. Kiểm tra thang đo RPE Borg 1-10 có đủ 10 mức kèm dải emoji và mô tả chuẩn."""
+        self.assertEqual(len(evaluation_view.RPE_DESCRIPTIONS), 10)
+        expected_emojis = ["😌", "🙂", "😊", "😉", "😤", "😅", "😓", "😫", "🥵", "🤯"]
+        for score in range(1, 11):
+            desc = evaluation_view.RPE_DESCRIPTIONS[score]
+            self.assertIn(expected_emojis[score - 1], desc)
+
+        # Kiểm tra mức mặc định RPE = 5 (Vừa sức lý tưởng)
+        self.assertIn("Vừa sức", evaluation_view.RPE_DESCRIPTIONS[5])
+        self.assertIn("😤", evaluation_view.RPE_DESCRIPTIONS[5])
+
+    def test_doms_and_satisfaction_options(self):
+        """3. Kiểm tra các tùy chọn mỏi cơ DOMS và mức độ hài lòng buổi tập."""
+        doms_keys = list(evaluation_view.DOMS_SEVERITY_OPTIONS.keys())
+        self.assertIn("normal", doms_keys)
+        self.assertIn("moderate", doms_keys)
+        self.assertIn("intense", doms_keys)
+
+        sat_keys = list(evaluation_view.SATISFACTION_OPTIONS.keys())
+        self.assertIn("very_satisfied", sat_keys)
+        self.assertIn("satisfied", sat_keys)
+        self.assertIn("neutral", sat_keys)
+        self.assertIn("unsatisfied", sat_keys)
+
+    def test_adaptive_formulation_4_tiers_ct_4_4(self):
+        """4. Kiểm tra thuật toán thích ứng tải trọng 4 bậc chuẩn CT Section 4.4."""
+        # Tier 1: Deload -15% khi rho < 0.70 hoặc RPE >= 9
+        res_deload_rho = evaluation_view.compute_adaptive_adjustment(rho=65, rpe=7)
+        self.assertEqual(res_deload_rho["strategy"], "deload")
+        self.assertEqual(res_deload_rho["multiplier"], 0.85)
+
+        res_deload_rpe = evaluation_view.compute_adaptive_adjustment(rho=90, rpe=9)
+        self.assertEqual(res_deload_rpe["strategy"], "deload")
+        self.assertEqual(res_deload_rpe["multiplier"], 0.85)
+
+        # Tier 2: Giảm nhẹ -5% khi 0.70 <= rho < 0.85 hoặc (RPE == 8 và rho < 0.90)
+        res_minor = evaluation_view.compute_adaptive_adjustment(rho=75, rpe=7)
+        self.assertEqual(res_minor["strategy"], "minor_deload")
+        self.assertEqual(res_minor["multiplier"], 0.95)
+
+        res_minor_rpe8 = evaluation_view.compute_adaptive_adjustment(rho=88, rpe=8)
+        self.assertEqual(res_minor_rpe8["strategy"], "minor_deload")
+        self.assertEqual(res_minor_rpe8["multiplier"], 0.95)
+
+        # Tier 3: Cường độ tối ưu duy trì 1.00x khi 0.85 <= rho <= 1.00 và RPE in [7, 8]
+        res_maint = evaluation_view.compute_adaptive_adjustment(rho=95, rpe=7)
+        self.assertEqual(res_maint["strategy"], "maintenance")
+        self.assertEqual(res_maint["multiplier"], 1.00)
+
+        # Tier 4: Tăng tiến tải trọng +10% khi rho >= 0.90 và RPE <= 6
+        res_overload = evaluation_view.compute_adaptive_adjustment(rho=100, rpe=5)
+        self.assertEqual(res_overload["strategy"], "overload")
+        self.assertEqual(res_overload["multiplier"], 1.10)
+        self.assertEqual(res_overload["rep_delta"], 2)
+
+    def test_recovery_advice_and_hydration(self):
+        """5. Kiểm tra lời khuyên phục hồi giãn cơ (Cool-down) và tính lượng nước bù."""
+        # Kiểm tra bài tập giãn cơ cho Đùi trước và Ngực
+        advice = evaluation_view.get_recovery_advice(["Cơ đùi trước (Quads)", "Cơ ngực (Chest)"])
+        self.assertEqual(len(advice), 2)
+        self.assertEqual(advice[0]["rest_hours"], 48)
+        self.assertIn("Quad Stretch", advice[0]["stretch_name"])
+        self.assertEqual(advice[1]["rest_hours"], 48)
+        self.assertIn("Doorway Chest Stretch", advice[1]["stretch_name"])
+
+        # Kiểm tra cổ tay (cơ nhỏ nghỉ 24h)
+        wrist_advice = evaluation_view.get_recovery_advice(["Cổ tay"])
+        self.assertEqual(wrist_advice[0]["rest_hours"], 24)
+
+        # Kiểm tra tính lượng nước bù sau tập
+        ml, text = evaluation_view.calculate_hydration_advice(duration_sec=1200)  # 20 phút
+        self.assertTrue(350 <= ml <= 550)
+        self.assertIn(f"{ml}ml", text)
+
+    def test_apply_adaptive_adjustment_to_schedule(self):
+        """6. Kiểm tra cập nhật số reps vào Kế hoạch tuần, bảo vệ buổi đã hoàn thành."""
+        dummy_schedule = [
+            {
+                "day": "Thứ 2",
+                "workout_status": "completed",
+                "exercises": [{"name": "Push-up", "reps": 12}],
+            },
+            {
+                "day": "Thứ 4",
+                "workout_status": "planned",
+                "is_rest": False,
+                "exercises": [{"name": "Standard Push-up", "reps": 20}],
+            },
+            {
+                "day": "Thứ 6",
+                "workout_status": "planned",
+                "is_rest": True,
+                "exercises": [],
+            },
+        ]
+
+        strat_deload = {"strategy": "deload", "multiplier": 0.85, "rep_delta": -2}
+        updated, count = evaluation_view.apply_adaptive_adjustment_to_schedule(dummy_schedule, strat_deload)
+
+        self.assertEqual(count, 1)
+        # Thứ 2 đã completed nên giữ nguyên 12
+        self.assertEqual(updated[0]["exercises"][0]["reps"], 12)
+        # Thứ 4 planned nên giảm 15%: round(20 * 0.85) = 17
+        self.assertEqual(updated[1]["exercises"][0]["reps"], 17)
+
+        # Thử nghiệm overload +2 reps
+        strat_overload = {"strategy": "overload", "multiplier": 1.10, "rep_delta": 2}
+        updated_overload, count_overload = evaluation_view.apply_adaptive_adjustment_to_schedule(dummy_schedule, strat_overload)
+        self.assertEqual(count_overload, 1)
+        self.assertEqual(updated_overload[1]["exercises"][0]["reps"], 22)
+
+    def test_streak_earned_condition_ct_4_5(self):
+        """7. Kiểm tra điều kiện duy trì chuỗi Streak theo CT 4.5 (rho >= 50% hoặc T >= 600s)."""
+        # Hoàn thành 50% khối lượng -> Được streak
+        self.assertTrue(evaluation_view.check_is_streak_earned(rho=50, duration_sec=300))
+        # Tập đủ 10 phút (600s) dù rho chỉ 40% -> Được streak
+        self.assertTrue(evaluation_view.check_is_streak_earned(rho=40, duration_sec=600))
+        # Bỏ dở khi rho = 30% và thời gian mới 200s -> Không được streak
+        self.assertFalse(evaluation_view.check_is_streak_earned(rho=30, duration_sec=200, is_completed=False))
+
+    def test_backend_api_evaluation_endpoints(self):
+        """8. Kiểm tra đầy đủ các REST API endpoint phục vụ đánh giá sau buổi tập."""
+        # GET /api/progress/evaluation-meta
+        res_meta = self.client.get("/api/progress/evaluation-meta")
+        self.assertEqual(res_meta.status_code, 200)
+        meta = res_meta.json()
+        self.assertIn("rpe_descriptions", meta)
+        self.assertIn("doms_severity_options", meta)
+        self.assertIn("satisfaction_options", meta)
+        self.assertIn("stretching_recommendations", meta)
+
+        # POST /api/progress/evaluate (Minor deload test)
+        res_eval = self.client.post("/api/progress/evaluate", json={
+            "session_id": "test-sess-01",
+            "session_label": "Thứ 2 - Upper Body",
+            "completion_rate": 78,
+            "rpe": 7,
+            "soreness": ["Cơ ngực (Chest)", "Cổ tay"],
+            "doms_severity": "moderate",
+            "satisfaction": "satisfied",
+            "duration_sec": 1000,
+            "note": "Cơ ngực mỏi căng tốt!",
+            "auto_apply": True,
+        })
+        self.assertEqual(res_eval.status_code, 200)
+        eval_data = res_eval.json()["evaluation"]
+        self.assertEqual(eval_data["recommendation"]["strategy"], "minor_deload")
+        self.assertEqual(eval_data["doms_severity"], "moderate")
+        self.assertEqual(eval_data["satisfaction"], "satisfied")
+        self.assertTrue(len(eval_data["recovery_items"]) >= 2)
+        self.assertIn("ml", eval_data["hydration_advice"])
+
+        # GET /api/progress/evaluations
+        res_list = self.client.get("/api/progress/evaluations")
+        self.assertEqual(res_list.status_code, 200)
+        self.assertTrue(res_list.json()["count"] >= 1)
+
+    def test_demo_account_auth_and_seeded_data(self):
+        """9. Kiểm tra tài khoản thường sạch ban đầu & chỉ demo@fitsense.vn mới nạp dữ liệu mẫu."""
+        # Tài khoản mới / chưa đăng nhập demo phải thấy trạng thái sạch (0 buổi, 0 đánh giá)
+        res_clean_hist = self.client.get("/api/progress/history").json()
+        res_clean_evals = self.client.get("/api/progress/evaluations").json()
+        res_clean_stats = self.client.get("/api/progress/stats").json()
+        self.assertEqual(res_clean_hist["count"], 0)
+        self.assertEqual(res_clean_evals["count"], 0)
+        self.assertFalse(res_clean_stats["has_worked_out_today"])
+        self.assertEqual(res_clean_stats["personal_records"]["Standard Push-up"], "Chưa ghi nhận")
+
+        # Đăng nhập tài khoản Demo
+        res_login = self.client.post("/api/auth/login", json={
+            "email": "demo@fitsense.vn",
+            "password": "demo123",
+        })
+        self.assertEqual(res_login.status_code, 200)
+        user = res_login.json()["user"]
+        self.assertEqual(user["email"], "demo@fitsense.vn")
+        self.assertEqual(user["name"], "Vận Động Viên Trải Nghiệm")
+
+        # Dữ liệu mẫu chỉ nạp cho tài khoản Demo
+        res_hist = self.client.get("/api/progress/history")
+        self.assertEqual(res_hist.status_code, 200)
+        self.assertTrue(res_hist.json()["count"] >= 4)
+
+        # Kiểm tra eval-01 & eval-02 có created_at và khớp đúng buổi tập w-03 (không lệch sang Dips)
+        evals = self.client.get("/api/progress/evaluations").json()["evaluations"]
+        eval_01 = next(e for e in evals if e["id"] == "eval-01")
+        eval_02 = next(e for e in evals if e["id"] == "eval-02")
+        self.assertTrue(eval_01.get("created_at"))
+        self.assertTrue(eval_02.get("created_at"))
+        self.assertEqual(eval_01["session_id"], "w-03")
+        self.assertNotIn("Dips", eval_01["session_label"])
+        self.assertIn("Toàn thân", eval_01["session_label"])
+
+        # Kiểm tra PRs tính động từ compute_personal_records
+        res_stats = self.client.get("/api/progress/stats")
+        self.assertEqual(res_stats.status_code, 200)
+        stats = res_stats.json()
+        self.assertTrue(stats["total_workouts"] >= 4)
+        self.assertTrue(stats["has_worked_out_today"])
+        self.assertNotEqual(stats["personal_records"]["Squat Thể dục"], "Chưa ghi nhận")
+
+        # Đăng xuất -> trạng thái phải được dọn sạch lại
+        self.client.post("/api/auth/logout")
+        self.assertEqual(self.client.get("/api/progress/history").json()["count"], 0)
+        self.assertEqual(self.client.get("/api/progress/evaluations").json()["count"], 0)
+
+        # Test Streamlit session populator
+        dummy_state = {}
+        import src.auth_view as auth_view
+        auth_view.populate_demo_user_session(dummy_state)
+        self.assertTrue(dummy_state["is_logged_in"])
+        self.assertEqual(dummy_state["user_profile"]["email"], "demo@fitsense.vn")
+        self.assertEqual(dummy_state["streak_info"]["current_streak"], 4)
+        self.assertEqual(len(dummy_state["workout_results"]), 4)
+        self.assertEqual(len(dummy_state["session_history"]), 4)
+
+    def test_evaluation_per_session_isolation_and_hidden_when_unsubmitted(self):
+        """10. Khuyến nghị chỉ xuất hiện cho buổi đã đánh giá, ẩn hoàn toàn với buổi chưa khảo sát."""
+        self.client.post("/api/auth/login", json={"email": "demo@fitsense.vn", "password": "demo123"})
+        res_list = self.client.get("/api/progress/evaluations").json()
+        evals = res_list["evaluations"]
+        eval_sessions = {e.get("session_id") for e in evals if e.get("session_id")}
+
+        # w-04 và w-03 đã có đánh giá
+        self.assertIn("w-04", eval_sessions)
+        self.assertIn("w-03", eval_sessions)
+        # w-02 (Squat) và w-01 (Push-up) chưa có đánh giá
+        self.assertNotIn("w-02", eval_sessions)
+        self.assertNotIn("w-01", eval_sessions)
+
+        # Gửi đánh giá mới cho w-02
+        res_eval = self.client.post("/api/progress/evaluate", json={
+            "session_id": "w-02",
+            "session_label": "Squat Thể dục (Bodyweight Squat)",
+            "completion_rate": 90,
+            "rpe": 5,
+            "soreness": ["Cơ đùi trước (Quads)"],
+            "doms_severity": "normal",
+            "satisfaction": "very_satisfied",
+            "duration_sec": 960,
+        })
+        self.assertEqual(res_eval.status_code, 200)
+        self.assertEqual(res_eval.json()["evaluation"]["session_id"], "w-02")
+        self.assertEqual(res_eval.json()["evaluation"]["recommendation"]["strategy"], "overload")
+
+        # Kiểm tra w-02 giờ đã có đánh giá trong danh sách
+        updated_list = self.client.get("/api/progress/evaluations").json()["evaluations"]
+        updated_sessions = {e.get("session_id") for e in updated_list if e.get("session_id")}
+        self.assertIn("w-02", updated_sessions)
+        # w-01 vẫn chưa có đánh giá
+        self.assertNotIn("w-01", updated_sessions)
+
+    def test_multi_exercise_evaluation_and_substitute_recommendation(self):
+        """11. Kiểm tra đánh giá theo bài tập con trong buổi và đề xuất bài biến thể thay thế."""
+        self.client.post("/api/auth/login", json={"email": "demo@fitsense.vn", "password": "demo123"})
+        # Kiểm tra dữ liệu lịch sử buổi tập có chứa danh sách bài tập con (2-3 bài/buổi)
+        res_hist = self.client.get("/api/progress/history").json()
+        w01 = next(w for w in res_hist["history"] if w["id"] == "w-01")
+        self.assertTrue(len(w01.get("exercises", [])) >= 3)
+        self.assertEqual(w01["exercises"][0]["id"], "push_up")
+
+        # Gửi đánh giá riêng cho bài 'push_up' trong w-01 với RPE = 9 (quá tải)
+        res_ex_eval = self.client.post("/api/progress/evaluate", json={
+            "session_id": "w-01",
+            "session_label": "Thứ 2: Thân trên: Ngực & Tay sau (3 bài)",
+            "scope": "exercise",
+            "exercise_id": "push_up",
+            "exercise_name": "Standard Push-up",
+            "completion_rate": 65,
+            "rpe": 9,
+            "soreness": ["Cơ ngực (Chest)", "Cổ tay"],
+            "doms_severity": "intense",
+            "satisfaction": "unsatisfied",
+        })
+        self.assertEqual(res_ex_eval.status_code, 200)
+        eval_data = res_ex_eval.json()["evaluation"]
+        self.assertEqual(eval_data["scope"], "exercise")
+        self.assertEqual(eval_data["exercise_id"], "push_up")
+        self.assertIn("Knee Push-up", eval_data["recommendation"]["action"])
+        self.assertIn("Tối ưu Động tác", eval_data["recommendation"]["title"])
+
+    def test_adaptive_formulation_maintenance_boundary(self):
+        """12. Kiểm tra tính chặt chẽ của 4 bậc CT Section 4.4: Không để lọt vào Overload bừa bãi."""
+        # Trường hợp 86% giáo án, RPE 5 (vừa sức): Phải là Maintenance (không được ép tăng tải)
+        res_86_rpe5 = evaluation_view.compute_adaptive_adjustment(rho=86, rpe=5)
+        self.assertEqual(res_86_rpe5["strategy"], "maintenance")
+        self.assertEqual(res_86_rpe5["multiplier"], 1.00)
+
+        # Trường hợp hoàn thành vượt mức 105%, nhưng RPE 7 (khá mệt): Phải là Maintenance
+        res_105_rpe7 = evaluation_view.compute_adaptive_adjustment(rho=105, rpe=7)
+        self.assertEqual(res_105_rpe7["strategy"], "maintenance")
+        self.assertEqual(res_105_rpe7["multiplier"], 1.00)
+
+        # Trường hợp đạt chỉ tiêu >= 90% VÀ RPE <= 6: Mới được kích hoạt Overload +10%
+        res_90_rpe6 = evaluation_view.compute_adaptive_adjustment(rho=90, rpe=6)
+        self.assertEqual(res_90_rpe6["strategy"], "overload")
+        self.assertEqual(res_90_rpe6["multiplier"], 1.10)
+
+    def test_auto_apply_protects_completed_and_respects_exercise_scope(self):
+        """13. Kiểm tra auto_apply không sửa lùi quá khứ và chỉ áp dụng đúng bài tập con khi chọn scope exercise."""
+        from backend.routers.planner import USER_SCHEDULES
+        test_email = "test_user_scrum22@fitsense.vn"
+        USER_SCHEDULES[test_email] = [
+            {
+                "day": "Thứ 2",
+                "workout_status": "completed",
+                "is_completed": True,
+                "is_rest": False,
+                "exercises": [{"id": "push_up", "name": "Push-up", "reps": 12}],
+            },
+            {
+                "day": "Thứ 4",
+                "workout_status": "planned",
+                "is_completed": False,
+                "is_rest": False,
+                "exercises": [
+                    {"id": "push_up", "name": "Push-up", "reps": 20},
+                    {"id": "squat", "name": "Squat", "reps": 30},
+                ],
+            },
+        ]
+
+        from backend.routers.auth import CURRENT_SESSION
+        orig_email = CURRENT_SESSION.get("user_email")
+        CURRENT_SESSION["user_email"] = test_email
+        try:
+            res = self.client.post("/api/progress/evaluate", json={
+                "session_id": "test-session",
+                "scope": "exercise",
+                "exercise_id": "push_up",
+                "exercise_name": "Push-up",
+                "completion_rate": 60,
+                "rpe": 9,
+                "auto_apply": True,
+            })
+            self.assertEqual(res.status_code, 200)
+
+            sched = USER_SCHEDULES[test_email]
+            # Thứ 2 đã completed -> reps giữ nguyên 12, không bị sửa lùi
+            self.assertEqual(sched[0]["exercises"][0]["reps"], 12)
+            # Thứ 4 planned -> push_up bị Deload -15%: round(20 * 0.85) = 17
+            self.assertEqual(sched[1]["exercises"][0]["reps"], 17)
+            # Thứ 4 planned -> squat KHÔNG bị ảnh hưởng vì scope là exercise push_up
+            self.assertEqual(sched[1]["exercises"][1]["reps"], 30)
+        finally:
+            CURRENT_SESSION["user_email"] = orig_email
+
+    def test_weekly_plan_transition_and_split_rotation(self):
+        """14. Kiểm tra đổi kế hoạch sang tuần mới, xoay chuyển nhóm cơ triệt tiêu xung đột cuối tuần - đầu tuần."""
+        self.client.post("/api/planner/reset")
+        # 1. Chuyển sang Tuần 2
+        res_next = self.client.post("/api/planner/next-week")
+        self.assertEqual(res_next.status_code, 200)
+        data = res_next.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["week_number"], 2)
+
+        sched_w2 = data["schedule"]
+        # Kiểm tra Thứ 2 tuần 2: Được xoay sang Thân dưới & Mông (Lower Body)
+        # để cơ ngực/tay sau không bị xung đột với bài tập cuối tuần trước
+        mon_w2 = sched_w2[0]
+        self.assertEqual(mon_w2["day"], "Thứ 2")
+        self.assertIn("Thân dưới", mon_w2["focus"])
+        self.assertEqual(mon_w2["workout_status"], "planned")
+        self.assertFalse(mon_w2["is_completed"])
+
+        # Kiểm tra Thứ 3 tuần 2: Chuyển sang Push focus
+        tue_w2 = sched_w2[1]
+        self.assertEqual(tue_w2["day"], "Thứ 3")
+        self.assertIn("Thân trên: Ngực", tue_w2["focus"])
+
+        # 2. Reset về tuần 1
+        res_reset = self.client.post("/api/planner/reset")
+        self.assertEqual(res_reset.status_code, 200)
+        self.assertEqual(res_reset.json()["week_number"], 1)
+        mon_w1 = res_reset.json()["schedule"][0]
+        self.assertIn("Thân trên: Ngực", mon_w1["focus"])
+
+    def test_streak_condition_not_bypassed_by_zero_duration(self):
+        """15. Kiểm tra thời lượng 0s / bỏ dở không bị ép lên 600s để lọt qua điều kiện Streak (CT 4.5)."""
+        import backend.routers.progress as progress_mod
+        progress_mod.HAS_WORKED_OUT_TODAY = False
+
+        # Người dùng bỏ dở sau 30s với completion_rate = 20%
+        res = self.client.post("/api/progress/evaluate", json={
+            "session_id": "test-abandoned-sess",
+            "completion_rate": 20,
+            "rpe": 5,
+            "duration_sec": 30,
+        })
+        self.assertEqual(res.status_code, 200)
+        # Vì comp < 50 và duration_sec < 600, HAS_WORKED_OUT_TODAY KHÔNG được gán True
+        self.assertFalse(progress_mod.HAS_WORKED_OUT_TODAY)
+        self.assertEqual(res.json()["evaluation"]["duration_sec"], 30)
+
+        # Đánh giá không truyền duration_sec và comp = 25% -> duration_sec = 0, không được streak
+        progress_mod.HAS_WORKED_OUT_TODAY = False
+        res_zero = self.client.post("/api/progress/evaluate", json={
+            "session_id": "test-zero-dur",
+            "completion_rate": 25,
+            "rpe": 4,
+        })
+        self.assertEqual(res_zero.status_code, 200)
+        self.assertFalse(progress_mod.HAS_WORKED_OUT_TODAY)
+        self.assertEqual(res_zero.json()["evaluation"]["duration_sec"], 0)
+
+    def test_schema_validation_and_exercise_scope_consistency(self):
+        """16. Kiểm tra validation schema (duration_sec >= 0, Literal enums) & tính nhất quán ở comp=90, rpe=8."""
+        # Negative duration_sec -> 422
+        res_neg = self.client.post("/api/progress/evaluate", json={
+            "completion_rate": 80, "rpe": 5, "duration_sec": -10,
+        })
+        self.assertEqual(res_neg.status_code, 422)
+
+        # Invalid scope / doms_severity / satisfaction -> 422
+        self.assertEqual(self.client.post("/api/progress/evaluate", json={
+            "completion_rate": 80, "rpe": 5, "scope": "invalid",
+        }).status_code, 422)
+        self.assertEqual(self.client.post("/api/progress/evaluate", json={
+            "completion_rate": 80, "rpe": 5, "doms_severity": "extreme",
+        }).status_code, 422)
+        self.assertEqual(self.client.post("/api/progress/evaluate", json={
+            "completion_rate": 80, "rpe": 5, "satisfaction": "bad",
+        }).status_code, 422)
+
+        # comp=90, rpe=8 ở scope="exercise": giữ maintenance nhất quán (không tự đổi title sang cảnh báo overload/deload)
+        self.client.post("/api/auth/login", json={"email": "demo@fitsense.vn", "password": "demo123"})
+        res_cons = self.client.post("/api/progress/evaluate", json={
+            "session_id": "w-01",
+            "scope": "exercise",
+            "exercise_id": "push_up",
+            "exercise_name": "Standard Push-up",
+            "completion_rate": 90,
+            "rpe": 8,
+            "auto_apply": True,
+        })
+        self.assertEqual(res_cons.status_code, 200)
+        ev = res_cons.json()["evaluation"]
+        self.assertEqual(ev["recommendation"]["strategy"], "maintenance")
+        self.assertIn("Giữ nguyên", ev["recommendation"]["title"])
+
+    def test_auto_apply_initializes_schedule_prevents_compounding_and_skips_empty(self):
+        """17. Kiểm tra auto_apply khởi tạo lịch khi chưa mở Planner, không cộng dồn khi gửi lại, và từ chối session_id='none'."""
+        from backend.routers.planner import USER_SCHEDULES
+        from backend.routers.auth import CURRENT_SESSION
+        import backend.routers.progress as progress_mod
+        test_email = "fresh_auto_apply_user@fitsense.vn"
+        USER_SCHEDULES.pop(test_email, None)
+        CURRENT_SESSION["user_email"] = test_email
+
+        # 1. session_id='none' -> 400 Bad Request, không lưu EVALUATION_HISTORY ảo và không đụng USER_SCHEDULES
+        res_empty = self.client.post("/api/progress/evaluate", json={
+            "session_id": "none", "completion_rate": 0, "rpe": 5, "auto_apply": True,
+        })
+        self.assertEqual(res_empty.status_code, 400)
+        self.assertEqual(len(progress_mod.EVALUATION_HISTORY), 0)
+        self.assertNotIn(test_email, USER_SCHEDULES)
+
+        # 2. Chưa mở Planner (USER_SCHEDULES chưa có key) -> auto_apply tự gọi get_user_schedule()
+        res_deload_1 = self.client.post("/api/progress/evaluate", json={
+            "session_id": "sess-1", "completion_rate": 60, "rpe": 9, "auto_apply": True,
+        })
+        self.assertEqual(res_deload_1.status_code, 200)
+        self.assertIn(test_email, USER_SCHEDULES)
+        # Thứ 2 push_up ban đầu "12" -> round(12 * 0.85) = 10
+        first_reps = USER_SCHEDULES[test_email][0]["exercises"][0]["reps"]
+        self.assertEqual(first_reps, 10)
+
+        # 3. Gửi lại lần 2 cùng session_id="sess-1" -> không nhân 0.85 thêm lần nữa
+        res_deload_2 = self.client.post("/api/progress/evaluate", json={
+            "session_id": "sess-1", "completion_rate": 60, "rpe": 9, "auto_apply": True,
+        })
+        self.assertEqual(res_deload_2.status_code, 200)
+        self.assertEqual(USER_SCHEDULES[test_email][0]["exercises"][0]["reps"], 10)
+
+    def test_split_rotation_weeks_1_to_4_and_ai_reason(self):
+        """18. Kiểm tra xoay chuyển lịch Tuần 1->2->3->4 không kẹt ở Tuần 3-4 và ai_reason khớp thực tế."""
+        self.client.post("/api/planner/reset")
+        # Tuần 2 (chẵn): Thứ 2 là Thân dưới
+        w2 = self.client.post("/api/planner/next-week").json()
+        self.assertEqual(w2["week_number"], 2)
+        self.assertIn("Thân dưới", w2["schedule"][0]["focus"])
+        self.assertIn("ngực/tay sau", w2["schedule"][0]["ai_reason"])
+
+        # Tuần 3 (lẻ): Đảo lại Thứ 2 là Thân trên (Push)
+        w3 = self.client.post("/api/planner/next-week").json()
+        self.assertEqual(w3["week_number"], 3)
+        self.assertIn("Thân trên: Ngực", w3["schedule"][0]["focus"])
+        self.assertIn("Thân trên: Ngực", w3["schedule"][0]["ai_reason"])
+
+        # Tuần 4 (chẵn): Đảo lại Thứ 2 là Thân dưới
+        w4 = self.client.post("/api/planner/next-week").json()
+        self.assertEqual(w4["week_number"], 4)
+        self.assertIn("Thân dưới", w4["schedule"][0]["focus"])
+        self.assertIn("ngực/tay sau", w4["schedule"][0]["ai_reason"])
+
+    def test_streamlit_rest_day_old_history_helper(self):
+        """19. Kiểm tra has_workout_on_date không nhận nhầm buổi tập ngày cũ là đã tập hôm nay."""
+        from datetime import date, timedelta
+        yesterday = date.today() - timedelta(days=1)
+        old_results = {
+            "old-1": {
+                "actual_date": yesterday.isoformat(),
+                "finished_at": f"18:30 {yesterday.strftime('%d/%m/%Y')}",
+            }
+        }
+        self.assertFalse(evaluation_view.has_workout_on_date(old_results))
+
+        today = date.today()
+        today_results = {
+            "new-1": {
+                "actual_date": today.isoformat(),
+                "finished_at": f"18:30 {today.strftime('%d/%m/%Y')}",
+            }
+        }
+        self.assertTrue(evaluation_view.has_workout_on_date(today_results))
+
+    def test_demo_legacy_profile_upgrade_and_relogin_preservation(self):
+        """20. Kiểm tra nâng cấp profile Demo cũ trên đĩa và giữ nguyên buổi vừa tập khi đăng nhập lại demo."""
+        profile_mod.save_profile("demo@fitsense.vn", {
+            "name": "Demo",
+            "email": "demo@fitsense.vn",
+            "age": 22,
+            "gender": "Nam",
+            "height_cm": 170.0,
+            "weight_kg": 65.0,
+            "days_per_week": 4,
+            "session_duration_minutes": 35,
+            "goal": "Sức bền",
+            "fitness_level": "Intermediate",
+            "environment": "Tại nhà",
+            "restrictions": ["Không có hạn chế nào (Thể trạng hoàn toàn khỏe mạnh)"],
+            "equipment": ["Không có dụng cụ (Chỉ tập Bodyweight)"],
+        }, directory=self._tmp_profiles)
+
+        # Đăng nhập lần 1: tên "Demo" phải được nâng cấp lên "Vận Động Viên Trải Nghiệm"
+        res1 = self.client.post("/api/auth/login", json={"email": "demo@fitsense.vn", "password": "demo123"})
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(res1.json()["user"]["name"], "Vận Động Viên Trải Nghiệm")
+
+        # Ghi thêm 1 buổi tập mới trong phiên demo
+        import backend.routers.progress as progress_mod
+        progress_mod.record_workout(exercise_id="push_up", reps=20, duration_sec=300, rpe=6)
+        count_after_workout = len(progress_mod.WORKOUT_HISTORY)
+        self.assertGreaterEqual(count_after_workout, 5)
+
+        # Đăng nhập lại demo (chưa logout): KHÔNG được ghi đè mất buổi tập mới
+        res2 = self.client.post("/api/auth/login", json={"email": "demo@fitsense.vn", "password": "demo123"})
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(len(progress_mod.WORKOUT_HISTORY), count_after_workout)
+
+    def test_no_duplicate_history_no_adhoc_compounding_and_maintenance_protects_completed(self):
+        """21. Chống trùng WORKOUT_HISTORY, chống cộng dồn khi session_id=None, maintenance không sửa ngày completed và swap xóa baseline."""
+        import backend.routers.progress as progress_mod
+        from backend.routers.planner import USER_SCHEDULES
+        from backend.routers.auth import CURRENT_SESSION
+        test_email = "edge_auto_apply@fitsense.vn"
+        CURRENT_SESSION["user_email"] = test_email
+
+        # 1. Gửi 2 lần cùng session_id mới chưa có trong WORKOUT_HISTORY -> chỉ tạo đúng 1 bản ghi w-custom
+        for rpe_val in (6, 7):
+            res = self.client.post("/api/progress/evaluate", json={
+                "session_id": "w-custom", "completion_rate": 80, "rpe": rpe_val, "auto_apply": False,
+            })
+            self.assertEqual(res.status_code, 200)
+        custom_rows = [w for w in progress_mod.WORKOUT_HISTORY if w["id"] == "w-custom"]
+        self.assertEqual(len(custom_rows), 1)
+        self.assertEqual(custom_rows[0]["rpe"], 7)
+
+        # 2. Gửi 2 lần Deload với session_id=None -> __adhoc__ key ngăn cộng dồn *0.85 *0.85
+        for _ in range(2):
+            self.assertEqual(self.client.post("/api/progress/evaluate", json={
+                "session_id": None, "completion_rate": 60, "rpe": 9, "auto_apply": True,
+            }).status_code, 200)
+        self.assertEqual(USER_SCHEDULES[test_email][0]["exercises"][0]["reps"], 10)
+
+        # 3. Nếu Thứ 2 chuyển thành completed rồi gửi lại maintenance, Thứ 2 vẫn phải giữ 10 (không bị restore)
+        #    trong khi Thứ 3 (planned) được restore về baseline ban đầu
+        USER_SCHEDULES[test_email][0]["workout_status"] = "completed"
+        USER_SCHEDULES[test_email][0]["is_completed"] = True
+        self.assertEqual(self.client.post("/api/progress/evaluate", json={
+            "session_id": None, "completion_rate": 90, "rpe": 7, "auto_apply": True,
+        }).status_code, 200)
+        self.assertEqual(USER_SCHEDULES[test_email][0]["exercises"][0]["reps"], 10)
+        self.assertEqual(USER_SCHEDULES[test_email][1]["exercises"][0]["reps"], "15")
+
+        # 4. Khi sửa ngày qua /api/planner/update-day -> baseline của user phải được xóa sạch
+        self.assertIn((test_email, "__adhoc__"), progress_mod.AUTO_APPLIED_BASELINES)
+        res_upd = self.client.post("/api/planner/update-day", json={
+            "day": "Thứ 3", "focus": "Chỉnh tay", "is_rest": False,
+            "exercises": [{"id": "squat", "name": "Squat Thể dục", "reps": 18, "sets": 3}],
+        })
+        self.assertEqual(res_upd.status_code, 200)
+        self.assertNotIn((test_email, "__adhoc__"), progress_mod.AUTO_APPLIED_BASELINES)
+
+
+if __name__ == "__main__":
+    unittest.main()
