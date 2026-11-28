@@ -131,7 +131,7 @@ def render_auth_view():
             st.markdown("**Hoặc trải nghiệm nhanh không cần mật khẩu:**")
             if st.button("🚀 Vào ngay với Tài khoản Trải nghiệm (Demo User)", use_container_width=True):
                 st.session_state["is_logged_in"] = True
-                st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 70}
+                st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 50}
                 st.session_state["session_history"] = []
                 st.session_state["user_profile"] = {
                     "name": "Vận Động Viên Trải Nghiệm",
@@ -239,7 +239,7 @@ def render_auth_view():
                         # Đăng nhập trực tiếp
                         st.session_state["is_logged_in"] = True
                         st.session_state["user_profile"] = new_profile
-                        st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 70}
+                        st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 50}
                         st.session_state["session_history"] = []
                         st.success("Tạo tài khoản thành công! Đang chuyển đến phòng tập...")
                         st.session_state["nav_selection"] = "⚡ Phòng tập Trực tiếp (HUD)"

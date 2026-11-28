@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from backend.schemas import EvaluationSubmitRequest
-from src.progress_analytics import build_progress_analytics, compute_personal_records
+from src.progress_analytics import build_progress_analytics, compute_personal_records, compute_streak
 
 router = APIRouter(prefix="/api/progress", tags=["Progress & Evaluation"])
 
@@ -60,15 +60,13 @@ def record_workout(
     sets: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     global HAS_WORKED_OUT_TODAY
-    if status == "completed":
-        HAS_WORKED_OUT_TODAY = True
     
     from backend.routers.exercises import get_catalog
     catalog = get_catalog()
     ex = next((e for e in catalog if e["id"] == exercise_id), None)
     ex_name = ex["name"] if ex else exercise_id
     
-    comp_rate = completion_rate if completion_rate is not None else 100.0
+    comp_rate = completion_rate if completion_rate is not None else 0.0
 
     record = {
         "id": f"w-{len(WORKOUT_HISTORY) + 1:02d}",
@@ -90,6 +88,7 @@ def record_workout(
     if sets is not None:
         record["sets"] = sets
     WORKOUT_HISTORY.insert(0, record)
+    HAS_WORKED_OUT_TODAY = compute_streak(WORKOUT_HISTORY)["has_worked_out_today"]
     return record
 
 
@@ -114,11 +113,8 @@ def get_stats():
     rpe_scores = [w.get("rpe", 7) for w in WORKOUT_HISTORY if w.get("rpe", 7) is not None]
     avg_rpe = round(sum(rpe_scores) / len(rpe_scores), 1) if rpe_scores else 0.0
     
-    # Calculate consecutive workout streak
-    has_completed_workout = any(w.get("status", "completed") == "completed" for w in WORKOUT_HISTORY)
-    streak = int(HAS_WORKED_OUT_TODAY or has_completed_workout)
-    longest = max(streak, 0)
-    
+    streak_info = compute_streak(WORKOUT_HISTORY)
+
     # Calculate average completion rate
     if total_workouts == 0:
         avg_completion_rate = 0.0
@@ -133,9 +129,7 @@ def get_stats():
         "total_duration_min": total_duration_min,
         "average_rpe": avg_rpe,
         "average_completion_rate": avg_completion_rate,
-        "current_streak_days": streak,
-        "longest_streak_days": longest,
-        "has_worked_out_today": HAS_WORKED_OUT_TODAY,
+        **streak_info,
         "personal_records": compute_personal_records(WORKOUT_HISTORY),
         "weekly_volume": WEEKLY_VOLUME,
     }
@@ -167,13 +161,9 @@ def get_evaluations():
 
 @router.post("/evaluate")
 def submit_evaluation(payload: EvaluationSubmitRequest):
-    global HAS_WORKED_OUT_TODAY
     comp = payload.completion_rate
     user_rpe = payload.rpe
-    
-    if comp >= 70:
-        HAS_WORKED_OUT_TODAY = True
-    
+
     if comp < 70 or user_rpe >= 9:
         strategy = "deload"
         rec_title = "Khuyến nghị Giảm tải (Deload Strategy -15%) 📉"
@@ -221,6 +211,7 @@ def submit_evaluation(payload: EvaluationSubmitRequest):
             notes=payload.note or f"Đánh giá hoàn thành {comp}% (RPE {user_rpe}/10)",
             calories=round(est_reps * 0.4 + 45.0, 1),
             day=payload.session_label or "Buổi tập vừa thực hiện",
+            completion_rate=comp,
         )
 
     # Adaptive AI schedule adjustment if user selected auto_apply

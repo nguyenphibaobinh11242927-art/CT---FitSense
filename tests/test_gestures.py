@@ -1,4 +1,5 @@
 import unittest
+import pytest
 
 from src.fsm_gestures import StartGestureFSM, StopGestureFSM
 
@@ -139,6 +140,32 @@ class StopGestureFSMTests(unittest.TestCase):
         self.assertEqual(resumed["progress"], 500 / 1500)
         self.assertFalse(resumed["triggered"])
         self.assertEqual(gesture.update(False, True, 951)["active_frames"], 0)
+
+
+
+
+
+@pytest.mark.parametrize("distance, expected", [(14.9, True), (15, False), (15.1, False)])
+def test_scrum24_x_distance_boundary(distance, expected):
+    gesture = StopGestureFSM()
+    assert gesture.check_x_gesture_condition(0, distance, 40, 40, 20, 80, 100) == expected
+
+
+@pytest.mark.parametrize("y, width", [(20, 100), (80, 100), (40, 0)])
+def test_scrum24_x_invalid_geometry(y, width):
+    assert not StopGestureFSM().check_x_gesture_condition(49, 51, y, 40, 20, 80, width)
+
+
+def test_scrum24_x_head_loss_and_single_trigger():
+    gesture = StopGestureFSM(required_frames=3)
+    gesture.update(True, True)
+    gesture.update(True, True)
+    assert gesture.update(True, False)["active_frames"] == 0
+    for _ in range(2):
+        assert not gesture.update(True, True)["triggered"]
+    assert gesture.update(True, True)["triggered"]
+    result = gesture.update(True, True)
+    assert result["is_rep_locked"] and not result["triggered"]
 
 
 if __name__ == "__main__":

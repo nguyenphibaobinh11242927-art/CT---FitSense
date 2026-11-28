@@ -155,7 +155,7 @@ def init_app_state(force_reset: bool = False):
     st.session_state["streak_info"] = {
         "current_streak": 0,
         "longest_streak": 0,
-        "min_threshold_pct": 70,
+        "min_threshold_pct": 50,
     }
 
     st.session_state["session_history"] = []
@@ -1895,7 +1895,7 @@ def main():
                 st.session_state["user_profile"] = None
                 st.session_state["has_worked_out_today"] = False
                 st.session_state["welcome_modal_dismissed"] = False
-                st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 70}
+                st.session_state["streak_info"] = {"current_streak": 0, "longest_streak": 0, "min_threshold_pct": 50}
                 st.session_state["session_history"] = []
                 for key in (
                     "workout_session",

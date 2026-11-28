@@ -1,6 +1,6 @@
 """Module Theo dõi Tiến độ, Kỷ lục & Chuỗi ngày (Progress View).
 
-Biểu đồ tăng tiến thể lực, quản lý kỷ lục cá nhân (PRs) và thuật toán tính Streak với điều kiện tối thiểu 70%.
+Biểu đồ tăng tiến thể lực, quản lý kỷ lục cá nhân (PRs) và thuật toán tính Streak với điều kiện tối thiểu 50%.
 """
 
 import altair as alt
@@ -33,7 +33,7 @@ def render_progress_view():
         avg_completion = f"{round(sum(h.get('completion_rate', 100) for h in history) / len(history), 1)}%" if history else "0%"
         st.metric(label="⚡ Tỉ lệ hoàn thành TB", value=avg_completion)
 
-    st.info("💡 **Quy tắc tính Streak thể thao công bằng:** Để tránh áp lực và bảo vệ sức khỏe, bạn không bắt buộc phải hoàn thành 100% buổi tập. Chỉ cần hoàn thành từ **70% khối lượng bài tập trở lên**, hệ thống sẽ tự động ghi nhận duy trì Chuỗi ngày (Streak) thành công!")
+    st.info("💡 **Quy tắc tính Streak thể thao công bằng:** Để tránh áp lực và bảo vệ sức khỏe, bạn không bắt buộc phải hoàn thành 100% buổi tập. Chỉ cần hoàn thành từ **50% khối lượng bài tập trở lên**, hệ thống sẽ tự động ghi nhận duy trì Chuỗi ngày (Streak) thành công!")
 
     st.markdown("---")
     st.subheader("1. Kỷ lục Động tác Tốt nhất (Personal Records - PRs)")
