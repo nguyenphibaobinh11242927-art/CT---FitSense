@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import auth, profile, exercises, planner, session, progress, capybara
+from backend.routers import auth, profile, exercises, planner, session, progress, capybara, capybara_actions
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT_DIR / "frontend"
@@ -53,6 +53,7 @@ app.include_router(planner.router)
 app.include_router(session.router)
 app.include_router(progress.router)
 app.include_router(capybara.router)
+app.include_router(capybara_actions.router)
 
 
 @app.get("/api/health", tags=["System"])
